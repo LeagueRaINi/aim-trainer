@@ -40,7 +40,7 @@ pub struct CustomSelection {
 pub enum Editing {
     #[default]
     Nothing,
-    DrillKind(u32),
+    Scenario(u32),
     Playlist(u32),
 }
 
@@ -206,7 +206,7 @@ impl CustomField {
         if self == CustomField::StepSecs {
             return draft.secs;
         }
-        let Editing::DrillKind(id) = editing else { return 0.0 };
+        let Editing::Scenario(id) = editing else { return 0.0 };
         let Some(scenario) = content.scenario(id) else { return 0.0 };
         let mut config = scenario.config.clone();
         match self {
@@ -223,7 +223,7 @@ impl CustomField {
             draft.secs = value.round().clamp(5.0, 600.0);
             return;
         }
-        let Editing::DrillKind(id) = editing else { return };
+        let Editing::Scenario(id) = editing else { return };
         let Some(scenario) = content.scenario_mut(id) else { return };
         match self {
             CustomField::Duration => scenario.duration = value.round().clamp(5.0, 600.0),
@@ -297,7 +297,7 @@ fn new_scenario_button(kind: DrillKind) -> impl Scene {
         on(|activate: On<Activate>, buttons: Query<&NewScenarioButton>, mut content: ResMut<CustomContent>, mut selection: ResMut<CustomSelection>| {
             if let Ok(&NewScenarioButton(kind)) = buttons.get(activate.event_target()) {
                 let id = content.new_scenario(kind);
-                selection.select(Editing::DrillKind(id));
+                selection.select(Editing::Scenario(id));
             }
         })
     }
@@ -386,9 +386,9 @@ pub fn rebuild_custom(
         }
         for scenario in &content.scenarios {
             let id = scenario.id;
-            let selected = selection.editing == Editing::DrillKind(id);
+            let selected = selection.editing == Editing::Scenario(id);
             let row = commands
-                .spawn_scene(item_row(scenario.name.clone(), Editing::DrillKind(id), selected))
+                .spawn_scene(item_row(scenario.name.clone(), Editing::Scenario(id), selected))
                 .insert(ChildOf(list))
                 .id();
             for ((text, variant), action) in [
@@ -438,11 +438,11 @@ pub fn rebuild_custom(
                     ))
                     .insert(ChildOf(editor));
             }
-            Editing::DrillKind(id) => {
+            Editing::Scenario(id) => {
                 let Some(scenario) = content.scenario(id) else { continue };
                 let kind = scenario.config.kind;
                 commands.spawn_scene(overline("Edit scenario")).insert(ChildOf(editor));
-                spawn_name_input(&mut commands, editor, Editing::DrillKind(id));
+                spawn_name_input(&mut commands, editor, Editing::Scenario(id));
                 commands
                     .spawn_scene(label_dim(format!("Based on {}: {}", kind.name(), kind.blurb())))
                     .insert(ChildOf(editor));
@@ -575,7 +575,7 @@ fn edit_custom_field(
 pub fn init_name_inputs(content: Res<CustomContent>, mut inputs: Query<(&NameInput, &mut EditableText), Added<NameInput>>) {
     for (NameInput(editing), mut text) in &mut inputs {
         let name = match *editing {
-            Editing::DrillKind(id) => content.scenario(id).map(|s| s.name.clone()),
+            Editing::Scenario(id) => content.scenario(id).map(|s| s.name.clone()),
             Editing::Playlist(id) => content.playlist(id).map(|p| p.name.clone()),
             Editing::Nothing => None,
         };
@@ -591,7 +591,7 @@ fn rename(change: On<TextEditChange>, inputs: Query<(&NameInput, &EditableText)>
     let name = text.value().to_string();
     match *editing {
         // Invalid names (empty, duplicate, built-in) are simply not applied.
-        Editing::DrillKind(id) => {
+        Editing::Scenario(id) => {
             if content.scenario(id).is_some_and(|s| s.name != name.trim()) {
                 content.rename_scenario(id, &name);
             }
@@ -656,7 +656,7 @@ pub fn sync_item_names(content: Res<CustomContent>, mut labels: Query<(&ItemName
     }
     for (ItemName(editing), mut text) in &mut labels {
         let name = match *editing {
-            Editing::DrillKind(id) => content.scenario(id).map(|s| s.name.as_str()),
+            Editing::Scenario(id) => content.scenario(id).map(|s| s.name.as_str()),
             Editing::Playlist(id) => content.playlist(id).map(|p| p.name.as_str()),
             Editing::Nothing => None,
         };
@@ -690,15 +690,15 @@ fn item_action(
             let run = Run::new(drill, settings.sens, scenario.duration, RunPurpose::Practice, scenario.name.clone());
             begin_run(&mut commands, &mut next_state, run);
         }
-        ItemAction::EditScenario(id) => selection.select(Editing::DrillKind(id)),
+        ItemAction::EditScenario(id) => selection.select(Editing::Scenario(id)),
         ItemAction::CopyScenario(id) => {
             if let Some(copy) = content.duplicate_scenario(id) {
-                selection.select(Editing::DrillKind(copy));
+                selection.select(Editing::Scenario(copy));
             }
         }
         ItemAction::DeleteScenario(id) => {
             content.delete_scenario(id);
-            let editing = if selection.editing == Editing::DrillKind(id) { Editing::Nothing } else { selection.editing };
+            let editing = if selection.editing == Editing::Scenario(id) { Editing::Nothing } else { selection.editing };
             selection.select(editing);
         }
         ItemAction::PlayPlaylist(id) => {

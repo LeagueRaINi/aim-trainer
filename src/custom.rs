@@ -137,7 +137,7 @@ impl CustomContent {
 
     /// A name not used by any built-in drill or other custom scenario, so history stays separate.
     fn unique_name(&self, base: &str) -> String {
-        let base = clean_name(base, "DrillKind");
+        let base = clean_name(base, "Scenario");
         (1..).map(|i| suffixed(&base, i)).find(|name| !self.name_taken(name)).expect("unbounded")
     }
 
@@ -178,7 +178,7 @@ impl CustomContent {
     /// generated scenarios like weak-spot training, whose history should continue across updates.
     pub fn upsert_scenario(&mut self, name: &str, duration: f32, mut config: DrillConfig) -> u32 {
         config.sanitize();
-        let name = clean_name(name, "DrillKind");
+        let name = clean_name(name, "Scenario");
         if let Some(scenario) = self.scenarios.iter_mut().find(|s| s.name == name) {
             scenario.config = config;
             return scenario.id;

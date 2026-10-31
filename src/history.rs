@@ -337,8 +337,9 @@ mod fixture_tests {
     /// The runs `fixtures/history_rows.csv` was written from: one per kind, purposes alternating.
     fn fixture_runs() -> Vec<(u64, RunStats, RunPurpose)> {
         let settings = Settings::default();
-        DrillKind::ALL
-            .into_iter()
+        DrillKind::fixture_kinds()
+            .iter()
+            .copied()
             .enumerate()
             .map(|(i, kind)| {
                 let f = i as f32;
@@ -375,14 +376,14 @@ mod fixture_tests {
     fn parses_every_kind_fixture() {
         let entries: Vec<HistoryEntry> = FIXTURE.lines().map(|line| HistoryEntry::parse(line).unwrap()).collect();
         let kinds: Vec<DrillKind> = entries.iter().map(|e| e.kind).collect();
-        assert_eq!(kinds, DrillKind::ALL);
+        assert_eq!(kinds, DrillKind::fixture_kinds());
         for (entry, (t, stats, purpose)) in entries.iter().zip(fixture_runs()) {
             assert_eq!((entry.timestamp, entry.purpose), (t, purpose));
             assert_eq!(entry.score, stats.score());
         }
         assert_eq!(entries[0].drill, "My  5x5");
         // Rows from before custom scenarios: 15 columns, the kind is the built-in drill name.
-        for (line, kind) in FIXTURE.lines().zip(DrillKind::ALL).skip(1) {
+        for (line, kind) in FIXTURE.lines().zip(DrillKind::fixture_kinds().iter().copied()).skip(1) {
             let legacy = line.rsplit_once(',').unwrap().0;
             let entry = HistoryEntry::parse(legacy).unwrap();
             assert_eq!((entry.kind, entry.drill.as_str()), (kind, kind.name()));

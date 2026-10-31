@@ -720,11 +720,11 @@ pub(super) mod tests {
         assert_eq!(Replay::decode(&fixture("replay_v1.bin")), Some(replay));
     }
 
-    /// Replays store the kind as its index in `ALL`.
+    /// Replays store the kind as its index in `ALL`, so kinds are only ever appended.
     #[test]
     fn kind_index_is_stable() {
         assert_eq!(
-            DrillKind::ALL.map(DrillKind::name),
+            DrillKind::fixture_kinds().iter().map(|kind| kind.name()).collect::<Vec<_>>(),
             ["Gridshot", "Microflick", "Tracking", "Head level", "Peeks", "Reaction", "Peripheral"]
         );
     }

@@ -56,6 +56,13 @@ impl DrillKind {
     pub fn blurb(self) -> &'static str {
         self.def().blurb
     }
+
+    /// The kinds the save-format fixtures (`fixtures/`) were written with: every kind that
+    /// existed then. Kinds appended later don't change them.
+    #[cfg(test)]
+    pub fn fixture_kinds() -> &'static [DrillKind] {
+        &Self::ALL[..7]
+    }
 }
 
 #[cfg(test)]

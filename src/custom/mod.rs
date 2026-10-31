@@ -245,6 +245,7 @@ impl CustomContent {
         (!steps.is_empty()).then(|| Routine::new(playlist.name.clone(), String::new(), steps))
     }
 }
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -371,7 +372,7 @@ mod tests {
     /// custom step. Returns it with the playlist's id.
     pub(super) fn fixture_content() -> (CustomContent, u32) {
         let mut content = CustomContent::default();
-        let ids: Vec<u32> = DrillKind::ALL.into_iter().map(|kind| content.new_scenario(kind)).collect();
+        let ids: Vec<u32> = DrillKind::fixture_kinds().iter().map(|&kind| content.new_scenario(kind)).collect();
         let micro = content.scenario_mut(ids[1]).unwrap();
         micro.config.max_flick = 20.0;
         micro.config.flick_direction = Some(90.0);
@@ -394,7 +395,7 @@ mod tests {
         loaded.repair();
         assert_eq!(loaded, expected);
         let kinds: Vec<DrillKind> = loaded.scenarios.iter().map(|s| s.config.kind).collect();
-        assert_eq!(kinds, DrillKind::ALL);
+        assert_eq!(kinds, DrillKind::fixture_kinds());
         let written = ron::ser::to_string_pretty(&expected, ron::ser::PrettyConfig::default()).unwrap();
         assert_eq!(written.replace("\r\n", "\n"), fixture.replace("\r\n", "\n"));
     }

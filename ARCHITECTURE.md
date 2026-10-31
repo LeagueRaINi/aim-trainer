@@ -13,13 +13,15 @@ Bevy 0.20 app (Rust 2024). `main.rs` declares `AppState` (Menu, Playing, Results
 | `display.rs`, `level.rs`, `crosshair.rs`, `sfx.rs`, `icon.rs`, `presence.rs` | Window/video, room, crosshair, hit sounds, window icon, Discord Rich Presence. |
 | `drill/` | Drills and the run lifecycle (see below). |
 | `metrics/` | Pure aim measurements: `flick_probe` (first-flick landing), `bow` (path straightness), `throughput` (click positions in the task-axis frame, effective throughput TPe), `quest` (QUEST+ over target size: posterior, next radius, θ75 estimate), `normal` (Φ). |
-| `replay/` | `format.rs`: the binary format (v3 encoder, v1–v3 decoders), save/load/prune, migration. `recorder.rs`: `Recorder`. `player.rs`: the replay player and tracer. `mod.rs`: `ReplayPlugin` and the handler that saves a finished practice run's replay. |
+| `replay/` | `format.rs`: the binary format (v3), save/load/prune. `recorder.rs`: `Recorder`. `player.rs`: the replay player and tracer. `mod.rs`: `ReplayPlugin` and the handler that saves a finished practice run's replay. |
 | `history.rs` | Results CSV, comparisons, trends. Records each `RunFinished` and announces it as `RunRecorded`. Also defines `LastRun`. |
 | `adaptive_log.rs` | Adaptive-mode results CSV (θ75 per adaptive run, joined to the history row by timestamp); feeds each task's latest θ75 back as the next run's prior. |
 | `routine.rs` | Built-in warmups, `Routine`, and the handler for finished routine steps. |
 | `custom/` | `mod.rs`: custom scenarios and playlists (`CustomContent`). `share.rs`: `AIMPL1:` share codes. |
 | `finder/` | `classic.rs`: A/B bisection. `smart.rs`: the Bayesian-optimisation finder (opening design, expected-improvement trial picks, best range, stopping rule, recommendation). `gp.rs`: its Gaussian process (squared-exponential kernel + trial drift + noise, hyperparameter mixture, joint posterior draws). `mod.rs`: `FinderPlugin` and the handler for finished finder trials (including smart-finder auto-chaining). |
 | `analysis.rs` | Weak-spot analysis over flick replays (the Insights tab). |
+| `update.rs` | Auto-update: checks the latest GitHub release at startup, verifies and installs a newer exe in place (`Updater`, `UpdateStatus`). Skipped for cargo builds. |
+| `test_util.rs` | Tests only: `TempDir`, a temp directory deleted when dropped. |
 | `ui/` | All UI. `hud.rs`: in-game HUD. `replay_hud.rs`: replay HUD. `menu/`: one module per tab. `screens/`: results, finder, routine screens. `widgets.rs`, `bindings.rs`, `charts.rs`, `theme.rs`: shared building blocks. |
 
 Dependency direction: `persist`, `metrics` and `drill::kind` are leaves. `drill` uses `settings`, `camera`, `sfx`, `metrics` and `replay::Recorder`. `history`, `routine`, `custom`, `finder`, `replay`, `adaptive_log` and `analysis` use `drill` (`adaptive_log` also uses `history`). `ui` uses everything. No non-UI module imports `ui`, and `drill` does not import `history`, `adaptive_log`, `finder` or `routine`.
@@ -128,6 +130,11 @@ BSN rules:
 - the `DrillRef`/`SharedDrill` variant names;
 - `SHARE_PREFIX`;
 - file names;
-- the adaptive results CSV header and columns (`adaptive_log::HEADER`) and `QuestMode` names.
+- the adaptive results CSV header and columns (`adaptive_log::HEADER`) and `QuestMode` names;
+- the release asset name `aim_trainer.exe.zst`, its zstd packing, and `v<version>` release tags (installed copies look for exactly these).
 
-The tests in `fixtures/` pin these.
+The tests in `fixtures/` pin the file formats.
+
+## Releases
+
+Bump `version` in `Cargo.toml`, commit, then push a matching tag (`git tag v1.2.0 && git push origin v1.2.0`). `.github/workflows/release.yml` refuses a tag that doesn't match the version, then tests, builds and publishes `aim_trainer.exe` (for manual downloads) and `aim_trainer.exe.zst` (for the updater). GitHub records each asset's SHA-256 digest on upload; `update.rs` won't install a download without a matching one.

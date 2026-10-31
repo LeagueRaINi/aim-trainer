@@ -6,7 +6,10 @@ pub mod smart;
 
 use bevy::prelude::*;
 
-use self::{classic::Finder, smart::SmartFinder};
+use self::{
+    classic::Finder,
+    smart::{Segment, SmartFinder},
+};
 use crate::{
     AppState,
     drill::{DrillSet, RunPurpose, begin_run},
@@ -38,7 +41,7 @@ pub(crate) fn finder_trial_finished(
             finder.record_trial(stats.score());
         }
         if let Some(smart) = smart.as_mut() {
-            smart.record_segment(stats.kind, stats.score(), &stats.landings);
+            smart.record_segment(stats.kind, Segment::from_stats(stats));
             // Straight on to the trial's next part, if there is one.
             if let Some(next) = smart.segment_run(&settings) {
                 begin_run(&mut commands, &mut next_state, next);

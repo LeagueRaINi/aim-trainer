@@ -374,8 +374,8 @@ fn spawn_smart(mut commands: Commands, finder: Res<SmartFinder>, settings: Res<S
             let keep = (recommended / finder.start_sens - 1.0).abs() < 0.005;
             let basis = if finder.is_flat() {
                 "Your results barely changed across everything tested, so sensitivity isn't what limits you here: keep yours."
-            } else if finder.uses_landing() {
-                "Inside your best range, where your first flicks clearly land closest to on target."
+            } else if finder.uses_precision() {
+                "Inside your best range, where your aim is clearly on target: first flicks land on the target and clicks land on its centre."
             } else if keep {
                 "Your current sens is already in your best range: changing it would cost re-adaptation for no measurable gain."
             } else {
@@ -406,6 +406,15 @@ fn spawn_smart(mut commands: Commands, finder: Res<SmartFinder>, settings: Res<S
                 }
                 None => "Not enough flicks to tell where your first flicks land.".to_string(),
             });
+            if let Some(bias) = finder.bias_at_start() {
+                let side = if bias >= 0.0 { "past" } else { "short of" };
+                let centred =
+                    finder.bias_sens().map(|s| format!(" They would land on the centre at about {s:.3}.")).unwrap_or_default();
+                notes.push(format!(
+                    "Your clicks land {:.0}% of a target radius {side} the centre along the flick.{centred}",
+                    bias.abs() * 100.0
+                ));
+            }
             let notes: Vec<_> = notes.into_iter().map(|note| bsn! { @label_dim(note) }).collect();
             commands.spawn_scene(bsn! {
                 @overlay()
@@ -499,8 +508,8 @@ fn apply_smart_result(
 }
 
 /// Trials as dots (gold = best feel-adjusted result), fitted curve as a line, the performance
-/// plateau shaded, the recommendation as a green marker and the sens where first flicks land on
-/// target as a blue one. X axis is log-scaled sensitivity.
+/// plateau shaded, the recommendation as a green marker and the sens where your aim is on target
+/// (first flicks land on it, clicks on its centre) as a blue one. X axis is log-scaled sensitivity.
 pub fn draw_smart_chart(mut commands: Commands, finder: Option<Res<SmartFinder>>, charts: Query<Entity, Added<SmartChart>>) {
     let Some(finder) = finder else { return };
     for chart in &charts {
@@ -515,7 +524,7 @@ pub fn draw_smart_chart(mut commands: Commands, finder: Option<Res<SmartFinder>>
         let x = |sens: f32| (sens / sens_lo).ln() / (sens_hi / sens_lo).ln() * CHART_W;
         let y = |value: f32| CHART_H - (value - lo) / (hi - lo) * CHART_H;
 
-        commands.spawn_scene(overline("Score + feel by sensitivity")).insert(ChildOf(chart));
+        commands.spawn_scene(overline("Result + feel by sensitivity")).insert(ChildOf(chart));
         let plot = commands
             .spawn((
                 ChildOf(chart),
@@ -532,8 +541,8 @@ pub fn draw_smart_chart(mut commands: Commands, finder: Option<Res<SmartFinder>>
         let points: Vec<Vec2> = curve.iter().map(|&(sens, value)| Vec2::new(x(sens), y(value))).collect();
         polyline(&mut commands, plot, &points, tokens::TEXT_MAIN);
 
-        if let Some(landing) = finder.landing_sens().filter(|s| (sens_lo..=sens_hi).contains(s)) {
-            commands.spawn((ChildOf(plot), absolute(x(landing) - 1.0, 0.0, 2.0, CHART_H), ThemeBackgroundColor(TEXT_ACCENT)));
+        if let Some(on_target) = finder.precision_sens().filter(|s| (sens_lo..=sens_hi).contains(s)) {
+            commands.spawn((ChildOf(plot), absolute(x(on_target) - 1.0, 0.0, 2.0, CHART_H), ThemeBackgroundColor(TEXT_ACCENT)));
         }
         let recommended = x(finder.recommendation());
         commands.spawn((
@@ -557,7 +566,7 @@ pub fn draw_smart_chart(mut commands: Commands, finder: Option<Res<SmartFinder>>
             &mut commands,
             chart,
             format!(
-                "Sensitivity {sens_lo:.3} to {sens_hi:.3} (log scale).  Dots: trials (score + feel).  Line: fitted model.  Shaded: best range (within the trial noise, at least {:.0}%, of the peak).  Green: recommendation.  Blue: flicks land on target.",
+                "Sensitivity {sens_lo:.3} to {sens_hi:.3} (log scale).  Dots: trials (throughput or score, + feel).  Line: fitted model.  Shaded: best range (within the trial noise, at least {:.0}%, of the peak).  Green: recommendation.  Blue: aim on target (flick landing / click position).",
                 PLATEAU * 100.0
             ),
             11.0,

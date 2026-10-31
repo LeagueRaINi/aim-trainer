@@ -3,6 +3,7 @@
 use crate::drill::{
     DrillConfig,
     def::{Category, DecayRule, DrillDef, Environment, TtkFrom},
+    params::ParamId,
     stats::ScoreModel,
 };
 
@@ -19,6 +20,7 @@ pub const DEF: DrillDef = DrillDef {
     first_flick_probe: false,
     classic_finder: true,
     flick_analysis: true,
+    params: &[ParamId::YawRange, ParamId::MinFlick],
     tune_defaults: tune,
 };
 

@@ -2,7 +2,7 @@
 //! menus, the custom editor, history, analysis, replays) asks the definition instead of
 //! matching on the kind.
 
-use super::{DrillConfig, stats::ScoreModel};
+use super::{DrillConfig, params::ParamId, stats::ScoreModel};
 
 /// One built-in drill. Each kind module in [`super::kinds`] defines its `DEF`.
 pub struct DrillDef {
@@ -31,6 +31,9 @@ pub struct DrillDef {
     pub classic_finder: bool,
     /// Its replays are made of flicks and feed the weak-spot analysis.
     pub flick_analysis: bool,
+    /// The custom editor's fields for this kind, after the length, size and (if it decays)
+    /// lifetime.
+    pub params: &'static [ParamId],
     /// Adjusts [`DrillConfig::defaults`] for this kind.
     pub tune_defaults: fn(&mut DrillConfig),
 }

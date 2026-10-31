@@ -3,7 +3,7 @@
 
 use serde::{Deserialize, Serialize};
 
-use super::{DrillKind, def::DecayRule};
+use super::{DrillKind, def::DecayRule, params::ParamId};
 use crate::settings::Settings;
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -124,64 +124,29 @@ impl DrillConfig {
         (self.min_flick, far.max(self.min_flick))
     }
 
-    /// Clamps values into ranges the drills can actually run with. Non-finite values (NaN from a
-    /// typed `nan` or a share code) fall back to the drill's defaults first, as `clamp` would
-    /// otherwise pass NaN through or panic on a NaN bound.
+    /// Clamps values into ranges the drills can actually run with: every parameter to its hard
+    /// range in [`ParamId::spec`], then the rules between parameters. Non-finite values (NaN
+    /// from a typed `nan` or a share code) fall back to the drill's defaults first, as `clamp`
+    /// would otherwise pass NaN through or panic on a NaN bound.
     pub fn sanitize(&mut self) {
-        let d = Self::defaults(self.kind);
-        for (value, default) in [
-            (&mut self.size, d.size),
-            (&mut self.lifetime, d.lifetime),
-            (&mut self.grid_spacing, d.grid_spacing),
-            (&mut self.yaw_range, d.yaw_range),
-            (&mut self.pitch_range, d.pitch_range),
-            (&mut self.min_flick, d.min_flick),
-            (&mut self.max_flick, d.max_flick),
-            (&mut self.flick_spread, d.flick_spread),
-            (&mut self.strafe_min, d.strafe_min),
-            (&mut self.strafe_max, d.strafe_max),
-            (&mut self.turn_min, d.turn_min),
-            (&mut self.turn_max, d.turn_max),
-            (&mut self.lane, d.lane),
-            (&mut self.peek_speed_min, d.peek_speed_min),
-            (&mut self.peek_speed_max, d.peek_speed_max),
-            (&mut self.hold_min, d.hold_min),
-            (&mut self.hold_max, d.hold_max),
-            (&mut self.delay_min, d.delay_min),
-            (&mut self.delay_max, d.delay_max),
-        ] {
-            if !value.is_finite() {
-                *value = default;
-            }
+        let defaults = Self::defaults(self.kind);
+        for param in ParamId::ALL {
+            param.sanitize(self, &defaults);
         }
-        self.size = self.size.clamp(0.1, 5.0);
-        self.lifetime = self.lifetime.clamp(0.0, 10.0);
-        self.grid_cols = self.grid_cols.clamp(1, 9);
-        self.grid_rows = self.grid_rows.clamp(1, 9);
         // At least one free cell is needed so a kill can respawn somewhere new.
         let cells = self.grid_cols * self.grid_rows;
-        self.grid_active = self.grid_active.clamp(1, cells.saturating_sub(1).max(1));
-        self.grid_spacing = self.grid_spacing.clamp(1.0, 30.0);
-        self.yaw_range = self.yaw_range.clamp(0.0, 80.0);
-        self.pitch_range = self.pitch_range.clamp(0.0, 40.0);
-        self.min_flick = self.min_flick.clamp(0.0, self.yaw_range.max(self.pitch_range));
-        self.max_flick = self.max_flick.clamp(0.0, 160.0);
+        self.grid_active = self.grid_active.min(cells.saturating_sub(1).max(1));
+        self.min_flick = self.min_flick.min(self.yaw_range.max(self.pitch_range));
         if self.max_flick > 0.0 {
             self.max_flick = self.max_flick.max(self.min_flick);
         }
         self.flick_direction = self.flick_direction.filter(|a| a.is_finite()).map(|a| a.rem_euclid(360.0));
-        self.flick_spread = self.flick_spread.clamp(1.0, 180.0);
-        self.strafe_min = self.strafe_min.clamp(0.1, 20.0);
-        self.strafe_max = self.strafe_max.clamp(self.strafe_min, 20.0);
-        self.turn_min = self.turn_min.clamp(0.05, 5.0);
-        self.turn_max = self.turn_max.clamp(self.turn_min, 5.0);
-        self.lane = self.lane.clamp(0.5, 15.0);
-        self.peek_speed_min = self.peek_speed_min.clamp(0.5, 20.0);
-        self.peek_speed_max = self.peek_speed_max.clamp(self.peek_speed_min, 20.0);
-        self.hold_min = self.hold_min.clamp(0.0, 3.0);
-        self.hold_max = self.hold_max.clamp(self.hold_min, 3.0);
-        self.delay_min = self.delay_min.clamp(0.2, 10.0);
-        self.delay_max = self.delay_max.clamp(self.delay_min, 10.0);
+        // Every range stays ordered.
+        self.strafe_max = self.strafe_max.max(self.strafe_min);
+        self.turn_max = self.turn_max.max(self.turn_min);
+        self.peek_speed_max = self.peek_speed_max.max(self.peek_speed_min);
+        self.hold_max = self.hold_max.max(self.hold_min);
+        self.delay_max = self.delay_max.max(self.delay_min);
     }
 }
 
@@ -212,6 +177,9 @@ impl DrillSpec {
 
 /// Joins a built-in drill's name and its non-default settings.
 pub const VARIANT_SEPARATOR: &str = " · ";
+
+/// Shortest and longest a drill (or playlist step) may last, in seconds.
+pub const SECS_RANGE: (f32, f32) = (5.0, 600.0);
 
 #[cfg(test)]
 mod tests {

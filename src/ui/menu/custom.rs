@@ -23,9 +23,12 @@ use bevy::{
 use crate::ui::{bindings::*, theme::*, widgets::*};
 use crate::{
     AppState,
-    custom::{CustomContent, DrillRef, PlaylistStep},
+    custom::{CustomContent, DrillRef, MAX_NAME_CHARS, PlaylistStep},
+    drill::{
+        DrillKind, DrillSpec, Run, RunPurpose, SECS_RANGE, begin_run,
+        params::{ParamId, ParamSpec},
+    },
     routine::start_routine,
-    drill::{DrillConfig, DrillSpec, Run, RunPurpose, DrillKind, begin_run},
     settings::Settings,
 };
 
@@ -108,133 +111,53 @@ enum ItemAction {
 #[derive(Component, Clone, Copy, Default)]
 pub struct NameInput(Editing);
 
-/// A numeric field of the scenario being edited.
+/// A numeric field of the editor: the scenario's length, one of its parameters, or the
+/// playlist draft's step length.
 #[derive(Component, Clone, Copy, Debug, Default, PartialEq, Eq)]
-enum CustomField {
+enum EditorField {
     #[default]
     Duration,
-    Size,
-    Lifetime,
-    GridCols,
-    GridRows,
-    GridSpacing,
-    GridActive,
-    YawRange,
-    PitchRange,
-    MinFlick,
-    StrafeMin,
-    StrafeMax,
-    TurnMin,
-    TurnMax,
-    Lane,
-    PeekSpeedMin,
-    PeekSpeedMax,
-    HoldMin,
-    HoldMax,
-    DelayMin,
-    DelayMax,
     /// Not a scenario field: the playlist draft step length.
     StepSecs,
+    Param(ParamId),
 }
 
-impl CustomField {
-    /// (label, precision, step, soft range)
-    fn spec(self) -> (&'static str, i32, f64, (f32, f32)) {
+impl EditorField {
+    /// (label, precision, step, soft range, hard range)
+    fn spec(self) -> (&'static str, i32, f64, (f32, f32), (f32, f32)) {
         match self {
-            CustomField::Duration => ("Length (s)", 0, 5.0, (10.0, 180.0)),
-            CustomField::Size => ("Target size (x)", 2, 0.05, (0.2, 3.0)),
-            CustomField::Lifetime => ("Decay (s, 0 = off)", 2, 0.1, (0.0, 3.0)),
-            CustomField::GridCols => ("Grid columns", 0, 1.0, (1.0, 9.0)),
-            CustomField::GridRows => ("Grid rows", 0, 1.0, (1.0, 9.0)),
-            CustomField::GridSpacing => ("Cell spacing (deg)", 1, 0.5, (2.0, 20.0)),
-            CustomField::GridActive => ("Targets at once", 0, 1.0, (1.0, 8.0)),
-            CustomField::YawRange => ("Horizontal range (+- deg)", 0, 1.0, (0.0, 70.0)),
-            CustomField::PitchRange => ("Vertical range (+- deg)", 0, 1.0, (0.0, 30.0)),
-            CustomField::MinFlick => ("Min flick distance (deg)", 0, 1.0, (0.0, 40.0)),
-            CustomField::StrafeMin => ("Strafe speed min (m/s)", 1, 0.5, (0.5, 12.0)),
-            CustomField::StrafeMax => ("Strafe speed max (m/s)", 1, 0.5, (0.5, 12.0)),
-            CustomField::TurnMin => ("Direction change min (s)", 2, 0.05, (0.05, 3.0)),
-            CustomField::TurnMax => ("Direction change max (s)", 2, 0.05, (0.05, 3.0)),
-            CustomField::Lane => ("Lane half-width (m)", 1, 0.5, (1.0, 12.0)),
-            CustomField::PeekSpeedMin => ("Peek speed min (m/s)", 1, 0.5, (1.0, 12.0)),
-            CustomField::PeekSpeedMax => ("Peek speed max (m/s)", 1, 0.5, (1.0, 12.0)),
-            CustomField::HoldMin => ("Hold min (s)", 2, 0.05, (0.0, 1.5)),
-            CustomField::HoldMax => ("Hold max (s)", 2, 0.05, (0.0, 1.5)),
-            CustomField::DelayMin => ("Cue delay min (s)", 2, 0.1, (0.2, 5.0)),
-            CustomField::DelayMax => ("Cue delay max (s)", 2, 0.1, (0.2, 5.0)),
-            CustomField::StepSecs => ("Step length (s)", 0, 5.0, (10.0, 180.0)),
+            EditorField::Duration => ("Length (s)", 0, 5.0, (10.0, 180.0), SECS_RANGE),
+            EditorField::StepSecs => ("Step length (s)", 0, 5.0, (10.0, 180.0), SECS_RANGE),
+            EditorField::Param(param) => {
+                let ParamSpec { label, precision, step, soft, hard } = param.spec();
+                (label, precision, step, soft, hard)
+            }
         }
-    }
-
-    /// Fields shown for a drill kind, after the common ones.
-    fn for_kind(kind: DrillKind) -> &'static [CustomField] {
-        use CustomField::*;
-        match kind {
-            DrillKind::Gridshot => &[GridCols, GridRows, GridSpacing, GridActive],
-            DrillKind::Microflick | DrillKind::Peripheral => &[YawRange, PitchRange, MinFlick],
-            DrillKind::HeadLevel => &[YawRange, MinFlick],
-            DrillKind::Tracking => &[StrafeMin, StrafeMax, TurnMin, TurnMax, Lane],
-            DrillKind::Peek => &[PeekSpeedMin, PeekSpeedMax, HoldMin, HoldMax],
-            DrillKind::Reaction => &[DelayMin, DelayMax],
-        }
-    }
-
-    fn config_value(self, config: &mut DrillConfig) -> Option<&mut f32> {
-        Some(match self {
-            CustomField::Size => &mut config.size,
-            CustomField::Lifetime => &mut config.lifetime,
-            CustomField::GridSpacing => &mut config.grid_spacing,
-            CustomField::YawRange => &mut config.yaw_range,
-            CustomField::PitchRange => &mut config.pitch_range,
-            CustomField::MinFlick => &mut config.min_flick,
-            CustomField::StrafeMin => &mut config.strafe_min,
-            CustomField::StrafeMax => &mut config.strafe_max,
-            CustomField::TurnMin => &mut config.turn_min,
-            CustomField::TurnMax => &mut config.turn_max,
-            CustomField::Lane => &mut config.lane,
-            CustomField::PeekSpeedMin => &mut config.peek_speed_min,
-            CustomField::PeekSpeedMax => &mut config.peek_speed_max,
-            CustomField::HoldMin => &mut config.hold_min,
-            CustomField::HoldMax => &mut config.hold_max,
-            CustomField::DelayMin => &mut config.delay_min,
-            CustomField::DelayMax => &mut config.delay_max,
-            _ => return None,
-        })
     }
 
     fn get(self, content: &CustomContent, editing: Editing, draft: &PlaylistDraft) -> f32 {
-        if self == CustomField::StepSecs {
+        if self == EditorField::StepSecs {
             return draft.secs;
         }
         let Editing::Scenario(id) = editing else { return 0.0 };
         let Some(scenario) = content.scenario(id) else { return 0.0 };
-        let mut config = scenario.config.clone();
         match self {
-            CustomField::Duration => scenario.duration,
-            CustomField::GridCols => config.grid_cols as f32,
-            CustomField::GridRows => config.grid_rows as f32,
-            CustomField::GridActive => config.grid_active as f32,
-            _ => self.config_value(&mut config).map_or(0.0, |v| *v),
+            EditorField::Param(param) => param.get(&scenario.config),
+            _ => scenario.duration,
         }
     }
 
     fn set(self, content: &mut CustomContent, editing: Editing, draft: &mut PlaylistDraft, value: f32) {
-        if self == CustomField::StepSecs {
-            draft.secs = value.round().clamp(5.0, 600.0);
+        let secs = || value.round().clamp(SECS_RANGE.0, SECS_RANGE.1);
+        if self == EditorField::StepSecs {
+            draft.secs = secs();
             return;
         }
         let Editing::Scenario(id) = editing else { return };
         let Some(scenario) = content.scenario_mut(id) else { return };
         match self {
-            CustomField::Duration => scenario.duration = value.round().clamp(5.0, 600.0),
-            CustomField::GridCols => scenario.config.grid_cols = value.round().max(1.0) as u32,
-            CustomField::GridRows => scenario.config.grid_rows = value.round().max(1.0) as u32,
-            CustomField::GridActive => scenario.config.grid_active = value.round().max(1.0) as u32,
-            _ => {
-                if let Some(slot) = self.config_value(&mut scenario.config) {
-                    *slot = value;
-                }
-            }
+            EditorField::Param(param) => param.set(&mut scenario.config, value),
+            _ => scenario.duration = secs(),
         }
         scenario.config.sanitize();
     }
@@ -446,11 +369,11 @@ pub fn rebuild_custom(
                 commands
                     .spawn_scene(label_dim(format!("Based on {}: {}", kind.name(), kind.blurb())))
                     .insert(ChildOf(editor));
-                let mut fields = vec![CustomField::Duration, CustomField::Size];
+                let mut fields = vec![EditorField::Duration, EditorField::Param(ParamId::Size)];
                 if scenario.config.supports_decay() {
-                    fields.push(CustomField::Lifetime);
+                    fields.push(EditorField::Param(ParamId::Lifetime));
                 }
-                fields.extend_from_slice(CustomField::for_kind(kind));
+                fields.extend(kind.def().params.iter().map(|&param| EditorField::Param(param)));
                 for field in fields {
                     let value = field.get(&content, selection.editing, &draft);
                     commands.spawn_scene(custom_field_row(field, value)).insert(ChildOf(editor));
@@ -477,7 +400,7 @@ pub fn rebuild_custom(
                         .spawn_scene(small_button("Remove", ButtonVariant::Plain, ItemAction::StepRemove(id, index)))
                         .insert(ChildOf(row));
                 }
-                commands.spawn_scene(custom_field_row(CustomField::StepSecs, draft.secs)).insert(ChildOf(editor));
+                commands.spawn_scene(custom_field_row(EditorField::StepSecs, draft.secs)).insert(ChildOf(editor));
                 commands.spawn_scene(label_dim("Add a step:")).insert(ChildOf(editor));
                 let mut drills: Vec<DrillRef> = DrillKind::ALL.iter().map(|&s| DrillRef::Builtin(s)).collect();
                 drills.extend(content.scenarios.iter().map(|s| DrillRef::Custom(s.id)));
@@ -513,7 +436,7 @@ fn spawn_name_input(commands: &mut Commands, parent: Entity, editing: Editing) {
                 @FeathersTextInputContainer
                 Node { width: px(240), flex_grow: 0.0 }
                 Children [
-                    @FeathersTextInput { @max_characters: 40usize }
+                    @FeathersTextInput { @max_characters: MAX_NAME_CHARS }
                     NameInput(editing)
                     on(rename)
                 ]
@@ -522,10 +445,10 @@ fn spawn_name_input(commands: &mut Commands, parent: Entity, editing: Editing) {
         .insert(ChildOf(parent));
 }
 
-fn custom_field_row(field: CustomField, value: f32) -> impl Scene {
-    let (text, precision, step, soft) = field.spec();
+fn custom_field_row(field: EditorField, value: f32) -> impl Scene {
+    let (text, precision, step, soft, hard) = field.spec();
     let soft = SoftLimit::f32(soft.0..=soft.1);
-    let hard = HardLimit::f32(0.0..=600.0);
+    let hard = HardLimit::f32(hard.0..=hard.1);
     setting_row(
         text,
         bsn_list! {
@@ -551,7 +474,7 @@ fn custom_field_row(field: CustomField, value: f32) -> impl Scene {
 
 fn edit_custom_field(
     change: On<ValueChange<f32>>,
-    fields: Query<(Entity, &CustomField, &NumberInputValue)>,
+    fields: Query<(Entity, &EditorField, &NumberInputValue)>,
     mut content: ResMut<CustomContent>,
     mut draft: ResMut<PlaylistDraft>,
     selection: Res<CustomSelection>,

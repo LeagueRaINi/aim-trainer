@@ -2,6 +2,7 @@
 //! soft/hard ranges) and by [`Settings::sanitize`], so the two can't disagree.
 
 use super::Settings;
+use crate::drill::SECS_RANGE;
 
 /// A numeric setting edited through a number input.
 #[derive(bevy::prelude::Component, Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -83,7 +84,7 @@ impl SettingField {
             SettingField::Yaw => spec("Yaw (deg / count)", 4, 0.001, (0.001, 0.1), (0.0001, 1.0)),
             SettingField::Dpi => spec("Mouse DPI", 0, 50.0, (100.0, 3200.0), (50.0, 32000.0)),
             SettingField::Hfov => spec("Horizontal FOV (16:9)", 2, 1.0, (70.0, 130.0), (40.0, 150.0)),
-            SettingField::RunSecs => spec("Drill length (s)", 0, 5.0, (10.0, 180.0), (5.0, 600.0)),
+            SettingField::RunSecs => spec("Drill length (s)", 0, 5.0, (10.0, 180.0), SECS_RANGE),
             SettingField::TargetScale => spec("Target size (x)", 2, 0.05, (0.3, 2.0), (0.1, 4.0)),
             SettingField::FinderRounds => spec("Rounds", 0, 1.0, (1.0, 12.0), (1.0, 12.0)),
             SettingField::FinderTrialSecs => spec("Trial length (s)", 0, 5.0, (5.0, 60.0), (5.0, 120.0)),

@@ -11,7 +11,7 @@ use crate::{
     history::csv_safe,
     persist::{self, PersistPlugin, Persisted},
     routine::{Routine, RoutineStep},
-    drill::{DrillConfig, DrillSpec, DrillKind, VARIANT_SEPARATOR},
+    drill::{DrillConfig, DrillKind, DrillSpec, SECS_RANGE, VARIANT_SEPARATOR},
     settings::Settings,
 };
 
@@ -66,7 +66,7 @@ fn derived_from(name: &str, base: &str) -> bool {
 
 /// A finite length in seconds, clamped to what a step may last.
 fn clean_secs(secs: f32) -> f32 {
-    if secs.is_finite() { secs } else { DEFAULT_SECS }.clamp(5.0, 600.0)
+    if secs.is_finite() { secs } else { DEFAULT_SECS }.clamp(SECS_RANGE.0, SECS_RANGE.1)
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]

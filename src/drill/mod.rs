@@ -7,6 +7,7 @@ pub mod def;
 mod drills;
 pub mod flick_probe;
 mod kind;
+pub mod params;
 pub mod kinds;
 pub mod stats;
 
@@ -19,7 +20,7 @@ use bevy::{
     window::WindowFocused,
 };
 
-pub use config::{DrillConfig, DrillSpec, VARIANT_SEPARATOR};
+pub use config::{DrillConfig, DrillSpec, SECS_RANGE, VARIANT_SEPARATOR};
 pub use drills::{TargetAssets, spawn_cover};
 use flick_probe::FlickProbe;
 pub use kind::DrillKind;

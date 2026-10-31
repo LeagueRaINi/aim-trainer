@@ -21,7 +21,7 @@ use flick_probe::FlickProbe;
 
 use crate::{
     AppState,
-    arena::{Look, apply_look},
+    camera::{ActiveSens, Look, apply_look, mouse_look},
     finder::Finder,
     history::{Comparison, History},
     replay::Recorder,
@@ -46,6 +46,14 @@ impl Plugin for ScenarioPlugin {
             .add_systems(OnEnter(AppState::Playing), (spawn_hud, drills::spawn_static, |mut commands: Commands| {
                 commands.insert_resource(Recorder::default())
             }))
+            // Mouse look turns at the run's sensitivity (read every frame: a finder trial's next
+            // part may replace the run without leaving `Playing`).
+            .add_systems(
+                Update,
+                (|run: Res<Run>, mut sens: ResMut<ActiveSens>| sens.0 = run.sens)
+                    .before(mouse_look)
+                    .run_if(in_state(AppState::Playing)),
+            )
             .add_systems(
                 Update,
                 (
@@ -74,7 +82,7 @@ impl Plugin for ScenarioPlugin {
     }
 }
 
-#[derive(Component, Clone, Copy, Debug, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum Scenario {
     #[default]
     Gridshot,

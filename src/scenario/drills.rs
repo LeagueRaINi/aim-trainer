@@ -7,7 +7,7 @@ use super::{
     DrillConfig, Run, Scenario,
     flick_probe::{FlickProbe, angles, screen_offset},
 };
-use crate::{AppState, arena::PlayerCamera, replay::Recorder, settings::Settings, sfx::HitSounds};
+use crate::{AppState, camera::PlayerCamera, replay::Recorder, settings::Settings, sfx::HitSounds};
 
 /// Distance from the camera to the plane/sphere targets live on.
 const TARGET_DISTANCE: f32 = 10.0;

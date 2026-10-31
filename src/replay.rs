@@ -15,7 +15,7 @@ use bevy::{
 
 use crate::{
     AppState,
-    arena::{Look, apply_look},
+    camera::{Look, apply_look},
     scenario::{Scenario, TargetAssets, spawn_cover},
     tracer,
     ui::{

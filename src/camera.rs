@@ -8,13 +8,14 @@ use bevy::{
     window::{CursorGrabMode, CursorOptions},
 };
 
-use crate::{AppState, scenario::Run, settings::Settings};
+use crate::{AppState, settings::Settings};
 
-pub struct ArenaPlugin;
+pub struct CameraPlugin;
 
-impl Plugin for ArenaPlugin {
+impl Plugin for CameraPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<Look>()
+            .init_resource::<ActiveSens>()
             .add_systems(Startup, spawn_camera)
             .add_systems(OnEnter(AppState::Playing), (reset_look, lock_cursor))
             .add_systems(OnExit(AppState::Playing), (reset_look, unlock_cursor))
@@ -39,6 +40,11 @@ pub struct Look {
     yaw: f32,
     pitch: f32,
 }
+
+/// The sensitivity mouse look uses, kept up to date by whatever owns the current activity
+/// (the drill run), so the camera doesn't depend on it.
+#[derive(Resource, Default)]
+pub struct ActiveSens(pub f32);
 
 fn spawn_camera(mut commands: Commands, settings: Res<Settings>) {
     commands.spawn((
@@ -69,9 +75,9 @@ fn reset_look(mut look: ResMut<Look>) {
     *look = Look::default();
 }
 
-fn mouse_look(motion: Res<AccumulatedMouseMotion>, run: Res<Run>, settings: Res<Settings>, mut look: ResMut<Look>) {
+pub fn mouse_look(motion: Res<AccumulatedMouseMotion>, sens: Res<ActiveSens>, settings: Res<Settings>, mut look: ResMut<Look>) {
     // Raw counts, unaccelerated: no delta-time scaling, exactly like the games do it.
-    let rad_per_count = settings.deg_per_count(run.sens).to_radians();
+    let rad_per_count = settings.deg_per_count(sens.0).to_radians();
     const PITCH_LIMIT: f32 = FRAC_PI_2 - 0.01;
     look.yaw -= motion.delta.x * rad_per_count;
     look.pitch = (look.pitch - motion.delta.y * rad_per_count).clamp(-PITCH_LIMIT, PITCH_LIMIT);

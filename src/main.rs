@@ -1,5 +1,5 @@
 mod analysis;
-mod arena;
+mod camera;
 mod crosshair;
 mod custom;
 mod display;
@@ -57,7 +57,7 @@ fn main() {
             history::HistoryPlugin,
             custom::CustomPlugin,
             level::LevelPlugin,
-            arena::ArenaPlugin,
+            camera::CameraPlugin,
             display::DisplayPlugin,
             icon::IconPlugin,
             crosshair::CrosshairPlugin,

@@ -23,7 +23,7 @@ use bevy::{
 };
 
 use crate::{
-    arena::PlayerCamera,
+    camera::PlayerCamera,
     settings::{AspectMode, DisplayMode, Settings, VideoSettings},
 };
 

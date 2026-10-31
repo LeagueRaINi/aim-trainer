@@ -56,16 +56,14 @@ fn adaptive_run(kind: DrillKind, mode: QuestMode, settings: &Settings) -> Run {
     Run::new(drill, settings.sens, secs, RunPurpose::Practice, title)
 }
 
-/// The built-in drills grouped into one card per category.
-fn drill_cards() -> Vec<impl Scene> {
-    Category::ALL
-        .into_iter()
-        .map(|category| {
-            let buttons: Vec<_> =
-                DrillKind::ALL.into_iter().filter(|kind| kind.def().category == category).map(play_button).collect();
-            card(category.title(), buttons)
-        })
-        .collect()
+/// One category of built-in drills: a small heading and a row per drill.
+fn category_section(category: Category) -> impl Scene {
+    let rows: Vec<_> = DrillKind::ALL.into_iter().filter(|kind| kind.def().category == category).map(drill_row).collect();
+    bsn! {
+        @column()
+        Node { row_gap: px(SPACE_S) }
+        Children [ @overline(category.title()) -- {rows} ]
+    }
 }
 
 /// Explains the global decay setting and names the drills it applies to.
@@ -75,30 +73,26 @@ fn decay_note() -> String {
     format!("Decay: targets shrink and count as a miss if not hit in time ({}). 0 = off.", kinds.join(", "))
 }
 
-/// One row per drill with an adaptive mode, and how it works.
-fn adaptive_card() -> impl Scene {
-    let rows: Vec<_> = DrillKind::ALL.into_iter().filter(|kind| kind.def().adaptive).map(adaptive_row).collect();
-    let note = format!(
-        "Each target's size adapts to you, and it counts only if hit before its time runs out (the decay time above, or {ADAPTIVE_TIME_LIMIT} s with decay off). Measure ({MEASURE_SECS:.0} s): {} Train: {} Results show θ75, the radius you hit 75% of the time; smaller is better.",
-        QuestMode::Measure.blurb(),
-        QuestMode::Train.blurb()
-    );
-    bsn! {
-        @card("Adaptive", bsn_list! {
-            {rows}
-            --
-            @label_dim(note)
-        })
-    }
+/// What the adaptive buttons do, in one short paragraph.
+fn adaptive_note() -> String {
+    format!(
+        "Adaptive: each target's size adapts to keep you at your limit, and counts only if hit within the decay time ({ADAPTIVE_TIME_LIMIT} s with decay off). Measure runs {MEASURE_SECS:.0} s; Train uses the drill length. θ75 = the radius you hit 75% of the time, smaller is better."
+    )
 }
 
 pub(super) fn play_page(settings: &Settings) -> impl Scene {
-    let cards = drill_cards();
+    let sections: Vec<_> = Category::ALL.into_iter().map(category_section).collect();
     bsn! {
         @page(MenuTab::Play)
         Children [
             @main_column()
-            Children [ {cards} -- @adaptive_card() ]
+            Children [
+                @card("Drills", bsn_list! {
+                    {sections}
+                    --
+                    @label_dim(adaptive_note())
+                })
+            ]
             --
             @side_column()
             Children [
@@ -128,36 +122,46 @@ pub(super) fn play_page(settings: &Settings) -> impl Scene {
     }
 }
 
-fn play_button(kind: DrillKind) -> impl Scene {
+/// Width of the drill buttons; adaptive rows indent past it so they sit under the blurb.
+const DRILL_BUTTON_W: f32 = 140.0;
+
+/// A drill's play button and blurb, plus its adaptive modes if it has them.
+fn drill_row(kind: DrillKind) -> impl Scene {
+    let adaptive: Vec<_> = kind.def().adaptive.then(|| adaptive_row(kind)).into_iter().collect();
     bsn! {
-        @row()
-        Node { column_gap: px(SPACE_M) }
+        @column()
+        Node { row_gap: px(SPACE_XS) }
         Children [
-            @button(kind.name(), ButtonVariant::Normal)
-            Node { width: px(140), flex_shrink: 0.0 }
-            PlayButton(kind)
-            on(play)
+            @row()
+            Node { column_gap: px(SPACE_M) }
+            Children [
+                @button(kind.name(), ButtonVariant::Normal)
+                Node { width: px(DRILL_BUTTON_W), flex_shrink: 0.0 }
+                PlayButton(kind)
+                on(play)
+                --
+                @label_dim(kind.blurb())
+            ]
             --
-            @label_dim(kind.blurb())
+            {adaptive}
         ]
     }
 }
 
-/// A drill's adaptive modes as two buttons.
+/// A drill's adaptive modes as a slim row under its play button.
 fn adaptive_row(kind: DrillKind) -> impl Scene {
     let (measure, train) = (QuestMode::Measure, QuestMode::Train);
     bsn! {
         @row()
-        Node { column_gap: px(SPACE_M), align_items: AlignItems::Center }
+        Node { column_gap: px(SPACE_S), align_items: AlignItems::Center, margin: UiRect::left(px(DRILL_BUTTON_W + SPACE_M)) }
         Children [
-            @label(kind.name())
-            Node { width: px(140), flex_shrink: 0.0 }
+            @overline("Adaptive")
             --
-            @button(measure.name(), ButtonVariant::Primary)
+            @compact_button(measure.name(), ButtonVariant::Normal)
             AdaptiveButton(kind, measure)
             on(play_adaptive)
             --
-            @button(train.name(), ButtonVariant::Normal)
+            @compact_button(train.name(), ButtonVariant::Normal)
             AdaptiveButton(kind, train)
             on(play_adaptive)
         ]

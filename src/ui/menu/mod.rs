@@ -3,8 +3,11 @@
 
 mod audio;
 mod crosshair;
+pub mod custom;
 mod discord;
 mod finder;
+pub mod history;
+pub mod insights;
 mod play;
 mod sensitivity;
 mod video;
@@ -27,8 +30,8 @@ use self::{
     audio::audio_page, crosshair::crosshair_page, discord::discord_page, finder::finder_page, play::play_page,
     sensitivity::sensitivity_page, video::video_page,
 };
-use super::{custom, insights, theme::*, widgets::*};
-use crate::{AppState, settings::Settings, ui::history};
+use super::{theme::*, widgets::*};
+use crate::{AppState, settings::Settings};
 
 /// Which menu page is visible. Kept across visits so you return to where you were.
 #[derive(Resource, Clone, Copy, Debug, Default, PartialEq, Eq)]

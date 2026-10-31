@@ -20,7 +20,7 @@ use bevy::{
     ui_widgets::{Activate, ValueChange},
 };
 
-use super::{bindings::*, theme::*, widgets::*};
+use crate::ui::{bindings::*, theme::*, widgets::*};
 use crate::{
     AppState,
     custom::{CustomContent, DrillRef, PlaylistStep},

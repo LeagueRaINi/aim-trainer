@@ -6,7 +6,7 @@ use bevy::{
     ui_widgets::Activate,
 };
 
-use super::{charts::*, theme::*, widgets::*};
+use crate::ui::{charts::*, theme::*, widgets::*};
 use crate::{
     AppState,
     history::{History, HistoryEntry, RECENT_RUNS, format_date, overall_change, recent_change},

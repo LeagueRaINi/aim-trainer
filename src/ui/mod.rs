@@ -1,9 +1,6 @@
 //! Menu, results and sensitivity-finder screens, built with Bevy Feathers widgets.
 
-mod custom;
 mod finder;
-mod history;
-mod insights;
 mod menu;
 mod routine;
 mod screens;
@@ -21,12 +18,12 @@ pub struct UiPlugin;
 impl Plugin for UiPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<menu::MenuTab>()
-            .init_resource::<history::HistoryView>()
-            .init_resource::<custom::CustomSelection>()
-            .init_resource::<custom::PlaylistDraft>()
-            .init_resource::<custom::CustomStatus>()
+            .init_resource::<menu::history::HistoryView>()
+            .init_resource::<menu::custom::CustomSelection>()
+            .init_resource::<menu::custom::PlaylistDraft>()
+            .init_resource::<menu::custom::CustomStatus>()
             .add_systems(OnEnter(AppState::Menu), menu::spawn_menu)
-            .add_systems(OnExit(AppState::Menu), custom::clear_status)
+            .add_systems(OnExit(AppState::Menu), menu::custom::clear_status)
             .add_systems(OnEnter(AppState::Results), screens::spawn_results)
             .add_systems(OnEnter(AppState::Finder), finder::spawn_finder_screen)
             .add_systems(OnEnter(AppState::Routine), routine::spawn_routine_screen)
@@ -41,12 +38,12 @@ impl Plugin for UiPlugin {
                     bindings::highlight_choices,
                     menu::show_tab,
                     menu::update_sens_info,
-                    history::rebuild_history,
-                    insights::rebuild_insights,
-                    custom::rebuild_custom,
-                    custom::init_name_inputs,
-                    custom::sync_item_names,
-                    custom::sync_status,
+                    menu::history::rebuild_history,
+                    menu::insights::rebuild_insights,
+                    menu::custom::rebuild_custom,
+                    menu::custom::init_name_inputs,
+                    menu::custom::sync_item_names,
+                    menu::custom::sync_status,
                     menu::update_discord_status,
                 )
                     .run_if(in_state(AppState::Menu)),

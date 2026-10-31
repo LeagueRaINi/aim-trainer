@@ -199,7 +199,7 @@ impl History {
         let now = SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |d| d.as_secs());
         let timestamp = self.entries.last().map_or(now, |last| now.max(last.timestamp.saturating_add(1)));
         let row = format_row(timestamp, stats, purpose, settings);
-        if let Err(err) = append_row(&self.path, &row) {
+        if let Err(err) = append_csv_row(&self.path, HEADER, &row) {
             error!("Failed to write {}: {err}", self.path.display());
         }
         if let Some(entry) = HistoryEntry::parse(&row) {
@@ -231,11 +231,12 @@ fn format_row(timestamp: u64, stats: &RunStats, purpose: RunPurpose, settings: &
     )
 }
 
-fn append_row(path: &Path, row: &str) -> std::io::Result<()> {
+/// Appends `row` to the CSV at `path`, writing `header` first into a new (or empty) file.
+pub(crate) fn append_csv_row(path: &Path, header: &str, row: &str) -> std::io::Result<()> {
     let needs_header = fs::metadata(path).map_or(true, |meta| meta.len() == 0);
     let mut file = OpenOptions::new().create(true).append(true).open(path)?;
     if needs_header {
-        writeln!(file, "{HEADER}")?;
+        writeln!(file, "{header}")?;
     }
     writeln!(file, "{row}")
 }

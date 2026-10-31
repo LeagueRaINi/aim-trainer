@@ -2,6 +2,7 @@
 //! and replay recording. Each built-in drill is described by a [`DrillDef`](def::DrillDef) in
 //! [`kinds`], which also holds its own systems; [`targets`] has the behaviour all drills share.
 
+pub mod adaptive;
 mod config;
 pub mod def;
 mod geometry;
@@ -14,7 +15,7 @@ mod targets;
 
 use bevy::prelude::*;
 
-pub use config::{DrillConfig, DrillSpec, SECS_RANGE, VARIANT_SEPARATOR};
+pub use config::{ADAPTIVE_TIME_LIMIT, DrillConfig, DrillSpec, SECS_RANGE, VARIANT_SEPARATOR};
 pub use kind::DrillKind;
 pub use run::{Phase, Run, RunFinished, RunPurpose, begin_run};
 pub use stats::RunStats;
@@ -41,7 +42,7 @@ pub enum DrillSet {
     Input,
     /// Targets running out of time.
     Expire,
-    /// Measurements of the player's aim (the first-flick probe).
+    /// Measurements of the player's aim (the first-flick probe) and adaptive target sizing.
     Measure,
     /// Delayed spawns.
     Spawn,
@@ -98,6 +99,7 @@ impl Plugin for DrillPlugin {
                 ),
             );
         kinds::register(app);
+        adaptive::register(app);
     }
 }
 

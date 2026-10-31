@@ -13,9 +13,10 @@ use bevy::{
 
 use crate::{
     AppState,
+    adaptive_log::{AdaptiveEntry, AdaptiveLog},
     drill::{Run, RunPurpose, RunStats, begin_run},
     history::{LastRun, RunRecorded},
-    metrics::throughput,
+    metrics::{quest, throughput},
     replay::{Replay, watch},
     settings::Settings,
     ui::{charts::*, theme::*, widgets::*},
@@ -52,7 +53,7 @@ pub(crate) fn show_results(
     }
 }
 
-pub fn spawn_results(mut commands: Commands, last: Res<LastRun>, settings: Res<Settings>) {
+pub fn spawn_results(mut commands: Commands, last: Res<LastRun>, settings: Res<Settings>, adaptive_log: Res<AdaptiveLog>) {
     let stats = &last.stats;
     let kind = stats.kind.name();
     let context = if stats.drill == kind { "Results".to_string() } else { format!("Results  ·  {kind}") };
@@ -60,6 +61,10 @@ pub fn spawn_results(mut commands: Commands, last: Res<LastRun>, settings: Res<S
     // Flick drills: where the clicks landed, once there are any measured flicks.
     let clicked = throughput::measured(&stats.clicks).next().is_some();
     let precision_display = if clicked { Display::Flex } else { Display::None };
+    // Adaptive runs: the measured θ75 and how it compares with the last one.
+    let adaptive = adaptive_log.entry(last.timestamp);
+    let previous = adaptive.and_then(|entry| adaptive_log.previous(entry));
+    let adaptive_display = if adaptive.is_some() { Display::Flex } else { Display::None };
     commands
         .spawn_scene(bsn! {
             @overlay()
@@ -70,6 +75,9 @@ pub fn spawn_results(mut commands: Commands, last: Res<LastRun>, settings: Res<S
                     @screen_title(context, stats.drill.clone())
                     --
                     @score_summary(stats, &last.previous)
+                    --
+                    @adaptive_result(adaptive, previous)
+                    Node { display: adaptive_display }
                     --
                     @precision(stats)
                     Node { display: precision_display }
@@ -112,6 +120,63 @@ fn watch_last_replay(
     match Replay::load(last.timestamp) {
         Some(replay) => watch(&mut commands, &mut next_state, replay, AppState::Results),
         None => warn!("Replay for this run could not be loaded"),
+    }
+}
+
+/// An adaptive run's θ75 with its credible interval, the share of targets hit in time, and the
+/// change from the task's previous result (smaller is better).
+fn adaptive_result(entry: Option<&AdaptiveEntry>, previous: Option<&AdaptiveEntry>) -> impl Scene {
+    let (theta, interval, in_time, change, note) = match entry {
+        Some(entry) => {
+            let e = &entry.estimate;
+            let change = match previous {
+                Some(before) => {
+                    let percent = (e.theta75 / before.estimate.theta75 - 1.0) * 100.0;
+                    let verdict = match percent.round() {
+                        p if p < 0.0 => "smaller, better",
+                        p if p > 0.0 => "larger",
+                        _ => "same",
+                    };
+                    format!("{percent:+.0}% ({verdict})")
+                }
+                None => "first result".to_string(),
+            };
+            let note = format!(
+                "θ75: the target radius you hit {:.0}% of the time within {:.1} s, estimated by QUEST+ from this run's {} targets ({} mode); smaller is better. The interval holds it with {:.0}% probability. Change: versus your previous adaptive result on this drill.",
+                quest::TARGET_HIT * 100.0,
+                entry.time_limit,
+                e.trials,
+                entry.mode.name().to_lowercase(),
+                quest::CREDIBLE * 100.0
+            );
+            (
+                format!("{:.2}°", e.theta75),
+                format!("{:.2}–{:.2}°", e.low, e.high),
+                format!("{} / {}", e.hits, e.trials),
+                change,
+                note,
+            )
+        }
+        None => Default::default(),
+    };
+    let interval_caption = format!("{:.0}% interval", quest::CREDIBLE * 100.0);
+    bsn! {
+        @column()
+        Children [
+            @row()
+            Node { align_items: AlignItems::Stretch }
+            Children [
+                @stat("θ75 (target radius)", theta)
+                --
+                @stat(interval_caption, interval)
+                --
+                @stat("Hit in time", in_time)
+                --
+                @stat("Change", change)
+            ]
+            --
+            @styled(note, bevy::feathers::constants::fonts::REGULAR, 11.0, tokens::TEXT_DIM)
+        ]
     }
 }
 

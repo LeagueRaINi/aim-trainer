@@ -31,6 +31,9 @@ pub struct DrillDef {
     pub classic_finder: bool,
     /// Its replays are made of flicks and feed the weak-spot analysis.
     pub flick_analysis: bool,
+    /// Offers an adaptive mode (QUEST+ target sizes, see [`DrillConfig::adaptive`]). Needs one
+    /// click-killed target at a time that can expire.
+    pub adaptive: bool,
     /// The custom editor's fields for this kind, after the length, size and (if it decays)
     /// lifetime.
     pub params: &'static [ParamId],

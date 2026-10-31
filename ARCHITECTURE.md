@@ -12,22 +12,24 @@ Bevy 0.20 app (Rust 2024). `main.rs` declares `AppState` (Menu, Playing, Results
 | `camera.rs` | `PlayerCamera`, `Look`, raw mouse look at `ActiveSens`, FOV, cursor lock. |
 | `display.rs`, `level.rs`, `crosshair.rs`, `sfx.rs`, `icon.rs`, `presence.rs` | Window/video, room, crosshair, hit sounds, window icon, Discord Rich Presence. |
 | `drill/` | Drills and the run lifecycle (see below). |
-| `metrics/` | Pure aim measurements: `flick_probe` (first-flick landing), `bow` (path straightness), `throughput` (click positions in the task-axis frame, effective throughput TPe). |
+| `metrics/` | Pure aim measurements: `flick_probe` (first-flick landing), `bow` (path straightness), `throughput` (click positions in the task-axis frame, effective throughput TPe), `quest` (QUEST+ over target size: posterior, next radius, θ75 estimate), `normal` (Φ). |
 | `replay/` | `format.rs`: the binary format (v3 encoder, v1–v3 decoders), save/load/prune, migration. `recorder.rs`: `Recorder`. `player.rs`: the replay player and tracer. `mod.rs`: `ReplayPlugin` and the handler that saves a finished practice run's replay. |
 | `history.rs` | Results CSV, comparisons, trends. Records each `RunFinished` and announces it as `RunRecorded`. Also defines `LastRun`. |
+| `adaptive_log.rs` | Adaptive-mode results CSV (θ75 per adaptive run, joined to the history row by timestamp); feeds each task's latest θ75 back as the next run's prior. |
 | `routine.rs` | Built-in warmups, `Routine`, and the handler for finished routine steps. |
 | `custom/` | `mod.rs`: custom scenarios and playlists (`CustomContent`). `share.rs`: `AIMPL1:` share codes. |
 | `finder/` | `classic.rs`: A/B bisection. `smart.rs`: the model-based finder. `mod.rs`: `FinderPlugin` and the handler for finished finder trials (including smart-finder auto-chaining). |
 | `analysis.rs` | Weak-spot analysis over flick replays (the Insights tab). |
 | `ui/` | All UI. `hud.rs`: in-game HUD. `replay_hud.rs`: replay HUD. `menu/`: one module per tab. `screens/`: results, finder, routine screens. `widgets.rs`, `bindings.rs`, `charts.rs`, `theme.rs`: shared building blocks. |
 
-Dependency direction: `persist`, `metrics` and `drill::kind` are leaves. `drill` uses `settings`, `camera`, `sfx`, `metrics` and `replay::Recorder`. `history`, `routine`, `custom`, `finder`, `replay` and `analysis` use `drill`. `ui` uses everything. No non-UI module imports `ui`, and `drill` does not import `history`, `finder` or `routine`.
+Dependency direction: `persist`, `metrics` and `drill::kind` are leaves. `drill` uses `settings`, `camera`, `sfx`, `metrics` and `replay::Recorder`. `history`, `routine`, `custom`, `finder`, `replay`, `adaptive_log` and `analysis` use `drill` (`adaptive_log` also uses `history`). `ui` uses everything. No non-UI module imports `ui`, and `drill` does not import `history`, `adaptive_log`, `finder` or `routine`.
 
 ## Drills
 
 ```
 drill/
   mod.rs        DrillPlugin, DrillSet (the frame stages), record_frame
+  adaptive.rs   AdaptiveRun: QUEST+ sizing of each new target in adaptive configs
   kind.rs       DrillKind: the persisted id; def() is the only per-kind match
   def.rs        DrillDef: data + spawn hooks; Category, DecayRule, TtkFrom, Environment
   config.rs     DrillConfig (flat, serde-frozen), DrillSpec
@@ -49,14 +51,14 @@ In `Playing`, `Update` runs these `DrillSet`s in this order (chained; commands a
 | `Start` | `abort_run`, then `ready_gate` (spawns the initial targets via `DEF.spawn_initial`) |
 | `Input` | `targets::shoot` (click kills, if `DEF.click_kills`), `reaction::reaction` |
 | `Expire` | `targets::decay` |
-| `Measure` | `microflick::probe_flicks` (reads `TargetKilled`/`TargetExpired`, and `Added<Target>`) |
+| `Measure` | `microflick::probe_flicks` (reads `TargetKilled`/`TargetExpired`, and `Added<Target>`), `adaptive::adapt_targets` (scores the previous target, sizes new ones) |
 | `Spawn` | `targets::spawn_pending` (calls `DEF.spawn_next` once `NextSpawn` is due) |
 | `Move` | `peek::move_peeks`, `tracking::move_strafers` |
 | `Score` | `tracking::track` |
 | `Record` | `record_frame` (replay sample; skips `Dormant` targets) |
 | `Finish` | `tick_run`: writes `RunFinished` when time is up. The HUD updates after this stage. |
 | `Log` | `history::record_finished`: appends to the CSV, writes `RunRecorded { run, previous, timestamp }` |
-| `Outcome` | `replay::save_finished_replay` (practice and routine runs), `finder::finder_trial_finished`, `routine::routine_step_finished`, `ui::screens::results::show_results` |
+| `Outcome` | `replay::save_finished_replay` (practice and routine runs), `adaptive_log::record_adaptive`, `finder::finder_trial_finished`, `routine::routine_step_finished`, `ui::screens::results::show_results` |
 
 `Input` through `Score` run after `camera::apply_look`. Systems from different drills that share a stage touch disjoint components.
 
@@ -68,7 +70,7 @@ Exactly these touch points. The recipe was checked with a throwaway drill that h
    - `pub const DEF: DrillDef = DrillDef { … }`. This holds:
      - persisted fields: `name` is the display name and the history CSV id (never change it once released);
      - metadata: `blurb`, `category` (which play-page card it goes on), `base_radius`, `decay`, `score` (an existing `ScoreModel`), `ttk_from`;
-     - flags: `click_kills` (false if the drill handles clicks itself), `environment`, `first_flick_probe`, `classic_finder`, `flick_analysis`;
+     - flags: `click_kills` (false if the drill handles clicks itself), `environment`, `first_flick_probe`, `classic_finder`, `flick_analysis`, `adaptive` (offers adaptive mode; needs one click-killed target at a time that can expire);
      - `params`: the custom-editor fields, as existing `ParamId`s;
      - hooks: `tune_defaults` (or `def::no_tuning`), `spawn_initial`, `respawn` (or `def::no_respawn`), `spawn_next` (or `def::no_spawn_next`).
    - The spawn hooks are plain `fn(&mut SpawnCtx…)`. Use `ctx.spawn_target(position, lifetime)` (it returns `EntityCommands` for drill-specific components), `ctx.lifetime()`, `ctx.config`, `ctx.aim`, `ctx.now`, `ctx.next` (for delayed spawns) and `ctx.occupied`/`Slot` (for layouts).
@@ -85,6 +87,7 @@ Exactly these touch points. The recipe was checked with a throwaway drill that h
 
 Nothing else changes; all of the following comes from `DEF`:
 - the play page, the custom editor's "new scenario" buttons and fields, the HUD line, results stats and history columns;
+- the Adaptive card on the play page (if `adaptive`);
 - classic-finder eligibility, inclusion in the Insights analysis, decay handling, and the replay scenery.
 
 Optional:
@@ -121,9 +124,10 @@ BSN rules:
 - `RunPurpose::csv_name` strings;
 - the CSV header and columns;
 - the replay `MAGIC`/`VERSION`/layout;
-- the `Settings`/`DrillConfig`/`CustomContent` field names;
+- the `Settings`/`DrillConfig`/`CustomContent` field names (new `DrillConfig` fields need a serde default; `adaptive` is also skipped when unset so existing files and share codes stay byte-identical);
 - the `DrillRef`/`SharedDrill` variant names;
 - `SHARE_PREFIX`;
-- file names.
+- file names;
+- the adaptive results CSV header and columns (`adaptive_log::HEADER`) and `QuestMode` names.
 
 The tests in `fixtures/` pin these.

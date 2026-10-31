@@ -24,6 +24,7 @@ pub const DEF: DrillDef = DrillDef {
     first_flick_probe: false,
     classic_finder: true,
     flick_analysis: true,
+    adaptive: false,
     params: &[ParamId::GridCols, ParamId::GridRows, ParamId::GridSpacing, ParamId::GridActive],
     tune_defaults: no_tuning,
     spawn_initial,

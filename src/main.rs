@@ -1,3 +1,4 @@
+mod adaptive_log;
 mod analysis;
 mod camera;
 mod crosshair;
@@ -68,6 +69,8 @@ fn main() {
             routine::RoutinePlugin,
             presence::PresencePlugin,
             ui::UiPlugin,
-        ));
+        ))
+        // Outside the tuple above, which is at Bevy's 15-plugin limit.
+        .add_plugins(adaptive_log::AdaptiveLogPlugin);
     app.run();
 }

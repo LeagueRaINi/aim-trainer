@@ -93,8 +93,12 @@ impl SpawnCtx<'_, '_, '_> {
         self.config.kind.def().base_radius * self.config.size
     }
 
-    /// Lifetime of decaying targets, if this config decays.
+    /// Lifetime of decaying targets, if this config decays; adaptive targets always get their
+    /// time limit.
     pub(crate) fn lifetime(&self) -> Option<f32> {
+        if self.config.adaptive().is_some() {
+            return Some(self.config.time_limit());
+        }
         (self.config.supports_decay() && self.config.lifetime > 0.0).then_some(self.config.lifetime)
     }
 
@@ -291,6 +295,7 @@ fn flick_click(run: &Run, target: &Target, transform: &Transform, origin: Vec3, 
 }
 
 /// Shrinks decaying targets and expires them (counted as a miss) when their time runs out.
+/// Adaptive targets keep the size they were given (it is the measured quantity) and only expire.
 #[allow(clippy::type_complexity, clippy::too_many_arguments)]
 pub(super) fn decay(
     mut commands: Commands,
@@ -306,6 +311,7 @@ pub(super) fn decay(
     }
     let now = run.elapsed;
     let aim = camera.forward().as_vec3();
+    let shrinks = run.drill.config.adaptive().is_none();
     let mut occupied: Vec<usize> = targets.iter().filter_map(|t| t.3.map(|s| s.0)).collect();
     let mut expired = Vec::new();
     for (entity, target, mut transform, slot) in &mut targets {
@@ -313,7 +319,7 @@ pub(super) fn decay(
         let age = (now - target.born) / lifetime;
         if age >= 1.0 {
             expired.push((entity, slot.map(|s| s.0)));
-        } else {
+        } else if shrinks {
             transform.scale = Vec3::splat(target.base_radius * (1.0 - (1.0 - DECAY_MIN_SCALE) * age));
         }
     }

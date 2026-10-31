@@ -4,7 +4,10 @@
 use serde::{Deserialize, Serialize};
 
 use super::{DrillKind, def::DecayRule, params::ParamId};
-use crate::settings::Settings;
+use crate::{metrics::quest::QuestMode, settings::Settings};
+
+/// Time limit of an adaptive target when the config has no lifetime of its own, seconds.
+pub const ADAPTIVE_TIME_LIMIT: f32 = 1.5;
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
@@ -53,6 +56,12 @@ pub struct DrillConfig {
     // Reaction
     pub delay_min: f32,
     pub delay_max: f32,
+    // Adaptive (drills whose `DrillDef::adaptive` is set)
+    /// QUEST+ picks every target's size (see [`crate::metrics::quest`]) and a target counts as a
+    /// hit only if killed within [`time_limit`](Self::time_limit); `None` = fixed size. Written
+    /// only when set, so files and share codes without it stay byte-identical.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub adaptive: Option<QuestMode>,
 }
 
 impl Default for DrillConfig {
@@ -91,6 +100,7 @@ impl DrillConfig {
             hold_max: 0.8,
             delay_min: 0.9,
             delay_max: 2.6,
+            adaptive: None,
         };
         (kind.def().tune_defaults)(&mut config);
         config
@@ -109,6 +119,16 @@ impl DrillConfig {
 
     pub fn supports_decay(&self) -> bool {
         self.kind.def().decay != DecayRule::None
+    }
+
+    /// The adaptive mode, if this config has one and its kind supports it.
+    pub fn adaptive(&self) -> Option<QuestMode> {
+        self.adaptive.filter(|_| self.kind.def().adaptive)
+    }
+
+    /// Seconds an adaptive target has to be hit in: the lifetime, or [`ADAPTIVE_TIME_LIMIT`].
+    pub fn time_limit(&self) -> f32 {
+        if self.lifetime > 0.0 { self.lifetime } else { ADAPTIVE_TIME_LIMIT }
     }
 
     /// Whether Microflick targets follow the direction/distance constraints instead of
@@ -147,6 +167,8 @@ impl DrillConfig {
         self.peek_speed_max = self.peek_speed_max.max(self.peek_speed_min);
         self.hold_max = self.hold_max.max(self.hold_min);
         self.delay_max = self.delay_max.max(self.delay_min);
+        // Only drills that support it keep an adaptive mode.
+        self.adaptive = self.adaptive();
     }
 }
 
@@ -171,6 +193,22 @@ impl DrillSpec {
         if (config.size - defaults.size).abs() > 1e-3 {
             name += &format!("{VARIANT_SEPARATOR}size {}x", (config.size * 100.0).round() / 100.0);
         }
+        Self { name, config }
+    }
+
+    /// A built-in drill in adaptive mode, with the global decay as its time limit (see
+    /// [`DrillConfig::time_limit`]); the size is chosen per target. Named
+    /// `Microflick · adaptive · measure`, with a non-default time limit before the mode
+    /// (`Microflick · adaptive · limit 1.2s · train`), so each mode has its own history.
+    pub fn adaptive(kind: DrillKind, mode: QuestMode, settings: &Settings) -> Self {
+        let mut config = DrillConfig::builtin(kind, settings);
+        config.size = 1.0;
+        config.adaptive = Some(mode);
+        let mut name = format!("{}{VARIANT_SEPARATOR}adaptive", kind.name());
+        if config.time_limit() != ADAPTIVE_TIME_LIMIT {
+            name += &format!("{VARIANT_SEPARATOR}limit {:.1}s", config.time_limit());
+        }
+        name += &format!("{VARIANT_SEPARATOR}{}", mode.name().to_lowercase());
         Self { name, config }
     }
 }
@@ -287,5 +325,45 @@ mod tests {
         // Peripheral's own decay is its normal mode, not a variant.
         settings.target_scale = 1.0;
         assert_eq!(DrillSpec::builtin(DrillKind::Peripheral, &settings).name, "Peripheral");
+    }
+
+    #[test]
+    fn adaptive_is_optional_in_files() {
+        // Old custom files (no `adaptive` field) load with fixed-size targets.
+        let old: DrillConfig = ron::from_str("(kind: Microflick, lifetime: 1.2, min_flick: 5.0)").unwrap();
+        assert_eq!(old.adaptive, None);
+        // Unset, it isn't written at all, so existing files and share codes stay byte-identical.
+        let fixed = DrillConfig::defaults(DrillKind::Microflick);
+        assert!(!ron::ser::to_string(&fixed).unwrap().contains("adaptive"));
+        let adaptive = DrillConfig { adaptive: Some(QuestMode::Train), ..fixed };
+        let text = ron::ser::to_string(&adaptive).unwrap();
+        assert!(text.contains("adaptive:Some(Train)"), "{text}");
+        assert_eq!(ron::from_str::<DrillConfig>(&text).unwrap(), adaptive);
+    }
+
+    #[test]
+    fn adaptive_only_where_supported() {
+        let mut micro = DrillConfig { adaptive: Some(QuestMode::Measure), ..DrillConfig::defaults(DrillKind::Microflick) };
+        micro.sanitize();
+        assert_eq!(micro.adaptive(), Some(QuestMode::Measure));
+        assert_eq!(micro.time_limit(), ADAPTIVE_TIME_LIMIT);
+        assert_eq!(DrillConfig { lifetime: 1.1, ..micro }.time_limit(), 1.1);
+        let mut tracking = DrillConfig { adaptive: Some(QuestMode::Train), ..DrillConfig::defaults(DrillKind::Tracking) };
+        assert_eq!(tracking.adaptive(), None);
+        tracking.sanitize();
+        assert_eq!(tracking.adaptive, None);
+    }
+
+    #[test]
+    fn adaptive_builtins_get_their_own_history_name() {
+        let mut settings = Settings { target_scale: 0.75, ..Default::default() };
+        let measure = DrillSpec::adaptive(DrillKind::Microflick, QuestMode::Measure, &settings);
+        // The global size doesn't apply: each target's size is chosen.
+        assert_eq!(measure.name, "Microflick · adaptive · measure");
+        assert_eq!((measure.config.size, measure.config.adaptive()), (1.0, Some(QuestMode::Measure)));
+        settings.targets.lifetime = 1.2;
+        let train = DrillSpec::adaptive(DrillKind::Microflick, QuestMode::Train, &settings);
+        assert_eq!(train.name, "Microflick · adaptive · limit 1.2s · train");
+        assert_eq!(train.config.time_limit(), 1.2);
     }
 }

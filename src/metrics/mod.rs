@@ -2,4 +2,6 @@
 
 pub mod bow;
 pub mod flick_probe;
+pub mod normal;
+pub mod quest;
 pub mod throughput;

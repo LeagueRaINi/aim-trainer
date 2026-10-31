@@ -1,5 +1,5 @@
-//! The in-game HUD: title, timer, the drill's live stats, the "click to start" card and the
-//! countdown.
+//! The in-game HUD: title, timer, the drill's live stats (and an adaptive run's live θ75), the
+//! "click to start" card and the countdown.
 
 use std::borrow::Cow;
 
@@ -11,7 +11,7 @@ use bevy::{
 
 use crate::{
     AppState,
-    drill::{Phase, Run},
+    drill::{Phase, Run, adaptive::AdaptiveRun},
     settings::Settings,
     ui::{
         theme::{TEXT_ACCENT, TEXT_STRONG},
@@ -99,12 +99,14 @@ pub(super) fn spawn_hud(mut commands: Commands) {
 
 pub(super) fn update_hud(
     run: Res<Run>,
+    adaptive: Res<AdaptiveRun>,
     settings: Res<Settings>,
     diagnostics: Res<DiagnosticsStore>,
     mut fields: Query<(&HudField, &mut Text)>,
     mut ready_card: Single<&mut Node, With<ReadyCard>>,
 ) {
     let stats = run.stats(&settings);
+    let adaptive_mode = run.drill.config.adaptive();
     let fps = diagnostics
         .get(&FrameTimeDiagnosticsPlugin::FPS)
         .and_then(|fps| fps.smoothed())
@@ -116,9 +118,26 @@ pub(super) fn update_hud(
             HudField::Detail if !run.counting() => {
                 Cow::Owned(format!("Warm-in {:.1}s (not scored)", run.warm_in_left()))
             }
-            HudField::Detail => Cow::Owned(run.kind().def().score.hud_detail(&stats)),
+            HudField::Detail => {
+                let detail = run.kind().def().score.hud_detail(&stats);
+                match adaptive.estimate().filter(|_| adaptive_mode.is_some()) {
+                    Some(e) if e.trials > 0 => Cow::Owned(format!(
+                        "{detail}   ·   θ75 {:.2}° ({:.2}–{:.2})   ·   {}/{} in time",
+                        e.theta75, e.low, e.high, e.hits, e.trials
+                    )),
+                    _ => Cow::Owned(detail),
+                }
+            }
             HudField::Info => Cow::Owned(format!("{fps:.0} fps   Esc to quit")),
-            HudField::ReadyBlurb => Cow::Borrowed(run.kind().blurb()),
+            HudField::ReadyBlurb => match adaptive_mode {
+                Some(mode) => Cow::Owned(format!(
+                    "Adaptive {}: {} Hit each target within {:.1} s.",
+                    mode.name().to_lowercase(),
+                    mode.blurb(),
+                    run.drill.config.time_limit()
+                )),
+                None => Cow::Borrowed(run.kind().blurb()),
+            },
             HudField::Countdown => match run.phase() {
                 Phase::Countdown => Cow::Owned(format!("{}", run.countdown().ceil() as u32)),
                 Phase::Ready | Phase::Live => Cow::Borrowed(""),

@@ -24,6 +24,7 @@ pub const DEF: DrillDef = DrillDef {
     first_flick_probe: false,
     classic_finder: false,
     flick_analysis: true,
+    adaptive: false,
     params: &[ParamId::YawRange, ParamId::PitchRange, ParamId::MinFlick],
     tune_defaults: tune,
     spawn_initial,

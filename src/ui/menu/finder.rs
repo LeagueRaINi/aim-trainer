@@ -10,7 +10,7 @@ use bevy::{
 
 use super::{MenuTab, main_column, page, side_column};
 use crate::{
-    scenario::Scenario,
+    drill::DrillKind,
     settings::{FinderFocus, FinderMethod, SettingField, Settings},
     ui::{bindings::*, screens::finder::start_finder, theme::*, widgets::*},
 };
@@ -37,13 +37,13 @@ pub(super) fn finder_page(settings: &Settings) -> impl Scene {
                     })
                     --
                     @setting_row("Classic drill", bsn_list! {
-                        @choice("Gridshot", Choice::FinderDrill(Scenario::Gridshot))
+                        @choice("Gridshot", Choice::FinderDrill(DrillKind::Gridshot))
                         --
-                        @choice("Microflick", Choice::FinderDrill(Scenario::Microflick))
+                        @choice("Microflick", Choice::FinderDrill(DrillKind::Microflick))
                         --
-                        @choice("Tracking", Choice::FinderDrill(Scenario::Tracking))
+                        @choice("Tracking", Choice::FinderDrill(DrillKind::Tracking))
                         --
-                        @choice("Head level", Choice::FinderDrill(Scenario::HeadLevel))
+                        @choice("Head level", Choice::FinderDrill(DrillKind::HeadLevel))
                     })
                     --
                     @number_field(SettingField::FinderTrialSecs, settings)

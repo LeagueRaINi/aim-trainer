@@ -4,7 +4,7 @@
 use bevy::prelude::*;
 
 use super::{
-    DrillConfig, Run, Scenario,
+    DrillConfig, Run, DrillKind,
     flick_probe::{FlickProbe, angles, screen_offset},
 };
 use crate::{AppState, camera::PlayerCamera, replay::Recorder, settings::Settings, sfx::HitSounds};
@@ -149,7 +149,7 @@ pub fn spawn_cover(commands: &mut Commands, assets: &TargetAssets, state: AppSta
 /// Scene setup when entering a drill, before the player starts it.
 pub(super) fn spawn_static(mut commands: Commands, assets: Res<TargetAssets>, run: Res<Run>) {
     commands.insert_resource(NextSpawn::default());
-    if run.scenario() == Scenario::Peek {
+    if run.kind() == DrillKind::Peek {
         spawn_cover(&mut commands, &assets, AppState::Playing);
     }
 }
@@ -185,12 +185,12 @@ fn ray_box(origin: Vec3, dir: Vec3, min: Vec3, max: Vec3) -> Option<f32> {
 
 fn base_radius(config: &DrillConfig) -> f32 {
     let radius = match config.kind {
-        Scenario::Gridshot => 0.45,
-        Scenario::Microflick | Scenario::Peripheral => 0.2,
-        Scenario::Tracking => 0.45,
-        Scenario::HeadLevel => 0.14,
-        Scenario::Peek => 0.2,
-        Scenario::Reaction => 0.5,
+        DrillKind::Gridshot => 0.45,
+        DrillKind::Microflick | DrillKind::Peripheral => 0.2,
+        DrillKind::Tracking => 0.45,
+        DrillKind::HeadLevel => 0.14,
+        DrillKind::Peek => 0.2,
+        DrillKind::Reaction => 0.5,
     };
     radius * config.size
 }
@@ -309,7 +309,7 @@ pub(super) fn spawn_initial(commands: &mut Commands, assets: &TargetAssets, run:
     let radius = base_radius(config);
     let lifetime = lifetime(config);
     match config.kind {
-        Scenario::Gridshot => {
+        DrillKind::Gridshot => {
             let mut slots: Vec<usize> = (0..grid_cells(config)).collect();
             fastrand::shuffle(&mut slots);
             for &slot in &slots[..config.grid_active as usize] {
@@ -317,20 +317,20 @@ pub(super) fn spawn_initial(commands: &mut Commands, assets: &TargetAssets, run:
                 commands.entity(id).insert(GridSlot(slot));
             }
         }
-        Scenario::Microflick | Scenario::HeadLevel => {
+        DrillKind::Microflick | DrillKind::HeadLevel => {
             spawn_target(commands, assets, flick_position(Vec3::NEG_Z, config), radius, 0.0, lifetime);
         }
-        Scenario::Tracking => {
+        DrillKind::Tracking => {
             let id = spawn_target(commands, assets, Vec3::new(0.0, 0.0, -TARGET_DISTANCE), radius, 0.0, None);
             commands.entity(id).insert(Strafer { velocity: config.strafe_min, turn_in: config.turn_max });
         }
-        Scenario::Reaction => {
+        DrillKind::Reaction => {
             let id = spawn_target(commands, assets, Vec3::new(0.0, 0.0, -TARGET_DISTANCE), radius, 0.0, None);
             let lit_at = random_range(config.delay_min, config.delay_max);
             commands.entity(id).insert((ReactionCue { lit_at, lit: false }, MeshMaterial3d(assets.wait.clone())));
         }
-        Scenario::Peek => commands.insert_resource(NextSpawn(Some(0.6))),
-        Scenario::Peripheral => commands.insert_resource(NextSpawn(Some(0.4))),
+        DrillKind::Peek => commands.insert_resource(NextSpawn(Some(0.6))),
+        DrillKind::Peripheral => commands.insert_resource(NextSpawn(Some(0.4))),
     }
 }
 
@@ -349,19 +349,19 @@ fn replace(
     let radius = base_radius(config);
     let lifetime = lifetime(config);
     match config.kind {
-        Scenario::Gridshot => {
+        DrillKind::Gridshot => {
             occupied.retain(|s| Some(*s) != cleared_slot);
             let Some(slot) = pick_grid_slot(grid_cells(config), occupied, cleared_slot) else { return };
             occupied.push(slot);
             let id = spawn_target(commands, assets, grid_position(slot, config), radius, now, lifetime);
             commands.entity(id).insert(GridSlot(slot));
         }
-        Scenario::Microflick | Scenario::HeadLevel => {
+        DrillKind::Microflick | DrillKind::HeadLevel => {
             spawn_target(commands, assets, flick_position(aim, config), radius, now, lifetime);
         }
-        Scenario::Peek => next.0 = Some(now + random_range(0.5, 1.4)),
-        Scenario::Peripheral => next.0 = Some(now + random_range(0.25, 0.6)),
-        Scenario::Tracking | Scenario::Reaction => {}
+        DrillKind::Peek => next.0 = Some(now + random_range(0.5, 1.4)),
+        DrillKind::Peripheral => next.0 = Some(now + random_range(0.25, 0.6)),
+        DrillKind::Tracking | DrillKind::Reaction => {}
     }
 }
 
@@ -378,15 +378,15 @@ pub(super) fn shoot(
     camera: Single<&Transform, With<PlayerCamera>>,
     targets: Query<(Entity, &Target, &Transform, Option<&GridSlot>)>,
 ) {
-    let kind = run.scenario();
-    if matches!(kind, Scenario::Tracking | Scenario::Reaction) || !run.live() || !mouse.just_pressed(MouseButton::Left) {
+    let kind = run.kind();
+    if matches!(kind, DrillKind::Tracking | DrillKind::Reaction) || !run.live() || !mouse.just_pressed(MouseButton::Left) {
         return;
     }
     run.shot();
 
     let origin = camera.translation;
     let aim = camera.forward().as_vec3();
-    let blocked_at = if kind == Scenario::Peek {
+    let blocked_at = if kind == DrillKind::Peek {
         ray_box(origin, aim, COVER_MIN, COVER_MAX).unwrap_or(f32::MAX)
     } else {
         f32::MAX
@@ -404,7 +404,7 @@ pub(super) fn shoot(
 
     let now = run.elapsed;
     // Gridshot dots wait while you shoot the others, so time them from the previous kill.
-    let ttk = if kind == Scenario::Gridshot { now - run.last_kill } else { now - target.born };
+    let ttk = if kind == DrillKind::Gridshot { now - run.last_kill } else { now - target.born };
     run.kill(ttk);
     if let Some(probe) = run.probe.take() {
         run.land(probe.landing(angles(aim)));
@@ -469,7 +469,7 @@ pub(super) fn spawn_pending(
     let config = &run.drill.config;
     let radius = base_radius(config);
     match config.kind {
-        Scenario::Peek => {
+        DrillKind::Peek => {
             let side = random_sign();
             let position = Vec3::new(side * PEEK_HIDDEN_X, 0.0, -TARGET_DISTANCE);
             let id = spawn_target(&mut commands, &assets, position, radius, now, None);
@@ -480,7 +480,7 @@ pub(super) fn spawn_pending(
                 phase: PeekPhase::Out,
             });
         }
-        Scenario::Peripheral => {
+        DrillKind::Peripheral => {
             let position = peripheral_position(camera.forward().as_vec3(), config);
             spawn_target(&mut commands, &assets, position, radius, now, lifetime(config));
         }
@@ -575,7 +575,7 @@ pub(super) fn probe_flicks(
     camera: Single<&Transform, With<PlayerCamera>>,
     spawned: Query<&Transform, Added<Target>>,
 ) {
-    if run.scenario() != Scenario::Microflick {
+    if run.kind() != DrillKind::Microflick {
         return;
     }
     let aim = angles(camera.forward().as_vec3());
@@ -660,7 +660,7 @@ fn pick_grid_slot(cells: usize, occupied: &[usize], cleared_slot: Option<usize>)
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::scenario::flick_probe::{screen_angle, wrap};
+    use crate::drill::flick_probe::{screen_angle, wrap};
 
     #[test]
     fn single_cell_grid_respawns_in_place() {
@@ -695,7 +695,7 @@ mod tests {
 
     #[test]
     fn head_level_targets_stay_at_eye_height() {
-        let config = DrillConfig::defaults(Scenario::HeadLevel);
+        let config = DrillConfig::defaults(DrillKind::HeadLevel);
         for _ in 0..50 {
             assert!(flick_position(Vec3::NEG_Z, &config).y.abs() < 1e-4);
         }
@@ -704,14 +704,14 @@ mod tests {
     /// A Microflick config trained on down-left flicks of 15-25 degrees.
     fn down_left() -> DrillConfig {
         let mut config = DrillConfig {
-            kind: Scenario::Microflick,
+            kind: DrillKind::Microflick,
             yaw_range: 40.0,
             pitch_range: 25.0,
             min_flick: 15.0,
             max_flick: 25.0,
             flick_direction: Some(225.0),
             flick_spread: 22.5,
-            ..DrillConfig::defaults(Scenario::Microflick)
+            ..DrillConfig::defaults(DrillKind::Microflick)
         };
         config.sanitize();
         config
@@ -758,7 +758,7 @@ mod tests {
 
     #[test]
     fn default_microflick_is_unconstrained() {
-        let config = DrillConfig::defaults(Scenario::Microflick);
+        let config = DrillConfig::defaults(DrillKind::Microflick);
         assert!(!config.flick_constrained());
         // Targets still land on both sides, as before.
         let sides: Vec<bool> = (0..200).map(|_| flick_position(Vec3::NEG_Z, &config).x > 0.0).collect();
@@ -767,7 +767,7 @@ mod tests {
 
     #[test]
     fn peripheral_targets_appear_off_center() {
-        let config = DrillConfig::defaults(Scenario::Peripheral);
+        let config = DrillConfig::defaults(DrillKind::Peripheral);
         for _ in 0..50 {
             let dir = peripheral_position(Vec3::NEG_Z, &config).normalize();
             assert!(dir.angle_between(Vec3::NEG_Z).to_degrees() >= config.min_flick - 1e-3);

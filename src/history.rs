@@ -9,7 +9,7 @@ use std::{
 use bevy::prelude::*;
 
 use crate::{
-    scenario::{RunPurpose, RunStats, Scenario},
+    drill::{RunPurpose, RunStats, DrillKind},
     settings::Settings,
 };
 
@@ -33,7 +33,7 @@ pub struct HistoryEntry {
     /// Drill name (built-in or custom).
     pub drill: String,
     /// Kind of drill, which decides which stats are meaningful.
-    pub kind: Scenario,
+    pub kind: DrillKind,
     pub sens: f32,
     pub cm_per_360: f32,
     pub accuracy: f32,
@@ -47,8 +47,8 @@ impl HistoryEntry {
     fn parse(line: &str) -> Option<Self> {
         let cols: Vec<&str> = line.split(',').collect();
         let kind = match cols.len() {
-            15 => Scenario::from_name(cols[2])?,
-            16 => Scenario::from_name(cols[15])?,
+            15 => DrillKind::from_name(cols[2])?,
+            16 => DrillKind::from_name(cols[15])?,
             _ => return None,
         };
         Some(Self {
@@ -136,7 +136,7 @@ impl History {
     /// Names of every drill with practice runs, built-ins first, then others in order of
     /// their first run.
     pub fn drills(&self) -> Vec<String> {
-        let mut names: Vec<String> = Scenario::ALL.iter().map(|s| s.name().to_string()).collect();
+        let mut names: Vec<String> = DrillKind::ALL.iter().map(|s| s.name().to_string()).collect();
         for entry in &self.entries {
             if entry.purpose == RunPurpose::Practice && !names.contains(&entry.drill) {
                 names.push(entry.drill.clone());
@@ -185,7 +185,7 @@ fn format_row(timestamp: u64, stats: &RunStats, purpose: RunPurpose, settings: &
         stats.avg_kill_ms(),
         stats.on_target_ratio() * 100.0,
         stats.score(),
-        stats.scenario.name(),
+        stats.kind.name(),
     )
 }
 
@@ -225,7 +225,7 @@ mod tests {
         assert!(HistoryEntry::parse(&entry("Practice", "Gridshot", 123.0)).is_some());
         // Custom drill: name in column 3, kind in the extra 16th column.
         let custom = HistoryEntry::parse(&format!("{},Gridshot", entry("Practice", "My 5x5", 1.0))).unwrap();
-        assert_eq!((custom.drill.as_str(), custom.kind), ("My 5x5", Scenario::Gridshot));
+        assert_eq!((custom.drill.as_str(), custom.kind), ("My 5x5", DrillKind::Gridshot));
         assert!(HistoryEntry::parse("not,a,row").is_none());
         // Old rows must name a built-in drill, since they carry no kind.
         assert!(HistoryEntry::parse(&entry("Practice", "Nope", 1.0)).is_none());
@@ -295,14 +295,14 @@ mod fixture_tests {
     /// The runs `fixtures/history_rows.csv` was written from: one per kind, purposes alternating.
     fn fixture_runs() -> Vec<(u64, RunStats, RunPurpose)> {
         let settings = Settings::default();
-        Scenario::ALL
+        DrillKind::ALL
             .into_iter()
             .enumerate()
             .map(|(i, kind)| {
                 let f = i as f32;
                 let sens = 0.4 + f * 0.05;
                 let stats = RunStats {
-                    scenario: kind,
+                    kind,
                     drill: if i == 0 { "My, 5x5".into() } else { kind.name().into() },
                     sens,
                     cm_per_360: settings.cm_per_360(sens),
@@ -332,21 +332,21 @@ mod fixture_tests {
     #[test]
     fn parses_every_kind_fixture() {
         let entries: Vec<HistoryEntry> = FIXTURE.lines().map(|line| HistoryEntry::parse(line).unwrap()).collect();
-        let kinds: Vec<Scenario> = entries.iter().map(|e| e.kind).collect();
-        assert_eq!(kinds, Scenario::ALL);
+        let kinds: Vec<DrillKind> = entries.iter().map(|e| e.kind).collect();
+        assert_eq!(kinds, DrillKind::ALL);
         for (entry, (t, stats, purpose)) in entries.iter().zip(fixture_runs()) {
             assert_eq!((entry.timestamp, entry.purpose), (t, purpose));
             assert_eq!(entry.score, stats.score());
         }
         assert_eq!(entries[0].drill, "My  5x5");
         // Rows from before custom scenarios: 15 columns, the kind is the built-in drill name.
-        for (line, kind) in FIXTURE.lines().zip(Scenario::ALL).skip(1) {
+        for (line, kind) in FIXTURE.lines().zip(DrillKind::ALL).skip(1) {
             let legacy = line.rsplit_once(',').unwrap().0;
             let entry = HistoryEntry::parse(legacy).unwrap();
             assert_eq!((entry.kind, entry.drill.as_str()), (kind, kind.name()));
         }
-        for (name, kind) in [("Head level", Scenario::HeadLevel), ("Peeks", Scenario::Peek)] {
-            assert_eq!(Scenario::from_name(name), Some(kind));
+        for (name, kind) in [("Head level", DrillKind::HeadLevel), ("Peeks", DrillKind::Peek)] {
+            assert_eq!(DrillKind::from_name(name), Some(kind));
         }
     }
 }

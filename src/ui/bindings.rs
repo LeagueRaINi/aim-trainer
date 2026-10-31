@@ -15,7 +15,7 @@ use bevy::{
 
 use super::{theme::*, widgets::*};
 use crate::{
-    scenario::Scenario,
+    drill::DrillKind,
     settings::{
         AspectMode, CROSSHAIR_COLORS, DisplayMode, FinderFocus, FinderMethod, HitSound, PRESETS, SettingField, Settings,
         TARGET_COLORS, fields::FieldSpec,
@@ -33,7 +33,7 @@ pub const FIELD_W: f32 = 120.0;
 #[derive(Component, Clone, Copy, Debug, PartialEq)]
 pub enum Choice {
     Preset(usize),
-    FinderDrill(Scenario),
+    FinderDrill(DrillKind),
     Display(DisplayMode),
     Aspect(AspectMode),
     Vsync(bool),
@@ -59,7 +59,7 @@ impl Choice {
     fn apply(self, settings: &mut Settings) {
         match self {
             Choice::Preset(index) => settings.apply_preset(&PRESETS[index]),
-            Choice::FinderDrill(scenario) => settings.finder_drill = scenario,
+            Choice::FinderDrill(kind) => settings.finder_drill = kind,
             Choice::Display(mode) => settings.video.display = mode,
             Choice::Aspect(mode) => settings.video.aspect = mode,
             Choice::Vsync(on) => settings.video.vsync = on,
@@ -79,7 +79,7 @@ impl Choice {
     fn is_selected(self, settings: &Settings) -> bool {
         match self {
             Choice::Preset(index) => settings.matching_preset() == Some(&PRESETS[index]),
-            Choice::FinderDrill(scenario) => settings.finder_drill == scenario,
+            Choice::FinderDrill(kind) => settings.finder_drill == kind,
             Choice::Display(mode) => settings.video.display == mode,
             Choice::Aspect(mode) => settings.video.aspect == mode,
             Choice::Vsync(on) => settings.video.vsync == on,

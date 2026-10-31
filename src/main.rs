@@ -3,6 +3,7 @@ mod camera;
 mod crosshair;
 mod custom;
 mod display;
+mod drill;
 mod finder;
 mod history;
 mod icon;
@@ -11,7 +12,6 @@ mod persist;
 mod presence;
 mod replay;
 mod routine;
-mod scenario;
 mod settings;
 mod sfx;
 mod smart_finder;
@@ -63,7 +63,7 @@ fn main() {
             icon::IconPlugin,
             crosshair::CrosshairPlugin,
             sfx::SfxPlugin,
-            scenario::ScenarioPlugin,
+            drill::DrillPlugin,
             replay::ReplayPlugin,
             presence::PresencePlugin,
             ui::UiPlugin,

@@ -17,7 +17,7 @@ use crate::{
     },
     custom::CustomContent,
     replay::Replay,
-    scenario::{DrillConfig, DrillSpec, Run, RunPurpose, Scenario, begin_run},
+    drill::{DrillConfig, DrillSpec, Run, RunPurpose, DrillKind, begin_run},
     settings::Settings,
 };
 
@@ -236,7 +236,7 @@ fn train(
     mut next_state: ResMut<NextState<AppState>>,
 ) {
     let Ok(&TrainButton(spot)) = buttons.get(activate.event_target()) else { return };
-    let config = spot.training_config(DrillConfig::builtin(Scenario::Microflick, &settings));
+    let config = spot.training_config(DrillConfig::builtin(DrillKind::Microflick, &settings));
     let id = content.upsert_scenario(&spot.scenario_name(), TRAINING_SECS, config);
     let Some(scenario) = content.scenario(id) else { return };
     let drill = DrillSpec { name: scenario.name.clone(), config: scenario.config.clone() };

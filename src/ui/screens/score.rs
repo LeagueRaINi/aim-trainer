@@ -11,7 +11,7 @@ use crate::{
     finder::Finder,
     history::Comparison,
     routine::Routine,
-    scenario::RunStats,
+    drill::RunStats,
     smart_finder::SmartFinder,
     ui::{theme::*, widgets::*},
 };

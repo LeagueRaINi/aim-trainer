@@ -6,14 +6,14 @@ use bevy::prelude::*;
 use crate::{
     AppState,
     history::Comparison,
-    scenario::{DrillSpec, Run, RunPurpose, RunStats, Scenario, begin_run},
+    drill::{DrillSpec, Run, RunPurpose, RunStats, DrillKind, begin_run},
     settings::Settings,
 };
 
 pub struct RoutinePlan {
     pub name: &'static str,
     pub blurb: &'static str,
-    pub steps: &'static [(Scenario, f32)],
+    pub steps: &'static [(DrillKind, f32)],
 }
 
 pub const ROUTINES: [RoutinePlan; 3] = [
@@ -21,32 +21,32 @@ pub const ROUTINES: [RoutinePlan; 3] = [
         name: "Valorant warmup",
         blurb: "Eyes, flicks, head-level placement, tracking, then peeks. ~4 min.",
         steps: &[
-            (Scenario::Peripheral, 30.0),
-            (Scenario::Microflick, 45.0),
-            (Scenario::HeadLevel, 45.0),
-            (Scenario::Tracking, 30.0),
-            (Scenario::Peek, 60.0),
+            (DrillKind::Peripheral, 30.0),
+            (DrillKind::Microflick, 45.0),
+            (DrillKind::HeadLevel, 45.0),
+            (DrillKind::Tracking, 30.0),
+            (DrillKind::Peek, 60.0),
         ],
     },
     RoutinePlan {
         name: "CS2 warmup",
         blurb: "Crosshair placement first, then flicks, peeks and a speed finisher. ~4 min.",
         steps: &[
-            (Scenario::HeadLevel, 45.0),
-            (Scenario::Microflick, 45.0),
-            (Scenario::Peek, 60.0),
-            (Scenario::Gridshot, 45.0),
-            (Scenario::Tracking, 30.0),
+            (DrillKind::HeadLevel, 45.0),
+            (DrillKind::Microflick, 45.0),
+            (DrillKind::Peek, 60.0),
+            (DrillKind::Gridshot, 45.0),
+            (DrillKind::Tracking, 30.0),
         ],
     },
     RoutinePlan {
         name: "Eye training",
         blurb: "Reaction speed, peripheral awareness and smooth pursuit. ~2 min.",
         steps: &[
-            (Scenario::Reaction, 30.0),
-            (Scenario::Peripheral, 45.0),
-            (Scenario::Tracking, 30.0),
-            (Scenario::Reaction, 30.0),
+            (DrillKind::Reaction, 30.0),
+            (DrillKind::Peripheral, 45.0),
+            (DrillKind::Tracking, 30.0),
+            (DrillKind::Reaction, 30.0),
         ],
     },
 ];

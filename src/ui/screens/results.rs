@@ -9,7 +9,7 @@ use bevy::{
 use crate::{
     AppState,
     replay::{Replay, watch},
-    scenario::{LastRun, Run, RunPurpose, begin_run},
+    drill::{LastRun, Run, RunPurpose, begin_run},
     settings::Settings,
     ui::widgets::*,
 };
@@ -18,7 +18,7 @@ use super::score::*;
 
 pub fn spawn_results(mut commands: Commands, last: Res<LastRun>, settings: Res<Settings>) {
     let stats = &last.stats;
-    let kind = stats.scenario.name();
+    let kind = stats.kind.name();
     let context = if stats.drill == kind { "Results".to_string() } else { format!("Results  ·  {kind}") };
     let sens = format!("Sensitivity {:.3}  ·  {}", stats.sens, settings.describe_sens(stats.sens));
     commands

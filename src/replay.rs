@@ -16,7 +16,7 @@ use bevy::{
 use crate::{
     AppState,
     camera::{Look, apply_look},
-    scenario::{Scenario, TargetAssets, spawn_cover},
+    drill::{DrillKind, TargetAssets, spawn_cover},
     tracer,
     ui::{
         theme::{DIVIDER, TEXT_ACCENT, TEXT_BAD, TEXT_GOOD, TEXT_STRONG},
@@ -92,7 +92,7 @@ pub struct ReplayFrame {
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct Replay {
-    pub scenario: Scenario,
+    pub kind: DrillKind,
     /// Drill name (built-in or custom).
     pub name: String,
     pub sens: f32,
@@ -125,12 +125,12 @@ impl Replay {
 
     /// The newest saved replays (newest first, at most `limit`) of the given drill kinds. Only
     /// the header byte is checked before decoding, so other drills' replays cost a file read.
-    pub fn recent(kinds: &[Scenario], limit: usize) -> Vec<Self> {
+    pub fn recent(kinds: &[DrillKind], limit: usize) -> Vec<Self> {
         Self::saved_stamps()
             .into_iter()
             .rev()
             .filter_map(|stamp| fs::read(Self::path(stamp)).ok())
-            .filter(|bytes| bytes.get(5).and_then(|&i| Scenario::ALL.get(i as usize)).is_some_and(|s| kinds.contains(s)))
+            .filter(|bytes| bytes.get(5).and_then(|&i| DrillKind::ALL.get(i as usize)).is_some_and(|s| kinds.contains(s)))
             .filter_map(|bytes| Self::decode(&bytes))
             .take(limit)
             .collect()
@@ -163,7 +163,7 @@ impl Replay {
         let mut out = Vec::with_capacity(16 + name.len());
         out.extend_from_slice(MAGIC);
         out.push(version);
-        out.push(Scenario::ALL.iter().position(|s| *s == self.scenario).unwrap_or(0) as u8);
+        out.push(DrillKind::ALL.iter().position(|s| *s == self.kind).unwrap_or(0) as u8);
         out.push(name.len() as u8);
         out.extend_from_slice(name.as_bytes());
         out.extend_from_slice(&self.sens.to_le_bytes());
@@ -180,13 +180,13 @@ impl Replay {
         if !(1..=VERSION).contains(&version) {
             return None;
         }
-        let scenario = *Scenario::ALL.get(reader.u8()? as usize)?;
+        let kind = *DrillKind::ALL.get(reader.u8()? as usize)?;
         // Version 1 predates custom scenarios and has no name.
         let name = if version >= 2 {
             let len = reader.u8()? as usize;
             String::from_utf8(reader.take(len)?.to_vec()).ok()?
         } else {
-            scenario.name().to_string()
+            kind.name().to_string()
         };
         let sens = reader.f32()?;
         let duration = reader.f32()?;
@@ -196,7 +196,7 @@ impl Replay {
         } else {
             decode_raw_frames(&mut reader, bytes.len())?
         };
-        Some(Self { scenario, name, sens, duration, frames })
+        Some(Self { kind, name, sens, duration, frames })
     }
 
     /// Whether `other` is this replay up to the v3 quantization (and f32 rounding).
@@ -215,7 +215,7 @@ impl Replay {
                 && a.targets.len() == b.targets.len()
                 && a.targets.iter().zip(&b.targets).all(|(a, b)| same_target(a, b))
         };
-        self.scenario == other.scenario
+        self.kind == other.kind
             && self.name == other.name
             && self.sens.to_bits() == other.sens.to_bits()
             && self.duration.to_bits() == other.duration.to_bits()
@@ -600,7 +600,7 @@ fn migrate_file(path: &Path) -> io::Result<bool> {
 // Recording
 // ---------------------------------------------------------------------------------------------
 
-/// Collects frames while a drill is live. Owned by the scenario systems.
+/// Collects frames while a drill is live. Owned by the drill systems.
 #[derive(Resource, Default)]
 pub struct Recorder {
     frames: Vec<ReplayFrame>,
@@ -622,8 +622,8 @@ impl Recorder {
         self.frames.push(ReplayFrame { t, yaw, pitch, shot, targets: targets.collect() });
     }
 
-    pub fn finish(&mut self, scenario: Scenario, name: &str, sens: f32, duration: f32) -> Replay {
-        Replay { scenario, name: name.to_string(), sens, duration, frames: std::mem::take(&mut self.frames) }
+    pub fn finish(&mut self, kind: DrillKind, name: &str, sens: f32, duration: f32) -> Replay {
+        Replay { kind, name: name.to_string(), sens, duration, frames: std::mem::take(&mut self.frames) }
     }
 }
 
@@ -914,7 +914,7 @@ fn marker_range(shown_until: f32, now: f32) -> (f32, bool) {
 }
 
 fn spawn_replay_hud(mut commands: Commands, playback: Res<Playback>, assets: Res<TargetAssets>) {
-    if playback.replay.scenario == Scenario::Peek {
+    if playback.replay.kind == DrillKind::Peek {
         spawn_cover(&mut commands, &assets, AppState::Replay);
     }
     commands
@@ -1041,7 +1041,7 @@ mod tests {
         recorder.mark_shot(true);
         recorder.sample(0.002, (0.3, 0.0), std::iter::empty()); // shot: always kept
         recorder.sample(0.01, (0.4, 0.1), std::iter::empty());
-        recorder.finish(Scenario::Tracking, "My tracking", 0.4, 60.0)
+        recorder.finish(DrillKind::Tracking, "My tracking", 0.4, 60.0)
     }
 
     #[test]
@@ -1090,7 +1090,7 @@ mod tests {
                 recorder.sample(t + 0.0013, (yaw, pitch), targets.iter().copied());
             }
         }
-        recorder.finish(Scenario::Gridshot, "Gridshot · decay", 0.4, 30.0)
+        recorder.finish(DrillKind::Gridshot, "Gridshot · decay", 0.4, 30.0)
     }
 
     const RAD_PER_COUNT: f32 = 0.4 * 0.07 * std::f32::consts::PI / 180.0;
@@ -1224,7 +1224,7 @@ mod tests {
     #[test]
     fn kind_index_is_stable() {
         assert_eq!(
-            Scenario::ALL.map(Scenario::name),
+            DrillKind::ALL.map(DrillKind::name),
             ["Gridshot", "Microflick", "Tracking", "Head level", "Peeks", "Reaction", "Peripheral"]
         );
     }
@@ -1237,6 +1237,6 @@ mod tests {
             ReplayFrame { t: 0.0085, yaw: -0.025, pitch: 0.006, shot: Shot::Hit, targets: vec![] },
             ReplayFrame { t: 0.0125, yaw: -0.03, pitch: 0.005, shot: Shot::None, targets: vec![(Vec3::new(-2.0, 0.0, -10.0), 0.2), (Vec3::new(0.5, 1.0, -9.5), 0.15)] },
         ];
-        Replay { scenario: Scenario::Peek, name: "Peeks".into(), sens: 0.4, duration: 20.0, frames }
+        Replay { kind: DrillKind::Peek, name: "Peeks".into(), sens: 0.4, duration: 20.0, frames }
     }
 }

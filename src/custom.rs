@@ -11,7 +11,7 @@ use crate::{
     history::csv_safe,
     persist::{self, PersistPlugin, Persisted},
     routine::{Routine, RoutineStep},
-    scenario::{DrillConfig, DrillSpec, Scenario, VARIANT_SEPARATOR},
+    drill::{DrillConfig, DrillSpec, DrillKind, VARIANT_SEPARATOR},
     settings::Settings,
 };
 
@@ -80,7 +80,7 @@ pub struct CustomScenario {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum DrillRef {
-    Builtin(Scenario),
+    Builtin(DrillKind),
     Custom(u32),
 }
 
@@ -129,7 +129,7 @@ impl CustomContent {
     /// Taken by another scenario, or by a built-in drill's name or variant name (their history
     /// would get mixed in).
     fn name_taken(&self, name: &str) -> bool {
-        let builtin = Scenario::ALL.iter().any(|s| {
+        let builtin = DrillKind::ALL.iter().any(|s| {
             name.strip_prefix(s.name()).is_some_and(|rest| rest.is_empty() || rest.starts_with(VARIANT_SEPARATOR))
         });
         builtin || self.scenarios.iter().any(|s| s.name == name)
@@ -137,7 +137,7 @@ impl CustomContent {
 
     /// A name not used by any built-in drill or other custom scenario, so history stays separate.
     fn unique_name(&self, base: &str) -> String {
-        let base = clean_name(base, "Scenario");
+        let base = clean_name(base, "DrillKind");
         (1..).map(|i| suffixed(&base, i)).find(|name| !self.name_taken(name)).expect("unbounded")
     }
 
@@ -157,7 +157,7 @@ impl CustomContent {
         self.playlists.iter_mut().find(|p| p.id == id)
     }
 
-    pub fn new_scenario(&mut self, kind: Scenario) -> u32 {
+    pub fn new_scenario(&mut self, kind: DrillKind) -> u32 {
         let id = self.take_id();
         let name = self.unique_name(&format!("My {}", kind.name()));
         self.scenarios.push(CustomScenario { id, name, duration: 60.0, config: DrillConfig::defaults(kind) });
@@ -178,7 +178,7 @@ impl CustomContent {
     /// generated scenarios like weak-spot training, whose history should continue across updates.
     pub fn upsert_scenario(&mut self, name: &str, duration: f32, mut config: DrillConfig) -> u32 {
         config.sanitize();
-        let name = clean_name(name, "Scenario");
+        let name = clean_name(name, "DrillKind");
         if let Some(scenario) = self.scenarios.iter_mut().find(|s| s.name == name) {
             scenario.config = config;
             return scenario.id;
@@ -195,7 +195,7 @@ impl CustomContent {
         let name = name.trim();
         let clash = name.is_empty()
             || name.contains([',', '\n', '\r'])
-            || Scenario::ALL.iter().any(|s| s.name() == name)
+            || DrillKind::ALL.iter().any(|s| s.name() == name)
             || self.scenarios.iter().any(|s| s.id != id && s.name == name);
         match self.scenario_mut(id) {
             Some(scenario) if !clash => {
@@ -268,7 +268,7 @@ struct SharedPlaylist {
 
 #[derive(Serialize, Deserialize)]
 enum SharedDrill {
-    Builtin(Scenario),
+    Builtin(DrillKind),
     Custom { name: String, duration: f32, config: DrillConfig },
 }
 
@@ -339,8 +339,8 @@ mod tests {
     #[test]
     fn names_stay_unique_and_never_shadow_builtins() {
         let mut content = CustomContent::default();
-        let a = content.new_scenario(Scenario::Gridshot);
-        let b = content.new_scenario(Scenario::Gridshot);
+        let a = content.new_scenario(DrillKind::Gridshot);
+        let b = content.new_scenario(DrillKind::Gridshot);
         assert_ne!(content.scenario(a).unwrap().name, content.scenario(b).unwrap().name);
         assert!(!content.rename_scenario(a, "Gridshot"));
         assert!(!content.rename_scenario(a, &content.scenario(b).unwrap().name.clone()));
@@ -352,11 +352,11 @@ mod tests {
     #[test]
     fn deleting_a_scenario_removes_it_from_playlists() {
         let mut content = CustomContent::default();
-        let scenario = content.new_scenario(Scenario::Tracking);
+        let scenario = content.new_scenario(DrillKind::Tracking);
         let playlist = content.new_playlist();
         let steps = &mut content.playlist_mut(playlist).unwrap().steps;
         steps.push(PlaylistStep { drill: DrillRef::Custom(scenario), secs: 30.0 });
-        steps.push(PlaylistStep { drill: DrillRef::Builtin(Scenario::Gridshot), secs: 30.0 });
+        steps.push(PlaylistStep { drill: DrillRef::Builtin(DrillKind::Gridshot), secs: 30.0 });
         content.delete_scenario(scenario);
         assert_eq!(content.playlist(playlist).unwrap().steps.len(), 1);
     }
@@ -364,7 +364,7 @@ mod tests {
     #[test]
     fn playlists_resolve_to_routines_with_custom_configs() {
         let mut content = CustomContent::default();
-        let scenario = content.new_scenario(Scenario::Gridshot);
+        let scenario = content.new_scenario(DrillKind::Gridshot);
         content.scenario_mut(scenario).unwrap().config.grid_cols = 5;
         let playlist = content.new_playlist();
         content.playlist_mut(playlist).unwrap().steps.push(PlaylistStep { drill: DrillRef::Custom(scenario), secs: 20.0 });
@@ -379,7 +379,7 @@ mod tests {
     #[test]
     fn saved_content_round_trips() {
         let mut content = CustomContent::default();
-        content.new_scenario(Scenario::Peek);
+        content.new_scenario(DrillKind::Peek);
         content.new_playlist();
         let text = ron::ser::to_string(&content).unwrap();
         assert_eq!(ron::from_str::<CustomContent>(&text).unwrap(), content);
@@ -388,12 +388,12 @@ mod tests {
     #[test]
     fn share_codes_round_trip_with_embedded_scenarios() {
         let mut source = CustomContent::default();
-        let wide = source.new_scenario(Scenario::Gridshot);
+        let wide = source.new_scenario(DrillKind::Gridshot);
         source.scenario_mut(wide).unwrap().config.grid_cols = 6;
         let playlist = source.new_playlist();
         let steps = &mut source.playlist_mut(playlist).unwrap().steps;
         steps.push(PlaylistStep { drill: DrillRef::Custom(wide), secs: 40.0 });
-        steps.push(PlaylistStep { drill: DrillRef::Builtin(Scenario::Peek), secs: 60.0 });
+        steps.push(PlaylistStep { drill: DrillRef::Builtin(DrillKind::Peek), secs: 60.0 });
         let code = source.export_playlist(playlist).unwrap();
         assert!(code.starts_with(SHARE_PREFIX));
 
@@ -402,7 +402,7 @@ mod tests {
         let routine = target.playlist_routine(imported, &Settings::default()).unwrap();
         assert_eq!(routine.steps.len(), 2);
         assert_eq!(routine.steps[0].drill.config.grid_cols, 6);
-        assert_eq!(routine.steps[1].drill.config.kind, Scenario::Peek);
+        assert_eq!(routine.steps[1].drill.config.kind, DrillKind::Peek);
 
         // Importing again reuses the identical scenario instead of duplicating it.
         target.import_playlist(&code).unwrap();
@@ -425,7 +425,7 @@ mod tests {
     #[test]
     fn names_are_csv_safe_and_bounded() {
         let mut content = CustomContent::default();
-        let a = content.new_scenario(Scenario::Gridshot);
+        let a = content.new_scenario(DrillKind::Gridshot);
         assert!(!content.rename_scenario(a, "Head,level"));
         assert!(!content.rename_scenario(a, "two\nlines"));
         assert!(!content.rename_scenario(a, "c\rr"));
@@ -449,7 +449,7 @@ mod tests {
                 SharedDrill::Custom {
                     name: "Head,level".into(),
                     duration: f32::NAN,
-                    config: DrillConfig { strafe_min: f32::NAN, ..DrillConfig::defaults(Scenario::Tracking) },
+                    config: DrillConfig { strafe_min: f32::NAN, ..DrillConfig::defaults(DrillKind::Tracking) },
                 },
                 f32::NAN,
             )],
@@ -470,7 +470,7 @@ mod tests {
         let shared = SharedPlaylist {
             name: "p".into(),
             steps: vec![(
-                SharedDrill::Custom { name: "Gridshot".into(), duration: 60.0, config: DrillConfig::defaults(Scenario::Gridshot) },
+                SharedDrill::Custom { name: "Gridshot".into(), duration: 60.0, config: DrillConfig::defaults(DrillKind::Gridshot) },
                 30.0,
             )],
         };
@@ -492,7 +492,7 @@ mod tests {
     #[test]
     fn upserting_creates_once_then_updates_in_place() {
         let mut content = CustomContent::default();
-        let config = DrillConfig { max_flick: 25.0, flick_direction: Some(225.0), ..DrillConfig::defaults(Scenario::Microflick) };
+        let config = DrillConfig { max_flick: 25.0, flick_direction: Some(225.0), ..DrillConfig::defaults(DrillKind::Microflick) };
         let id = content.upsert_scenario("Weak spot: down-left 15-25°", 60.0, config.clone());
         content.scenario_mut(id).unwrap().duration = 45.0;
         let again = content.upsert_scenario("Weak spot: down-left 15-25°", 60.0, DrillConfig { max_flick: 20.0, ..config });
@@ -502,7 +502,7 @@ mod tests {
         assert_eq!(scenario.config.max_flick, 20.0);
         assert_eq!(scenario.duration, 45.0, "your own length is kept");
         // Never takes over a built-in drill's history.
-        let other = content.upsert_scenario("Microflick", 60.0, DrillConfig::defaults(Scenario::Microflick));
+        let other = content.upsert_scenario("Microflick", 60.0, DrillConfig::defaults(DrillKind::Microflick));
         assert_eq!(content.scenario(other).unwrap().name, "Microflick 1");
     }
 
@@ -536,7 +536,7 @@ mod tests {
     /// custom step. Returns it with the playlist's id.
     fn fixture_content() -> (CustomContent, u32) {
         let mut content = CustomContent::default();
-        let ids: Vec<u32> = Scenario::ALL.into_iter().map(|kind| content.new_scenario(kind)).collect();
+        let ids: Vec<u32> = DrillKind::ALL.into_iter().map(|kind| content.new_scenario(kind)).collect();
         let micro = content.scenario_mut(ids[1]).unwrap();
         micro.config.max_flick = 20.0;
         micro.config.flick_direction = Some(90.0);
@@ -545,7 +545,7 @@ mod tests {
         content.scenario_mut(ids[0]).unwrap().config.grid_cols = 5;
         let playlist = content.new_playlist();
         let steps = &mut content.playlist_mut(playlist).unwrap().steps;
-        steps.push(PlaylistStep { drill: DrillRef::Builtin(Scenario::Peripheral), secs: 30.0 });
+        steps.push(PlaylistStep { drill: DrillRef::Builtin(DrillKind::Peripheral), secs: 30.0 });
         steps.push(PlaylistStep { drill: DrillRef::Custom(ids[1]), secs: 40.0 });
         (content, playlist)
     }
@@ -558,8 +558,8 @@ mod tests {
         let mut loaded: CustomContent = ron::from_str(fixture).unwrap();
         loaded.repair();
         assert_eq!(loaded, expected);
-        let kinds: Vec<Scenario> = loaded.scenarios.iter().map(|s| s.config.kind).collect();
-        assert_eq!(kinds, Scenario::ALL);
+        let kinds: Vec<DrillKind> = loaded.scenarios.iter().map(|s| s.config.kind).collect();
+        assert_eq!(kinds, DrillKind::ALL);
         let written = ron::ser::to_string_pretty(&expected, ron::ser::PrettyConfig::default()).unwrap();
         assert_eq!(written.replace("\r\n", "\n"), fixture.replace("\r\n", "\n"));
     }
@@ -575,7 +575,7 @@ mod tests {
         let id = content.import_playlist(code).unwrap();
         let imported = content.playlist(id).unwrap();
         assert_eq!(imported.name, "My playlist 1");
-        assert_eq!(imported.steps[0], PlaylistStep { drill: DrillRef::Builtin(Scenario::Peripheral), secs: 30.0 });
+        assert_eq!(imported.steps[0], PlaylistStep { drill: DrillRef::Builtin(DrillKind::Peripheral), secs: 30.0 });
         let DrillRef::Custom(custom) = imported.steps[1].drill else { panic!("expected a custom step") };
         assert_eq!(imported.steps[1].secs, 40.0);
         let scenario = content.scenario(custom).unwrap();

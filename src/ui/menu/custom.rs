@@ -25,7 +25,7 @@ use crate::{
     AppState,
     custom::{CustomContent, DrillRef, PlaylistStep},
     routine::start_routine,
-    scenario::{DrillConfig, DrillSpec, Run, RunPurpose, Scenario, begin_run},
+    drill::{DrillConfig, DrillSpec, Run, RunPurpose, DrillKind, begin_run},
     settings::Settings,
 };
 
@@ -40,7 +40,7 @@ pub struct CustomSelection {
 pub enum Editing {
     #[default]
     Nothing,
-    Scenario(u32),
+    DrillKind(u32),
     Playlist(u32),
 }
 
@@ -83,7 +83,7 @@ pub struct PlaylistList;
 pub struct CustomEditor;
 
 #[derive(Component, Clone, Copy, Default)]
-struct NewScenarioButton(Scenario);
+struct NewScenarioButton(DrillKind);
 
 /// Buttons acting on one item; the payload is the item id (or step index).
 #[derive(Component, Clone, Copy, Default)]
@@ -167,15 +167,15 @@ impl CustomField {
     }
 
     /// Fields shown for a drill kind, after the common ones.
-    fn for_kind(kind: Scenario) -> &'static [CustomField] {
+    fn for_kind(kind: DrillKind) -> &'static [CustomField] {
         use CustomField::*;
         match kind {
-            Scenario::Gridshot => &[GridCols, GridRows, GridSpacing, GridActive],
-            Scenario::Microflick | Scenario::Peripheral => &[YawRange, PitchRange, MinFlick],
-            Scenario::HeadLevel => &[YawRange, MinFlick],
-            Scenario::Tracking => &[StrafeMin, StrafeMax, TurnMin, TurnMax, Lane],
-            Scenario::Peek => &[PeekSpeedMin, PeekSpeedMax, HoldMin, HoldMax],
-            Scenario::Reaction => &[DelayMin, DelayMax],
+            DrillKind::Gridshot => &[GridCols, GridRows, GridSpacing, GridActive],
+            DrillKind::Microflick | DrillKind::Peripheral => &[YawRange, PitchRange, MinFlick],
+            DrillKind::HeadLevel => &[YawRange, MinFlick],
+            DrillKind::Tracking => &[StrafeMin, StrafeMax, TurnMin, TurnMax, Lane],
+            DrillKind::Peek => &[PeekSpeedMin, PeekSpeedMax, HoldMin, HoldMax],
+            DrillKind::Reaction => &[DelayMin, DelayMax],
         }
     }
 
@@ -206,7 +206,7 @@ impl CustomField {
         if self == CustomField::StepSecs {
             return draft.secs;
         }
-        let Editing::Scenario(id) = editing else { return 0.0 };
+        let Editing::DrillKind(id) = editing else { return 0.0 };
         let Some(scenario) = content.scenario(id) else { return 0.0 };
         let mut config = scenario.config.clone();
         match self {
@@ -223,7 +223,7 @@ impl CustomField {
             draft.secs = value.round().clamp(5.0, 600.0);
             return;
         }
-        let Editing::Scenario(id) = editing else { return };
+        let Editing::DrillKind(id) = editing else { return };
         let Some(scenario) = content.scenario_mut(id) else { return };
         match self {
             CustomField::Duration => scenario.duration = value.round().clamp(5.0, 600.0),
@@ -258,19 +258,19 @@ pub fn custom_lists_column() -> impl Scene {
                 @wrap_row()
                 Node { column_gap: px(SPACE_XS), row_gap: px(SPACE_XS) }
                 Children [
-                    @new_scenario_button(Scenario::Gridshot)
+                    @new_scenario_button(DrillKind::Gridshot)
                     --
-                    @new_scenario_button(Scenario::Microflick)
+                    @new_scenario_button(DrillKind::Microflick)
                     --
-                    @new_scenario_button(Scenario::Tracking)
+                    @new_scenario_button(DrillKind::Tracking)
                     --
-                    @new_scenario_button(Scenario::HeadLevel)
+                    @new_scenario_button(DrillKind::HeadLevel)
                     --
-                    @new_scenario_button(Scenario::Peek)
+                    @new_scenario_button(DrillKind::Peek)
                     --
-                    @new_scenario_button(Scenario::Reaction)
+                    @new_scenario_button(DrillKind::Reaction)
                     --
-                    @new_scenario_button(Scenario::Peripheral)
+                    @new_scenario_button(DrillKind::Peripheral)
                 ]
             })
             --
@@ -303,14 +303,14 @@ pub fn custom_editor_column() -> impl Scene {
     }
 }
 
-fn new_scenario_button(kind: Scenario) -> impl Scene {
+fn new_scenario_button(kind: DrillKind) -> impl Scene {
     bsn! {
         @compact_button(kind.name(), ButtonVariant::Normal)
         NewScenarioButton(kind)
         on(|activate: On<Activate>, buttons: Query<&NewScenarioButton>, mut content: ResMut<CustomContent>, mut selection: ResMut<CustomSelection>| {
             if let Ok(&NewScenarioButton(kind)) = buttons.get(activate.event_target()) {
                 let id = content.new_scenario(kind);
-                selection.select(Editing::Scenario(id));
+                selection.select(Editing::DrillKind(id));
             }
         })
     }
@@ -399,9 +399,9 @@ pub fn rebuild_custom(
         }
         for scenario in &content.scenarios {
             let id = scenario.id;
-            let selected = selection.editing == Editing::Scenario(id);
+            let selected = selection.editing == Editing::DrillKind(id);
             let row = commands
-                .spawn_scene(item_row(scenario.name.clone(), Editing::Scenario(id), selected))
+                .spawn_scene(item_row(scenario.name.clone(), Editing::DrillKind(id), selected))
                 .insert(ChildOf(list))
                 .id();
             for ((text, variant), action) in [
@@ -451,11 +451,11 @@ pub fn rebuild_custom(
                     ))
                     .insert(ChildOf(editor));
             }
-            Editing::Scenario(id) => {
+            Editing::DrillKind(id) => {
                 let Some(scenario) = content.scenario(id) else { continue };
                 let kind = scenario.config.kind;
                 commands.spawn_scene(overline("Edit scenario")).insert(ChildOf(editor));
-                spawn_name_input(&mut commands, editor, Editing::Scenario(id));
+                spawn_name_input(&mut commands, editor, Editing::DrillKind(id));
                 commands
                     .spawn_scene(label_dim(format!("Based on {}: {}", kind.name(), kind.blurb())))
                     .insert(ChildOf(editor));
@@ -492,7 +492,7 @@ pub fn rebuild_custom(
                 }
                 commands.spawn_scene(custom_field_row(CustomField::StepSecs, draft.secs)).insert(ChildOf(editor));
                 commands.spawn_scene(label_dim("Add a step:")).insert(ChildOf(editor));
-                let mut drills: Vec<DrillRef> = Scenario::ALL.iter().map(|&s| DrillRef::Builtin(s)).collect();
+                let mut drills: Vec<DrillRef> = DrillKind::ALL.iter().map(|&s| DrillRef::Builtin(s)).collect();
                 drills.extend(content.scenarios.iter().map(|s| DrillRef::Custom(s.id)));
                 let chips = commands
                     .spawn_scene(bsn! { @wrap_row() Node { column_gap: px(SPACE_XS), row_gap: px(SPACE_XS) } })
@@ -588,7 +588,7 @@ fn edit_custom_field(
 pub fn init_name_inputs(content: Res<CustomContent>, mut inputs: Query<(&NameInput, &mut EditableText), Added<NameInput>>) {
     for (NameInput(editing), mut text) in &mut inputs {
         let name = match *editing {
-            Editing::Scenario(id) => content.scenario(id).map(|s| s.name.clone()),
+            Editing::DrillKind(id) => content.scenario(id).map(|s| s.name.clone()),
             Editing::Playlist(id) => content.playlist(id).map(|p| p.name.clone()),
             Editing::Nothing => None,
         };
@@ -604,7 +604,7 @@ fn rename(change: On<TextEditChange>, inputs: Query<(&NameInput, &EditableText)>
     let name = text.value().to_string();
     match *editing {
         // Invalid names (empty, duplicate, built-in) are simply not applied.
-        Editing::Scenario(id) => {
+        Editing::DrillKind(id) => {
             if content.scenario(id).is_some_and(|s| s.name != name.trim()) {
                 content.rename_scenario(id, &name);
             }
@@ -669,7 +669,7 @@ pub fn sync_item_names(content: Res<CustomContent>, mut labels: Query<(&ItemName
     }
     for (ItemName(editing), mut text) in &mut labels {
         let name = match *editing {
-            Editing::Scenario(id) => content.scenario(id).map(|s| s.name.as_str()),
+            Editing::DrillKind(id) => content.scenario(id).map(|s| s.name.as_str()),
             Editing::Playlist(id) => content.playlist(id).map(|p| p.name.as_str()),
             Editing::Nothing => None,
         };
@@ -703,15 +703,15 @@ fn item_action(
             let run = Run::new(drill, settings.sens, scenario.duration, RunPurpose::Practice, scenario.name.clone());
             begin_run(&mut commands, &mut next_state, run);
         }
-        ItemAction::EditScenario(id) => selection.select(Editing::Scenario(id)),
+        ItemAction::EditScenario(id) => selection.select(Editing::DrillKind(id)),
         ItemAction::CopyScenario(id) => {
             if let Some(copy) = content.duplicate_scenario(id) {
-                selection.select(Editing::Scenario(copy));
+                selection.select(Editing::DrillKind(copy));
             }
         }
         ItemAction::DeleteScenario(id) => {
             content.delete_scenario(id);
-            let editing = if selection.editing == Editing::Scenario(id) { Editing::Nothing } else { selection.editing };
+            let editing = if selection.editing == Editing::DrillKind(id) { Editing::Nothing } else { selection.editing };
             selection.select(editing);
         }
         ItemAction::PlayPlaylist(id) => {

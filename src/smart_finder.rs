@@ -23,7 +23,7 @@
 use bevy::prelude::*;
 
 use crate::{
-    scenario::{DrillSpec, Run, RunPurpose, Scenario},
+    drill::{DrillSpec, Run, RunPurpose, DrillKind},
     settings::{FinderFocus, Settings},
 };
 
@@ -99,7 +99,7 @@ pub struct SmartFinder {
     pub start_sens: f32,
     /// The drills every trial plays, in canonical order (trial scores are stored in this
     /// order); chosen by the finder's focus.
-    pub drills: &'static [Scenario],
+    pub drills: &'static [DrillKind],
     /// Probe sensitivities still to play (popped from the back).
     probes: Vec<f32>,
     pub trials: Vec<SmartTrial>,
@@ -108,11 +108,11 @@ pub struct SmartFinder {
 }
 
 /// The drills each trial plays for a focus.
-pub fn focus_drills(focus: FinderFocus) -> &'static [Scenario] {
+pub fn focus_drills(focus: FinderFocus) -> &'static [DrillKind] {
     match focus {
-        FinderFocus::Balanced => &[Scenario::Microflick, Scenario::Tracking],
-        FinderFocus::Flicking => &[Scenario::Gridshot, Scenario::Microflick],
-        FinderFocus::Tracking => &[Scenario::Tracking],
+        FinderFocus::Balanced => &[DrillKind::Microflick, DrillKind::Tracking],
+        FinderFocus::Flicking => &[DrillKind::Gridshot, DrillKind::Microflick],
+        FinderFocus::Tracking => &[DrillKind::Tracking],
     }
 }
 
@@ -143,7 +143,7 @@ impl SmartFinder {
 
     /// The current trial's drills in play order. With several drills the order reverses on
     /// every other trial, to balance order effects.
-    pub fn segment_order(&self) -> Vec<Scenario> {
+    pub fn segment_order(&self) -> Vec<DrillKind> {
         let mut order = self.drills.to_vec();
         if self.trials.len() % 2 == 1 {
             order.reverse();
@@ -184,7 +184,7 @@ impl SmartFinder {
     }
 
     /// Stores a finished part; after the last one the trial waits for its feel rating.
-    pub fn record_segment(&mut self, drill: Scenario, score: f32, landings: &[f32]) {
+    pub fn record_segment(&mut self, drill: DrillKind, score: f32, landings: &[f32]) {
         let Some(index) = self.drills.iter().position(|&d| d == drill) else { return };
         if self.step != SmartStep::Trial {
             return;
@@ -452,7 +452,7 @@ mod tests {
         finder.begin_trial();
         for drill in finder.segment_order() {
             let index = finder.drills.iter().position(|&d| d == drill).unwrap();
-            let landings = if drill == Scenario::Microflick { landings } else { &[] };
+            let landings = if drill == DrillKind::Microflick { landings } else { &[] };
             finder.record_segment(drill, scores[index], landings);
         }
         finder.rate(feel);
@@ -511,19 +511,19 @@ mod tests {
         let mut finder = SmartFinder::new(1.0, FinderFocus::Balanced);
         finder.begin_trial();
         let first = finder.segment_run(&settings).unwrap();
-        assert_eq!(first.scenario(), Scenario::Microflick);
+        assert_eq!(first.kind(), DrillKind::Microflick);
         assert_eq!(first.title, "Finder trial 1/9 - part 1/2: Microflick");
-        finder.record_segment(Scenario::Microflick, 500.0, &[0.8, 1.3, 0.9, 1.0]);
+        finder.record_segment(DrillKind::Microflick, 500.0, &[0.8, 1.3, 0.9, 1.0]);
         assert_eq!(finder.step, SmartStep::Trial);
         let second = finder.segment_run(&settings).unwrap();
-        assert_eq!((second.scenario(), second.sens), (Scenario::Tracking, first.sens));
-        finder.record_segment(Scenario::Tracking, 4000.0, &[]);
+        assert_eq!((second.kind(), second.sens), (DrillKind::Tracking, first.sens));
+        finder.record_segment(DrillKind::Tracking, 4000.0, &[]);
         assert_eq!(finder.step, SmartStep::Rate);
         assert!(finder.segment_run(&settings).is_none());
         finder.rate(4);
         assert_eq!(finder.trials[0].scores, [500.0, 4000.0]);
         assert_eq!(finder.trials[0].landing, Some(0.95));
-        assert_eq!(finder.segment_order(), [Scenario::Tracking, Scenario::Microflick]);
+        assert_eq!(finder.segment_order(), [DrillKind::Tracking, DrillKind::Microflick]);
         // Too few flicks for a landing estimate.
         play(&mut finder, &[500.0, 4000.0], &[1.0, 1.1], 3);
         assert_eq!(finder.trials[1].landing, None);
@@ -535,15 +535,15 @@ mod tests {
         let mut flicking = SmartFinder::new(1.0, FinderFocus::Flicking);
         assert_eq!(flicking.segment_run(&settings).unwrap().title, "Finder trial 1/9 - part 1/2: Gridshot");
         play(&mut flicking, &[30_000.0, 9_000.0], &[], 3);
-        assert_eq!(flicking.segment_order(), [Scenario::Microflick, Scenario::Gridshot]);
+        assert_eq!(flicking.segment_order(), [DrillKind::Microflick, DrillKind::Gridshot]);
         // Tracking only: one part per trial, rated right after it.
         let mut tracking = SmartFinder::new(1.0, FinderFocus::Tracking);
         assert_eq!(tracking.segment_run(&settings).unwrap().title, "Finder trial 1/9 - part 1/1: Tracking");
-        tracking.record_segment(Scenario::Tracking, 5000.0, &[]);
+        tracking.record_segment(DrillKind::Tracking, 5000.0, &[]);
         assert_eq!(tracking.step, SmartStep::Rate);
         // A drill outside the focus is ignored.
         let mut other = SmartFinder::new(1.0, FinderFocus::Tracking);
-        other.record_segment(Scenario::Gridshot, 5000.0, &[]);
+        other.record_segment(DrillKind::Gridshot, 5000.0, &[]);
         assert_eq!(other.step, SmartStep::Trial);
     }
 
@@ -650,8 +650,8 @@ mod tests {
     fn redo_discards_the_whole_trial() {
         let mut finder = SmartFinder::new(1.0, FinderFocus::Balanced);
         let sens = finder.current_sens();
-        finder.record_segment(Scenario::Microflick, 10.0, &[1.0; 5]);
-        finder.record_segment(Scenario::Tracking, 10.0, &[]);
+        finder.record_segment(DrillKind::Microflick, 10.0, &[1.0; 5]);
+        finder.record_segment(DrillKind::Tracking, 10.0, &[]);
         finder.redo();
         assert_eq!(finder.step, SmartStep::Trial);
         assert!(finder.trials.is_empty());
@@ -660,10 +660,10 @@ mod tests {
         assert!(finder.trials.is_empty());
         // An aborted attempt restarts from the first part.
         let settings = Settings::default();
-        finder.record_segment(Scenario::Microflick, 10.0, &[]);
-        assert_eq!(finder.segment_run(&settings).unwrap().scenario(), Scenario::Tracking);
+        finder.record_segment(DrillKind::Microflick, 10.0, &[]);
+        assert_eq!(finder.segment_run(&settings).unwrap().kind(), DrillKind::Tracking);
         finder.begin_trial();
-        assert_eq!(finder.segment_run(&settings).unwrap().scenario(), Scenario::Microflick);
+        assert_eq!(finder.segment_run(&settings).unwrap().kind(), DrillKind::Microflick);
     }
 
     #[test]

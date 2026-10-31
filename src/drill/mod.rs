@@ -37,9 +37,9 @@ use crate::{
 const COUNTDOWN_SECS: f32 = 1.5;
 const READY_ARM_SECS: f32 = 0.6;
 
-pub struct ScenarioPlugin;
+pub struct DrillPlugin;
 
-impl Plugin for ScenarioPlugin {
+impl Plugin for DrillPlugin {
     fn build(&self, app: &mut App) {
         app.add_systems(Startup, drills::create_target_assets)
             .add_systems(Update, drills::sync_target_colors.run_if(resource_changed::<Settings>))
@@ -83,7 +83,7 @@ impl Plugin for ScenarioPlugin {
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
-pub enum Scenario {
+pub enum DrillKind {
     #[default]
     Gridshot,
     Microflick,
@@ -94,16 +94,16 @@ pub enum Scenario {
     Peripheral,
 }
 
-impl Scenario {
+impl DrillKind {
     /// Order matters: replays store the index. Only ever append.
-    pub const ALL: [Scenario; 7] = [
-        Scenario::Gridshot,
-        Scenario::Microflick,
-        Scenario::Tracking,
-        Scenario::HeadLevel,
-        Scenario::Peek,
-        Scenario::Reaction,
-        Scenario::Peripheral,
+    pub const ALL: [DrillKind; 7] = [
+        DrillKind::Gridshot,
+        DrillKind::Microflick,
+        DrillKind::Tracking,
+        DrillKind::HeadLevel,
+        DrillKind::Peek,
+        DrillKind::Reaction,
+        DrillKind::Peripheral,
     ];
 
     pub fn from_name(name: &str) -> Option<Self> {
@@ -112,25 +112,25 @@ impl Scenario {
 
     pub fn name(self) -> &'static str {
         match self {
-            Scenario::Gridshot => "Gridshot",
-            Scenario::Microflick => "Microflick",
-            Scenario::Tracking => "Tracking",
-            Scenario::HeadLevel => "Head level",
-            Scenario::Peek => "Peeks",
-            Scenario::Reaction => "Reaction",
-            Scenario::Peripheral => "Peripheral",
+            DrillKind::Gridshot => "Gridshot",
+            DrillKind::Microflick => "Microflick",
+            DrillKind::Tracking => "Tracking",
+            DrillKind::HeadLevel => "Head level",
+            DrillKind::Peek => "Peeks",
+            DrillKind::Reaction => "Reaction",
+            DrillKind::Peripheral => "Peripheral",
         }
     }
 
     pub fn blurb(self) -> &'static str {
         match self {
-            Scenario::Gridshot => "3 dots on a 3x3 grid. Speed + accuracy.",
-            Scenario::Microflick => "One small dot at a time. Flick precision.",
-            Scenario::Tracking => "Keep the crosshair on a strafing dot.",
-            Scenario::HeadLevel => "Head-sized dots, always at head height.",
-            Scenario::Peek => "Hold an angle: enemies swing out of cover.",
-            Scenario::Reaction => "Click the instant the dot lights up.",
-            Scenario::Peripheral => "Brief dots far off-center. Spot + flick.",
+            DrillKind::Gridshot => "3 dots on a 3x3 grid. Speed + accuracy.",
+            DrillKind::Microflick => "One small dot at a time. Flick precision.",
+            DrillKind::Tracking => "Keep the crosshair on a strafing dot.",
+            DrillKind::HeadLevel => "Head-sized dots, always at head height.",
+            DrillKind::Peek => "Hold an angle: enemies swing out of cover.",
+            DrillKind::Reaction => "Click the instant the dot lights up.",
+            DrillKind::Peripheral => "Brief dots far off-center. Spot + flick.",
         }
     }
 }
@@ -217,7 +217,7 @@ impl Run {
         self
     }
 
-    pub fn scenario(&self) -> Scenario {
+    pub fn kind(&self) -> DrillKind {
         self.drill.config.kind
     }
 
@@ -271,7 +271,7 @@ impl Run {
 
     fn stats(&self, settings: &Settings) -> RunStats {
         RunStats {
-            scenario: self.scenario(),
+            kind: self.kind(),
             drill: self.drill.name.clone(),
             sens: self.sens,
             cm_per_360: settings.cm_per_360(self.sens),
@@ -290,7 +290,7 @@ impl Run {
 #[derive(Clone, Debug)]
 pub struct RunStats {
     /// Kind of drill, which decides scoring.
-    pub scenario: Scenario,
+    pub kind: DrillKind,
     /// Drill name: the built-in name or a custom scenario's name. History is grouped by it.
     pub drill: String,
     pub sens: f32,
@@ -327,10 +327,10 @@ impl RunStats {
     /// Flick drills: accuracy-weighted kills per minute (x100). Tracking: time on target in 0.01%
     /// steps. Reaction: 100 000 / average reaction ms, weighted by accuracy.
     pub fn score(&self) -> f32 {
-        match self.scenario {
-            Scenario::Tracking => (self.on_target_ratio() * 10_000.0).round(),
-            Scenario::Reaction if self.hits == 0 => 0.0,
-            Scenario::Reaction => (100_000.0 / self.avg_kill_ms() * self.accuracy()).round(),
+        match self.kind {
+            DrillKind::Tracking => (self.on_target_ratio() * 10_000.0).round(),
+            DrillKind::Reaction if self.hits == 0 => 0.0,
+            DrillKind::Reaction => (100_000.0 / self.avg_kill_ms() * self.accuracy()).round(),
             _ => (self.hits as f32 * 100.0 * self.accuracy() * 60.0 / self.duration).round(),
         }
     }
@@ -338,9 +338,9 @@ impl RunStats {
     /// The secondary stats shown next to the score, as (caption, value).
     pub fn key_stats(&self) -> Vec<(&'static str, String)> {
         let best_ms = if self.hits == 0 { 0.0 } else { self.best_ttk * 1000.0 };
-        match self.scenario {
-            Scenario::Tracking => vec![("On target", format!("{:.1}%", self.on_target_ratio() * 100.0))],
-            Scenario::Reaction => vec![
+        match self.kind {
+            DrillKind::Tracking => vec![("On target", format!("{:.1}%", self.on_target_ratio() * 100.0))],
+            DrillKind::Reaction => vec![
                 ("Avg reaction", format!("{:.0} ms", self.avg_kill_ms())),
                 ("Best", format!("{best_ms:.0} ms")),
                 ("Hits", self.hits.to_string()),
@@ -477,7 +477,7 @@ fn tick_run(
     };
     let timestamp = history.record(&stats, logged_as, &settings);
     if logged_as == RunPurpose::Practice {
-        recorder.finish(stats.scenario, &stats.drill, stats.sens, stats.duration).save(timestamp);
+        recorder.finish(stats.kind, &stats.drill, stats.sens, stats.duration).save(timestamp);
     }
     match run.purpose {
         RunPurpose::FinderTrial => {
@@ -485,7 +485,7 @@ fn tick_run(
                 finder.record_trial(stats.score());
             }
             if let Some(mut smart) = smart_finder {
-                smart.record_segment(stats.scenario, stats.score(), &stats.landings);
+                smart.record_segment(stats.kind, stats.score(), &stats.landings);
                 // Straight on to the trial's next part, if there is one.
                 if let Some(next) = smart.segment_run(&settings) {
                     begin_run(&mut commands, &mut next_state, next);
@@ -607,13 +607,13 @@ fn update_hud(
             HudField::Detail if !run.counting() => {
                 Cow::Owned(format!("Warm-in {:.1}s (not scored)", run.scoring_from - run.elapsed))
             }
-            HudField::Detail => Cow::Owned(match run.scenario() {
-                Scenario::Tracking => format!("On target {:.1}%", stats.on_target_ratio() * 100.0),
-                Scenario::Reaction => format!("Hits {}   Avg {:.0} ms", stats.hits, stats.avg_kill_ms()),
+            HudField::Detail => Cow::Owned(match run.kind() {
+                DrillKind::Tracking => format!("On target {:.1}%", stats.on_target_ratio() * 100.0),
+                DrillKind::Reaction => format!("Hits {}   Avg {:.0} ms", stats.hits, stats.avg_kill_ms()),
                 _ => format!("Hits {}   Acc {:.0}%", stats.hits, stats.accuracy() * 100.0),
             }),
             HudField::Info => Cow::Owned(format!("{fps:.0} fps   Esc to quit")),
-            HudField::ReadyBlurb => Cow::Borrowed(run.scenario().blurb()),
+            HudField::ReadyBlurb => Cow::Borrowed(run.kind().blurb()),
             HudField::Countdown => match run.phase {
                 Phase::Countdown => Cow::Owned(format!("{}", run.countdown.ceil() as u32)),
                 Phase::Ready | Phase::Live => Cow::Borrowed(""),
@@ -633,10 +633,10 @@ fn update_hud(
 mod tests {
     use super::*;
 
-    fn stats(scenario: Scenario, hits: u32, shots: u32, expired: u32, duration: f32) -> RunStats {
+    fn stats(kind: DrillKind, hits: u32, shots: u32, expired: u32, duration: f32) -> RunStats {
         RunStats {
-            scenario,
-            drill: scenario.name().to_string(),
+            kind,
+            drill: kind.name().to_string(),
             sens: 0.4,
             cm_per_360: 40.8,
             duration,
@@ -653,7 +653,7 @@ mod tests {
     #[test]
     fn warm_in_is_not_scored() {
         let settings = Settings::default();
-        let drill = DrillSpec::builtin(Scenario::Microflick, &settings);
+        let drill = DrillSpec::builtin(DrillKind::Microflick, &settings);
         let mut run = Run::new(drill, 0.4, 13.0, RunPurpose::FinderTrial, String::new()).with_warm_in(3.0);
         // During the warm-in: none of this counts.
         run.elapsed = 1.0;
@@ -682,22 +682,22 @@ mod tests {
     #[test]
     fn flick_score_does_not_depend_on_drill_length() {
         // Same pace and accuracy: a 20 s finder trial must score like a 60 s practice run.
-        let short = stats(Scenario::Gridshot, 40, 50, 0, 20.0);
-        let long = stats(Scenario::Gridshot, 120, 150, 0, 60.0);
+        let short = stats(DrillKind::Gridshot, 40, 50, 0, 20.0);
+        let long = stats(DrillKind::Gridshot, 120, 150, 0, 60.0);
         assert_eq!(short.score(), long.score());
     }
 
     #[test]
     fn expired_targets_count_as_misses() {
-        let clean = stats(Scenario::Microflick, 50, 50, 0, 60.0);
-        let decayed = stats(Scenario::Microflick, 50, 50, 10, 60.0);
+        let clean = stats(DrillKind::Microflick, 50, 50, 0, 60.0);
+        let decayed = stats(DrillKind::Microflick, 50, 50, 10, 60.0);
         assert!((decayed.accuracy() - 50.0 / 60.0).abs() < 1e-6);
         assert!(decayed.score() < clean.score());
     }
 
     #[test]
     fn reaction_score_rewards_faster_and_more_accurate() {
-        let mut fast = stats(Scenario::Reaction, 20, 20, 0, 30.0);
+        let mut fast = stats(DrillKind::Reaction, 20, 20, 0, 30.0);
         fast.ttk_total = 20.0 * 0.2;
         let mut slow = fast.clone();
         slow.ttk_total = 20.0 * 0.3;
@@ -706,13 +706,13 @@ mod tests {
         assert_eq!(fast.score(), 500.0);
         assert!(slow.score() < fast.score());
         assert!(sloppy.score() < fast.score());
-        assert_eq!(stats(Scenario::Reaction, 0, 3, 0, 30.0).score(), 0.0);
+        assert_eq!(stats(DrillKind::Reaction, 0, 3, 0, 30.0).score(), 0.0);
     }
 
     #[test]
     fn names_round_trip_for_the_csv() {
-        for scenario in Scenario::ALL {
-            assert_eq!(Scenario::from_name(scenario.name()), Some(scenario));
+        for kind in DrillKind::ALL {
+            assert_eq!(DrillKind::from_name(kind.name()), Some(kind));
         }
     }
 }

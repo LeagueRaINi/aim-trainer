@@ -13,25 +13,25 @@ use super::{MenuTab, main_column, page, side_column};
 use crate::{
     AppState,
     routine::{ROUTINES, Routine, start_routine},
-    scenario::{DrillSpec, Run, RunPurpose, Scenario, begin_run},
+    drill::{DrillSpec, Run, RunPurpose, DrillKind, begin_run},
     settings::{SettingField, Settings},
     ui::{bindings::*, theme::*, widgets::*},
 };
 
 #[derive(Component, Clone, Copy, Default)]
-struct PlayButton(Scenario);
+struct PlayButton(DrillKind);
 
 #[derive(Component, Clone, Copy, Default)]
 struct RoutineButton(usize);
 
 /// A built-in drill played on its own, with the global drill length.
-fn practice_run(scenario: Scenario, settings: &Settings) -> Run {
+fn practice_run(kind: DrillKind, settings: &Settings) -> Run {
     Run::new(
-        DrillSpec::builtin(scenario, settings),
+        DrillSpec::builtin(kind, settings),
         settings.sens,
         settings.run_secs,
         RunPurpose::Practice,
-        scenario.name().to_string(),
+        kind.name().to_string(),
     )
 }
 
@@ -43,23 +43,23 @@ pub(super) fn play_page(settings: &Settings) -> impl Scene {
             @main_column()
             Children [
                 @card("Aim", bsn_list! {
-                    @play_button(Scenario::Gridshot)
+                    @play_button(DrillKind::Gridshot)
                     --
-                    @play_button(Scenario::Microflick)
+                    @play_button(DrillKind::Microflick)
                     --
-                    @play_button(Scenario::Tracking)
+                    @play_button(DrillKind::Tracking)
                 })
                 --
                 @card("Valorant / CS2", bsn_list! {
-                    @play_button(Scenario::HeadLevel)
+                    @play_button(DrillKind::HeadLevel)
                     --
-                    @play_button(Scenario::Peek)
+                    @play_button(DrillKind::Peek)
                 })
                 --
                 @card("Eye training", bsn_list! {
-                    @play_button(Scenario::Reaction)
+                    @play_button(DrillKind::Reaction)
                     --
-                    @play_button(Scenario::Peripheral)
+                    @play_button(DrillKind::Peripheral)
                 })
             ]
             --
@@ -91,17 +91,17 @@ pub(super) fn play_page(settings: &Settings) -> impl Scene {
     }
 }
 
-fn play_button(scenario: Scenario) -> impl Scene {
+fn play_button(kind: DrillKind) -> impl Scene {
     bsn! {
         @row()
         Node { column_gap: px(SPACE_M) }
         Children [
-            @button(scenario.name(), ButtonVariant::Normal)
+            @button(kind.name(), ButtonVariant::Normal)
             Node { width: px(140), flex_shrink: 0.0 }
-            PlayButton(scenario)
+            PlayButton(kind)
             on(play)
             --
-            @label_dim(scenario.blurb())
+            @label_dim(kind.blurb())
         ]
     }
 }
@@ -133,8 +133,8 @@ fn play(
     mut commands: Commands,
     mut next_state: ResMut<NextState<AppState>>,
 ) {
-    if let Ok(&PlayButton(scenario)) = buttons.get(activate.event_target()) {
-        begin_run(&mut commands, &mut next_state, practice_run(scenario, &settings));
+    if let Ok(&PlayButton(kind)) = buttons.get(activate.event_target()) {
+        begin_run(&mut commands, &mut next_state, practice_run(kind, &settings));
     }
 }
 

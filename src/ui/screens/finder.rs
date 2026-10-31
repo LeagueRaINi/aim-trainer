@@ -21,7 +21,7 @@ use crate::ui::{
 use crate::{
     AppState,
     finder::{Finder, FinderStep},
-    scenario::{DrillSpec, Run, RunPurpose, begin_run},
+    drill::{DrillSpec, Run, RunPurpose, begin_run},
     settings::{FinderMethod, Settings},
     smart_finder::{PLATEAU, SmartFinder, SmartStep, WARM_IN},
 };

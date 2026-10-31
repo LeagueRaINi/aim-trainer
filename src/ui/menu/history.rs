@@ -11,7 +11,7 @@ use crate::{
     AppState,
     history::{History, HistoryEntry, RECENT_RUNS, format_date, overall_change, recent_change},
     replay::{Replay, watch},
-    scenario::Scenario,
+    drill::DrillKind,
 };
 
 /// Most recent runs drawn in the chart.
@@ -31,7 +31,7 @@ pub struct HistoryView(String);
 
 impl Default for HistoryView {
     fn default() -> Self {
-        Self(Scenario::Gridshot.name().to_string())
+        Self(DrillKind::Gridshot.name().to_string())
     }
 }
 
@@ -211,10 +211,10 @@ fn spawn_chart(commands: &mut Commands, parent: Entity, runs: &[&HistoryEntry]) 
 }
 
 fn spawn_run_list(commands: &mut Commands, parent: Entity, runs: &[&HistoryEntry]) {
-    let kind = runs.last().map_or(Scenario::Gridshot, |run| run.kind);
+    let kind = runs.last().map_or(DrillKind::Gridshot, |run| run.kind);
     let detail_headers: &[&str] = match kind {
-        Scenario::Tracking => &["On target"],
-        Scenario::Reaction => &["Accuracy", "Avg ms"],
+        DrillKind::Tracking => &["On target"],
+        DrillKind::Reaction => &["Accuracy", "Avg ms"],
         _ => &["Accuracy", "ms / kill"],
     };
     const NUMBER_W: f32 = 56.0;
@@ -237,7 +237,7 @@ fn spawn_run_list(commands: &mut Commands, parent: Entity, runs: &[&HistoryEntry
             cell(format!("{}", run.score), VALUE_W, if run.score >= best { GOLD } else { TEXT_STRONG }),
         ];
         match kind {
-            Scenario::Tracking => cells.push(cell(format!("{:.1}%", run.on_target_pct), VALUE_W, tokens::TEXT_MAIN)),
+            DrillKind::Tracking => cells.push(cell(format!("{:.1}%", run.on_target_pct), VALUE_W, tokens::TEXT_MAIN)),
             _ => {
                 cells.push(cell(format!("{:.1}%", run.accuracy * 100.0), VALUE_W, tokens::TEXT_MAIN));
                 cells.push(cell(format!("{:.0}", run.avg_kill_ms), VALUE_W, tokens::TEXT_MAIN));

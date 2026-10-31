@@ -40,15 +40,15 @@ use bevy::math::{EulerRot, Quat, Vec2, Vec3};
 
 use crate::{
     replay::{Replay, ReplayFrame, Shot},
-    scenario::{
-        DrillConfig, Scenario,
+    drill::{
+        DrillConfig, DrillKind,
         flick_probe::{END_SPEED, FlickProbe, MIN_DISTANCE, START_SPEED, angles, screen_angle, wrap},
     },
     tracer,
 };
 
 /// Drills whose replays are made of flicks.
-pub const FLICK_KINDS: [Scenario; 4] = [Scenario::Microflick, Scenario::Gridshot, Scenario::HeadLevel, Scenario::Peripheral];
+pub const FLICK_KINDS: [DrillKind; 4] = [DrillKind::Microflick, DrillKind::Gridshot, DrillKind::HeadLevel, DrillKind::Peripheral];
 /// How many of the newest flick-drill replays are analysed.
 pub const RECENT_REPLAYS: usize = 30;
 /// Flicks a group needs before it is scored.
@@ -95,7 +95,7 @@ pub fn band_label(band: usize) -> String {
 /// One measured flick, see the module docs.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Flick {
-    pub kind: Scenario,
+    pub kind: DrillKind,
     /// On-screen direction from the aim to the target, degrees counter-clockwise from right.
     pub angle: f32,
     /// Degrees from the aim to the target when the flick started.
@@ -149,7 +149,7 @@ fn same_target(a: Vec3, b: Vec3) -> bool {
 
 /// Every flick in a replay of a flick drill; nothing for other drills.
 pub fn extract_flicks(replay: &Replay) -> Vec<Flick> {
-    let kind = replay.scenario;
+    let kind = replay.kind;
     let frames = &replay.frames;
     let (true, Some(first)) = (FLICK_KINDS.contains(&kind), frames.first()) else { return Vec::new() };
     let mut alive: Vec<Alive> = first.targets.iter().map(|&(center, radius)| Alive { center, radius, born: 0 }).collect();
@@ -179,7 +179,7 @@ pub fn extract_flicks(replay: &Replay) -> Vec<Flick> {
         for (j, target) in gone.iter().enumerate() {
             let hit = killed == Some(j);
             // Gridshot dots wait for you while others are up; one expiring isn't a flick you made.
-            if !hit && kind == Scenario::Gridshot {
+            if !hit && kind == DrillKind::Gridshot {
                 continue;
             }
             let start = if hit { target.born.max(last_kill) } else { target.born };
@@ -194,7 +194,7 @@ pub fn extract_flicks(replay: &Replay) -> Vec<Flick> {
 
 /// Measures the flick over `frames` (its first to its last frame); `start` is the index of the
 /// first one in the replay.
-fn measure(kind: Scenario, frames: &[ReplayFrame], start: usize, target: &Alive, killed: bool) -> Option<Flick> {
+fn measure(kind: DrillKind, frames: &[ReplayFrame], start: usize, target: &Alive, killed: bool) -> Option<Flick> {
     if start == 0 || frames.len() < 2 {
         return None;
     }
@@ -269,7 +269,7 @@ fn main_bow(points: &[(f32, Vec2)]) -> Option<f32> {
 // ---------------------------------------------------------------------------------------------
 
 /// Your kill time as a function of difficulty, per drill kind.
-struct KillModel(Vec<(Scenario, f32, f32)>);
+struct KillModel(Vec<(DrillKind, f32, f32)>);
 
 impl KillModel {
     fn fit(flicks: &[Flick]) -> Self {
@@ -545,7 +545,7 @@ impl Cell {
         // The area spans past the longest flick both ways, so several fit in a row.
         let room = 0.6 * far + 5.0;
         let mut config = DrillConfig {
-            kind: Scenario::Microflick,
+            kind: DrillKind::Microflick,
             min_flick: near,
             max_flick: far,
             flick_direction: self.sector.map(|s| s as f32 * 45.0),
@@ -819,8 +819,8 @@ mod tests {
             self.frame(Shot::Hit);
         }
 
-        fn replay(self, scenario: Scenario) -> Replay {
-            Replay { scenario, name: scenario.name().into(), sens: 0.3, duration: 60.0, frames: self.frames }
+        fn replay(self, kind: DrillKind) -> Replay {
+            Replay { kind, name: kind.name().into(), sens: 0.3, duration: 60.0, frames: self.frames }
         }
     }
 
@@ -844,7 +844,7 @@ mod tests {
         script.targets.clear();
         script.frame(Shot::None);
 
-        let flicks = extract_flicks(&script.replay(Scenario::Microflick));
+        let flicks = extract_flicks(&script.replay(DrillKind::Microflick));
         assert_eq!(flicks.len(), 2, "{flicks:?}");
         let kill = &flicks[0];
         assert_eq!(SECTORS[kill.sector()], "Down-left");
@@ -861,7 +861,7 @@ mod tests {
         // From the down-left target to (5, 8): right and up on screen.
         assert_eq!(SECTORS[expired.sector()], "Up-right");
         // Other drills aren't analysed.
-        assert!(extract_flicks(&Script::new(&[]).replay(Scenario::Tracking)).is_empty());
+        assert!(extract_flicks(&Script::new(&[]).replay(DrillKind::Tracking)).is_empty());
     }
 
     #[test]
@@ -876,7 +876,7 @@ mod tests {
         script.moving(Vec2::new(-24.0 * 0.15, -24.0 * 0.1), 0.15, 0.1);
         script.kill(None);
 
-        let flicks = extract_flicks(&script.replay(Scenario::Microflick));
+        let flicks = extract_flicks(&script.replay(DrillKind::Microflick));
         assert_eq!(flicks.len(), 1);
         let flick = &flicks[0];
         assert_eq!(SECTORS[flick.sector()], "Right");
@@ -897,7 +897,7 @@ mod tests {
         script.moving(b - a, 0.2, 0.05);
         script.kill(Some(a));
         let ttk = (script.frames.len() - 1 - start) as f32 * DT;
-        let flicks = extract_flicks(&script.replay(Scenario::Gridshot));
+        let flicks = extract_flicks(&script.replay(DrillKind::Gridshot));
         assert_eq!(flicks.len(), 1);
         assert!((flicks[0].ttk.unwrap() - ttk).abs() < 1e-4);
         assert!((flicks[0].distance - (b - a).length()).abs() < 0.05);
@@ -918,7 +918,7 @@ mod tests {
                 let ttk = (0.2 + 0.08 * difficulty) * slow * (0.9 + 0.2 * rng.f32());
                 let weak_spot = sector == weak;
                 flicks.push(Flick {
-                    kind: Scenario::Microflick,
+                    kind: DrillKind::Microflick,
                     angle: sector as f32 * 45.0 + rng.f32() * 30.0 - 15.0,
                     distance,
                     width,
@@ -971,12 +971,12 @@ mod tests {
 
     #[test]
     fn training_targets_the_cell() {
-        let base = DrillConfig::defaults(Scenario::Microflick);
+        let base = DrillConfig::defaults(DrillKind::Microflick);
         let cell = Cell { sector: Some(5), band: Some(2) };
         assert_eq!(cell.scenario_name(), "Weak spot: down-left 15-25°");
         assert_eq!(cell.title(), "Down-left flicks, 15-25°");
         let config = cell.training_config(base.clone());
-        assert_eq!(config.kind, Scenario::Microflick);
+        assert_eq!(config.kind, DrillKind::Microflick);
         assert_eq!(config.flick_direction, Some(225.0));
         assert_eq!((config.min_flick, config.max_flick), (15.0, 25.0));
         assert!(config.flick_constrained());

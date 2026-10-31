@@ -3,13 +3,13 @@
 
 use serde::{Deserialize, Serialize};
 
-use super::Scenario;
+use super::DrillKind;
 use crate::settings::Settings;
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct DrillConfig {
-    pub kind: Scenario,
+    pub kind: DrillKind,
     /// Target size multiplier.
     pub size: f32,
     /// Seconds before a target expires (counts as a miss); 0 = never.
@@ -57,15 +57,15 @@ pub struct DrillConfig {
 
 impl Default for DrillConfig {
     fn default() -> Self {
-        Self::defaults(Scenario::Gridshot)
+        Self::defaults(DrillKind::Gridshot)
     }
 }
 
 impl DrillConfig {
-    pub fn defaults(kind: Scenario) -> Self {
+    pub fn defaults(kind: DrillKind) -> Self {
         let (yaw_range, pitch_range, min_flick, lifetime) = match kind {
-            Scenario::HeadLevel => (35.0, 0.0, 6.0, 0.0),
-            Scenario::Peripheral => (45.0, 12.0, 18.0, 1.1),
+            DrillKind::HeadLevel => (35.0, 0.0, 6.0, 0.0),
+            DrillKind::Peripheral => (45.0, 12.0, 18.0, 1.1),
             _ => (30.0, 12.0, 8.0, 0.0),
         };
         Self {
@@ -100,10 +100,10 @@ impl DrillConfig {
 
     /// A built-in drill: defaults plus the global target size and (where it applies) decay.
     /// Use [`DrillSpec::builtin`] to also get the matching history name.
-    pub fn builtin(kind: Scenario, settings: &Settings) -> Self {
+    pub fn builtin(kind: DrillKind, settings: &Settings) -> Self {
         let mut config = Self::defaults(kind);
         config.size = settings.target_scale;
-        if config.supports_decay() && kind != Scenario::Peripheral {
+        if config.supports_decay() && kind != DrillKind::Peripheral {
             config.lifetime = settings.targets.lifetime;
         }
         config
@@ -112,14 +112,14 @@ impl DrillConfig {
     pub fn supports_decay(&self) -> bool {
         matches!(
             self.kind,
-            Scenario::Gridshot | Scenario::Microflick | Scenario::HeadLevel | Scenario::Peripheral
+            DrillKind::Gridshot | DrillKind::Microflick | DrillKind::HeadLevel | DrillKind::Peripheral
         )
     }
 
     /// Whether Microflick targets follow the direction/distance constraints instead of
     /// appearing anywhere in the yaw/pitch ranges.
     pub fn flick_constrained(&self) -> bool {
-        self.kind == Scenario::Microflick && (self.flick_direction.is_some() || self.max_flick > 0.0)
+        self.kind == DrillKind::Microflick && (self.flick_direction.is_some() || self.max_flick > 0.0)
     }
 
     /// Distance range (degrees) of constrained flicks: `min_flick` up to `max_flick`, or up to
@@ -201,7 +201,7 @@ impl DrillSpec {
     /// A built-in drill with the global target size and decay. Those change what a score
     /// means, so a non-default setting becomes part of the name (and thereby of the history the
     /// run is compared against), e.g. `Gridshot · decay 1.9s · size 0.75x`.
-    pub fn builtin(kind: Scenario, settings: &Settings) -> Self {
+    pub fn builtin(kind: DrillKind, settings: &Settings) -> Self {
         let config = DrillConfig::builtin(kind, settings);
         let defaults = DrillConfig::defaults(kind);
         let mut name = kind.name().to_string();
@@ -224,7 +224,7 @@ mod tests {
 
     #[test]
     fn grid_always_keeps_a_free_cell() {
-        let mut config = DrillConfig { grid_cols: 2, grid_rows: 2, grid_active: 9, ..DrillConfig::defaults(Scenario::Gridshot) };
+        let mut config = DrillConfig { grid_cols: 2, grid_rows: 2, grid_active: 9, ..DrillConfig::defaults(DrillKind::Gridshot) };
         config.sanitize();
         assert_eq!(config.grid_active, 3);
         let mut single = DrillConfig { grid_cols: 1, grid_rows: 1, grid_active: 5, ..config };
@@ -243,7 +243,7 @@ mod tests {
     fn non_finite_values_fall_back_to_defaults() {
         let nan = f32::NAN;
         let mut config = DrillConfig {
-            kind: Scenario::Tracking,
+            kind: DrillKind::Tracking,
             size: f32::INFINITY,
             yaw_range: nan,
             pitch_range: nan,
@@ -255,10 +255,10 @@ mod tests {
             hold_min: nan,
             delay_min: nan,
             delay_max: nan,
-            ..DrillConfig::defaults(Scenario::Tracking)
+            ..DrillConfig::defaults(DrillKind::Tracking)
         };
         config.sanitize();
-        let d = DrillConfig::defaults(Scenario::Tracking);
+        let d = DrillConfig::defaults(DrillKind::Tracking);
         assert_eq!(config.strafe_min, d.strafe_min);
         assert_eq!(config.strafe_max, d.strafe_max);
         assert_eq!(config.yaw_range, d.yaw_range);
@@ -269,12 +269,12 @@ mod tests {
     #[test]
     fn flick_constraints_are_sanitized() {
         let mut config = DrillConfig {
-            kind: Scenario::Microflick,
+            kind: DrillKind::Microflick,
             min_flick: 20.0,
             max_flick: 10.0,
             flick_direction: Some(-90.0),
             flick_spread: f32::NAN,
-            ..DrillConfig::defaults(Scenario::Microflick)
+            ..DrillConfig::defaults(DrillKind::Microflick)
         };
         config.sanitize();
         assert_eq!(config.max_flick, config.min_flick, "the range stays ordered");
@@ -289,7 +289,7 @@ mod tests {
         assert_eq!(wild.flick_spread, 180.0);
         assert!(!wild.flick_constrained());
         // Other drills ignore the constraints.
-        assert!(!DrillConfig { kind: Scenario::Gridshot, max_flick: 20.0, ..DrillConfig::default() }.flick_constrained());
+        assert!(!DrillConfig { kind: DrillKind::Gridshot, max_flick: 20.0, ..DrillConfig::default() }.flick_constrained());
     }
 
     #[test]
@@ -305,24 +305,24 @@ mod tests {
     fn builtin_uses_global_size_and_decay_only_where_it_applies() {
         let mut settings = Settings { target_scale: 0.8, ..Default::default() };
         settings.targets.lifetime = 1.5;
-        assert_eq!(DrillConfig::builtin(Scenario::Microflick, &settings).lifetime, 1.5);
-        assert_eq!(DrillConfig::builtin(Scenario::Tracking, &settings).lifetime, 0.0);
+        assert_eq!(DrillConfig::builtin(DrillKind::Microflick, &settings).lifetime, 1.5);
+        assert_eq!(DrillConfig::builtin(DrillKind::Tracking, &settings).lifetime, 0.0);
         // Peripheral always decays on its own schedule.
-        assert_eq!(DrillConfig::builtin(Scenario::Peripheral, &settings).lifetime, 1.1);
-        assert_eq!(DrillConfig::builtin(Scenario::Gridshot, &settings).size, 0.8);
+        assert_eq!(DrillConfig::builtin(DrillKind::Peripheral, &settings).lifetime, 1.1);
+        assert_eq!(DrillConfig::builtin(DrillKind::Gridshot, &settings).size, 0.8);
     }
 
     #[test]
     fn builtin_variants_get_their_own_history_name() {
         let mut settings = Settings::default();
-        assert_eq!(DrillSpec::builtin(Scenario::Gridshot, &settings).name, "Gridshot");
+        assert_eq!(DrillSpec::builtin(DrillKind::Gridshot, &settings).name, "Gridshot");
         settings.targets.lifetime = 1.9;
         settings.target_scale = 0.75;
-        assert_eq!(DrillSpec::builtin(Scenario::Gridshot, &settings).name, "Gridshot · decay 1.9s · size 0.75x");
+        assert_eq!(DrillSpec::builtin(DrillKind::Gridshot, &settings).name, "Gridshot · decay 1.9s · size 0.75x");
         // Tracking never decays, so only the size distinguishes it.
-        assert_eq!(DrillSpec::builtin(Scenario::Tracking, &settings).name, "Tracking · size 0.75x");
+        assert_eq!(DrillSpec::builtin(DrillKind::Tracking, &settings).name, "Tracking · size 0.75x");
         // Peripheral's own decay is its normal mode, not a variant.
         settings.target_scale = 1.0;
-        assert_eq!(DrillSpec::builtin(Scenario::Peripheral, &settings).name, "Peripheral");
+        assert_eq!(DrillSpec::builtin(DrillKind::Peripheral, &settings).name, "Peripheral");
     }
 }

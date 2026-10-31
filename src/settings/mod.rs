@@ -15,7 +15,7 @@ pub use sens::PRESETS;
 
 use crate::{
     persist::{LoadReport, Persisted, load_ron},
-    scenario::Scenario,
+    drill::DrillKind,
 };
 
 const SETTINGS_PATH: &str = "aim_trainer_settings.ron";
@@ -215,7 +215,7 @@ pub struct Settings {
     pub target_scale: f32,
     pub finder_rounds: u32,
     pub finder_trial_secs: f32,
-    pub finder_drill: Scenario,
+    pub finder_drill: DrillKind,
     pub finder_method: FinderMethod,
     /// Which kind of aiming the smart finder optimises for.
     pub finder_focus: FinderFocus,
@@ -237,7 +237,7 @@ impl Default for Settings {
             target_scale: 1.0,
             finder_rounds: 7,
             finder_trial_secs: 20.0,
-            finder_drill: Scenario::Microflick,
+            finder_drill: DrillKind::Microflick,
             finder_method: FinderMethod::Smart,
             finder_focus: FinderFocus::Balanced,
             targets: TargetSettings::default(),
@@ -309,7 +309,7 @@ mod tests {
             target_scale: 0.75,
             finder_rounds: 9,
             finder_trial_secs: 30.0,
-            finder_drill: Scenario::HeadLevel,
+            finder_drill: DrillKind::HeadLevel,
             finder_method: FinderMethod::Classic,
             finder_focus: FinderFocus::Tracking,
             ..Default::default()

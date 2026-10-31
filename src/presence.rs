@@ -5,30 +5,23 @@
 //! frame. The worker reconnects every few seconds while Discord isn't running and sends at most
 //! one update every few seconds (Discord allows 5 per 20 s), always the latest one.
 
-use std::{
-    sync::{
-        Arc,
-        atomic::{AtomicU8, Ordering},
-        mpsc::{self, Receiver, RecvTimeoutError, Sender},
-    },
-    thread,
-    time::{Duration, Instant, SystemTime, UNIX_EPOCH},
-};
+use std::sync::Arc;
+use std::sync::atomic::{AtomicU8, Ordering};
+use std::sync::mpsc::{self, Receiver, RecvTimeoutError, Sender};
+use std::thread;
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use bevy::prelude::*;
-use discord_rich_presence::{
-    DiscordIpc, DiscordIpcClient,
-    activity::{Activity, Assets, Timestamps},
-};
+use discord_rich_presence::activity::{Activity, Assets, Timestamps};
+use discord_rich_presence::{DiscordIpc, DiscordIpcClient};
 
-use crate::{
-    AppState,
-    finder::{classic::Finder, smart::SmartFinder},
-    routine::Routine,
-    drill::{Run, RunPurpose},
-    history::LastRun,
-    settings::Settings,
-};
+use crate::AppState;
+use crate::drill::{Run, RunPurpose};
+use crate::finder::classic::Finder;
+use crate::finder::smart::SmartFinder;
+use crate::history::LastRun;
+use crate::routine::Routine;
+use crate::settings::Settings;
 
 /// The "Aim Trainer" Discord application; its name is what profiles show. Application IDs are
 /// public identifiers, not secrets.
@@ -161,7 +154,13 @@ fn publish(
     mut link: ResMut<PresenceLink>,
 ) {
     let now = unix_now();
-    let described = describe(*state.get(), run.as_deref(), last.as_deref(), routine.as_deref(), finder.is_some() || smart.is_some());
+    let described = describe(
+        *state.get(),
+        run.as_deref(),
+        last.as_deref(),
+        routine.as_deref(),
+        finder.is_some() || smart.is_some(),
+    );
     if let Some(status) = next_status(link.shown.as_ref(), now, described) {
         let _ = link.tx.send(Message::Show(status.clone()));
         link.shown = Some(status);
@@ -171,31 +170,49 @@ fn publish(
 /// The two text lines, for a live run the seconds left, and the activity badge.
 type Described = (String, String, Option<f32>, Option<Badge>);
 
-fn describe(state: AppState, run: Option<&Run>, last: Option<&LastRun>, routine: Option<&Routine>, finding: bool) -> Described {
-    let step = |routine: &Routine| format!("{} · step {}/{}", routine.name, (routine.next + 1).min(routine.steps.len()), routine.steps.len());
+fn describe(
+    state: AppState,
+    run: Option<&Run>,
+    last: Option<&LastRun>,
+    routine: Option<&Routine>,
+    finding: bool,
+) -> Described {
+    let step = |routine: &Routine| {
+        format!("{} · step {}/{}", routine.name, (routine.next + 1).min(routine.steps.len()), routine.steps.len())
+    };
     match state {
         AppState::Menu => ("In the menu".into(), "Picking a drill".into(), None, None),
         AppState::Playing => match run {
             Some(run) => {
                 let (details, line, badge) = match run.purpose {
                     RunPurpose::Practice => (run.drill.name.clone(), "Practice".to_string(), Badge::Practice),
-                    RunPurpose::Routine => (run.drill.name.clone(), routine.map_or_else(|| "Warmup routine".into(), step), Badge::Routine),
-                    RunPurpose::FinderTrial => ("Finding their sensitivity".to_string(), run.title.clone(), Badge::Finder),
+                    RunPurpose::Routine => {
+                        (run.drill.name.clone(), routine.map_or_else(|| "Warmup routine".into(), step), Badge::Routine)
+                    },
+                    RunPurpose::FinderTrial => {
+                        ("Finding their sensitivity".to_string(), run.title.clone(), Badge::Finder)
+                    },
                 };
                 let line = if run.time_left().is_some() { line } else { format!("{line} · getting ready") };
                 (details, line, run.time_left(), Some(badge))
-            }
+            },
             None => ("Playing".into(), String::new(), None, None),
         },
         AppState::Results => match last {
-            Some(last) => (last.stats.drill.clone(), format!("Scored {}", last.stats.score()), None, Some(Badge::Results)),
+            Some(last) => {
+                (last.stats.drill.clone(), format!("Scored {}", last.stats.score()), None, Some(Badge::Results))
+            },
             None => ("Results".into(), String::new(), None, Some(Badge::Results)),
         },
-        AppState::Finder if finding => ("Finding their sensitivity".into(), "Between trials".into(), None, Some(Badge::Finder)),
+        AppState::Finder if finding => {
+            ("Finding their sensitivity".into(), "Between trials".into(), None, Some(Badge::Finder))
+        },
         AppState::Finder => ("Sensitivity finder".into(), String::new(), None, Some(Badge::Finder)),
         AppState::Replay => ("Watching a replay".into(), String::new(), None, Some(Badge::Replay)),
         AppState::Routine => match routine {
-            Some(routine) if routine.finished() => (routine.name.clone(), "Routine complete".into(), None, Some(Badge::Routine)),
+            Some(routine) if routine.finished() => {
+                (routine.name.clone(), "Routine complete".into(), None, Some(Badge::Routine))
+            },
             Some(routine) => (
                 routine.name.clone(),
                 format!("Break before step {}/{}", routine.next + 1, routine.steps.len()),
@@ -248,18 +265,18 @@ fn worker(rx: Receiver<Message>, connection: &AtomicU8) {
                     next_attempt = Instant::now();
                     dirty = true;
                 }
-            }
+            },
             Ok(Message::Show(status)) => {
                 wanted = Some(status);
                 dirty = true;
-            }
-            Err(RecvTimeoutError::Timeout) => {}
+            },
+            Err(RecvTimeoutError::Timeout) => {},
             Err(RecvTimeoutError::Disconnected) => {
                 if let Some(mut old) = client.take() {
                     let _ = old.close();
                 }
                 return;
-            }
+            },
         }
         if !enabled {
             report(Connection::Off);
@@ -325,10 +342,13 @@ mod tests {
         let next = next_status(Some(&first), 1031, gridshot("Scored 120", None)).unwrap();
         assert_eq!((next.started, next.ends), (1000, None));
         // A new badge alone is a change worth sending.
-        let results = next_status(Some(&next), 1032, ("Gridshot".into(), "Scored 120".into(), None, Some(Badge::Results))).unwrap();
+        let results =
+            next_status(Some(&next), 1032, ("Gridshot".into(), "Scored 120".into(), None, Some(Badge::Results)))
+                .unwrap();
         assert_eq!(results.started, 1000);
         // A different activity restarts it.
-        let menu = next_status(Some(&results), 1040, ("In the menu".into(), "Picking a drill".into(), None, None)).unwrap();
+        let menu =
+            next_status(Some(&results), 1040, ("In the menu".into(), "Picking a drill".into(), None, None)).unwrap();
         assert_eq!(menu.started, 1040);
     }
 }

@@ -1,28 +1,23 @@
 //! The results screen after a practice run.
 
-use bevy::{
-    feathers::{
-        controls::ButtonVariant,
-        display::label_dim,
-        theme::{ThemeBackgroundColor, ThemeBorderColor},
-        tokens,
-    },
-    prelude::*,
-    ui_widgets::Activate,
-};
-
-use crate::{
-    AppState,
-    adaptive_log::{AdaptiveEntry, AdaptiveLog},
-    drill::{Run, RunPurpose, RunStats, begin_run},
-    history::{LastRun, RunRecorded},
-    metrics::{quest, throughput},
-    replay::{Replay, watch},
-    settings::Settings,
-    ui::{charts::*, theme::*, widgets::*},
-};
+use bevy::feathers::controls::ButtonVariant;
+use bevy::feathers::display::label_dim;
+use bevy::feathers::theme::{ThemeBackgroundColor, ThemeBorderColor};
+use bevy::feathers::tokens;
+use bevy::prelude::*;
+use bevy::ui_widgets::Activate;
 
 use super::score::*;
+use crate::AppState;
+use crate::adaptive_log::{AdaptiveEntry, AdaptiveLog};
+use crate::drill::{Run, RunPurpose, RunStats, begin_run};
+use crate::history::{LastRun, RunRecorded};
+use crate::metrics::{quest, throughput};
+use crate::replay::{Replay, watch};
+use crate::settings::Settings;
+use crate::ui::charts::*;
+use crate::ui::theme::*;
+use crate::ui::widgets::*;
 
 /// Side of the hit scatter plot, px.
 const SCATTER: f32 = 120.0;
@@ -53,7 +48,12 @@ pub(crate) fn show_results(
     }
 }
 
-pub fn spawn_results(mut commands: Commands, last: Res<LastRun>, settings: Res<Settings>, adaptive_log: Res<AdaptiveLog>) {
+pub fn spawn_results(
+    mut commands: Commands,
+    last: Res<LastRun>,
+    settings: Res<Settings>,
+    adaptive_log: Res<AdaptiveLog>,
+) {
     let stats = &last.stats;
     let kind = stats.kind.name();
     let context = if stats.drill == kind { "Results".to_string() } else { format!("Results  ·  {kind}") };
@@ -138,7 +138,7 @@ fn adaptive_result(entry: Option<&AdaptiveEntry>, previous: Option<&AdaptiveEntr
                         _ => "same",
                     };
                     format!("{percent:+.0}% ({verdict})")
-                }
+                },
                 None => "first result".to_string(),
             };
             let note = format!(
@@ -156,7 +156,7 @@ fn adaptive_result(entry: Option<&AdaptiveEntry>, previous: Option<&AdaptiveEntr
                 change,
                 note,
             )
-        }
+        },
         None => Default::default(),
     };
     let interval_caption = format!("{:.0}% interval", quest::CREDIBLE * 100.0);
@@ -225,7 +225,11 @@ fn precision(stats: &RunStats) -> impl Scene {
 
 /// Draws the last run's first clicks into a new [`HitScatter`]: target-radius units, the flick
 /// pointing right, hits green and misses red (clamped to the plot's edge).
-pub fn draw_hit_scatter(mut commands: Commands, last: Option<Res<LastRun>>, scatters: Query<Entity, Added<HitScatter>>) {
+pub fn draw_hit_scatter(
+    mut commands: Commands,
+    last: Option<Res<LastRun>>,
+    scatters: Query<Entity, Added<HitScatter>>,
+) {
     let Some(last) = last else { return };
     let scale = SCATTER * 0.5 / SCATTER_RANGE;
     let centre = SCATTER * 0.5;
@@ -245,7 +249,8 @@ pub fn draw_hit_scatter(mut commands: Commands, last: Option<Res<LastRun>>, scat
         }
         for (click, offset) in throughput::measured(&last.stats.clicks) {
             // Screen y grows downward; counter-clockwise (positive y) is up.
-            let at = (Vec2::new(centre + offset.x * scale, centre - offset.y * scale)).clamp(Vec2::ZERO, Vec2::splat(SCATTER));
+            let at = (Vec2::new(centre + offset.x * scale, centre - offset.y * scale))
+                .clamp(Vec2::ZERO, Vec2::splat(SCATTER));
             let color = if click.hit { TEXT_GOOD } else { TEXT_BAD };
             commands.spawn((
                 ChildOf(plot),

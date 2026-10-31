@@ -3,8 +3,11 @@
 
 use serde::{Deserialize, Serialize};
 
-use super::{DrillKind, def::DecayRule, params::ParamId};
-use crate::{metrics::quest::QuestMode, settings::Settings};
+use super::DrillKind;
+use super::def::DecayRule;
+use super::params::ParamId;
+use crate::metrics::quest::QuestMode;
+use crate::settings::Settings;
 
 /// Time limit of an adaptive target when the config has no lifetime of its own, seconds.
 pub const ADAPTIVE_TIME_LIMIT: f32 = 1.5;
@@ -225,7 +228,8 @@ mod tests {
 
     #[test]
     fn grid_always_keeps_a_free_cell() {
-        let mut config = DrillConfig { grid_cols: 2, grid_rows: 2, grid_active: 9, ..DrillConfig::defaults(DrillKind::Gridshot) };
+        let mut config =
+            DrillConfig { grid_cols: 2, grid_rows: 2, grid_active: 9, ..DrillConfig::defaults(DrillKind::Gridshot) };
         config.sanitize();
         assert_eq!(config.grid_active, 3);
         let mut single = DrillConfig { grid_cols: 1, grid_rows: 1, grid_active: 5, ..config };
@@ -235,7 +239,8 @@ mod tests {
 
     #[test]
     fn ranges_stay_ordered() {
-        let mut config = DrillConfig { strafe_min: 8.0, strafe_max: 2.0, hold_min: 1.0, hold_max: 0.1, ..DrillConfig::default() };
+        let mut config =
+            DrillConfig { strafe_min: 8.0, strafe_max: 2.0, hold_min: 1.0, hold_max: 0.1, ..DrillConfig::default() };
         config.sanitize();
         assert!(config.strafe_max >= config.strafe_min && config.hold_max >= config.hold_min);
     }
@@ -283,14 +288,17 @@ mod tests {
         assert_eq!(config.flick_spread, 22.5);
         assert!(config.flick_constrained());
 
-        let mut wild = DrillConfig { max_flick: f32::INFINITY, flick_direction: Some(f32::NAN), flick_spread: 900.0, ..config };
+        let mut wild =
+            DrillConfig { max_flick: f32::INFINITY, flick_direction: Some(f32::NAN), flick_spread: 900.0, ..config };
         wild.sanitize();
         assert_eq!(wild.max_flick, 0.0);
         assert_eq!(wild.flick_direction, None);
         assert_eq!(wild.flick_spread, 180.0);
         assert!(!wild.flick_constrained());
         // Other drills ignore the constraints.
-        assert!(!DrillConfig { kind: DrillKind::Gridshot, max_flick: 20.0, ..DrillConfig::default() }.flick_constrained());
+        assert!(
+            !DrillConfig { kind: DrillKind::Gridshot, max_flick: 20.0, ..DrillConfig::default() }.flick_constrained()
+        );
     }
 
     #[test]
@@ -343,12 +351,14 @@ mod tests {
 
     #[test]
     fn adaptive_only_where_supported() {
-        let mut micro = DrillConfig { adaptive: Some(QuestMode::Measure), ..DrillConfig::defaults(DrillKind::Microflick) };
+        let mut micro =
+            DrillConfig { adaptive: Some(QuestMode::Measure), ..DrillConfig::defaults(DrillKind::Microflick) };
         micro.sanitize();
         assert_eq!(micro.adaptive(), Some(QuestMode::Measure));
         assert_eq!(micro.time_limit(), ADAPTIVE_TIME_LIMIT);
         assert_eq!(DrillConfig { lifetime: 1.1, ..micro }.time_limit(), 1.1);
-        let mut tracking = DrillConfig { adaptive: Some(QuestMode::Train), ..DrillConfig::defaults(DrillKind::Tracking) };
+        let mut tracking =
+            DrillConfig { adaptive: Some(QuestMode::Train), ..DrillConfig::defaults(DrillKind::Tracking) };
         assert_eq!(tracking.adaptive(), None);
         tracking.sanitize();
         assert_eq!(tracking.adaptive, None);

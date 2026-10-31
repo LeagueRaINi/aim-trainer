@@ -2,7 +2,8 @@
 //! Persisted format: the `SharedPlaylist`/`SharedDrill` field and variant names are part of every
 //! code ever shared. Never change them.
 
-use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
+use base64::Engine;
+use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use serde::{Deserialize, Serialize};
 
 use super::{CustomContent, CustomPlaylist, CustomScenario, DrillRef, PlaylistStep, clean_name, clean_secs, suffixed};
@@ -35,7 +36,7 @@ impl CustomContent {
                     DrillRef::Custom(id) => {
                         let s = self.scenario(id)?;
                         SharedDrill::Custom { name: s.name.clone(), duration: s.duration, config: s.config.clone() }
-                    }
+                    },
                 };
                 Some((drill, step.secs))
             })
@@ -69,10 +70,10 @@ impl CustomContent {
                             let name = if self.name_taken(&name) { self.unique_name(&name) } else { name };
                             self.scenarios.push(CustomScenario { id, name, duration: clean_secs(duration), config });
                             id
-                        }
+                        },
                     };
                     DrillRef::Custom(id)
-                }
+                },
             };
             steps.push(PlaylistStep { drill, secs: clean_secs(secs) });
         }
@@ -94,10 +95,9 @@ fn derived_from(name: &str, base: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{
-        custom::{DEFAULT_SECS, tests::fixture_content},
-        settings::Settings,
-    };
+    use crate::custom::DEFAULT_SECS;
+    use crate::custom::tests::fixture_content;
+    use crate::settings::Settings;
 
     #[test]
     fn share_codes_round_trip_with_embedded_scenarios() {
@@ -165,7 +165,11 @@ mod tests {
         let shared = SharedPlaylist {
             name: "p".into(),
             steps: vec![(
-                SharedDrill::Custom { name: "Gridshot".into(), duration: 60.0, config: DrillConfig::defaults(DrillKind::Gridshot) },
+                SharedDrill::Custom {
+                    name: "Gridshot".into(),
+                    duration: 60.0,
+                    config: DrillConfig::defaults(DrillKind::Gridshot),
+                },
                 30.0,
             )],
         };

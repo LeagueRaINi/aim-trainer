@@ -1,14 +1,11 @@
 //! Head level: head-sized flick targets that always sit at head height. Spawns like
 //! [`microflick`](super::microflick); its flat pitch range keeps targets at eye height.
 
-use crate::drill::{
-    DrillConfig,
-    def::{Category, DecayRule, DrillDef, Environment, TtkFrom, no_spawn_next},
-    params::ParamId,
-    stats::ScoreModel,
-};
-
 use super::microflick::{respawn_flick, spawn_flick};
+use crate::drill::DrillConfig;
+use crate::drill::def::{Category, DecayRule, DrillDef, Environment, TtkFrom, no_spawn_next};
+use crate::drill::params::ParamId;
+use crate::drill::stats::ScoreModel;
 
 pub const DEF: DrillDef = DrillDef {
     name: "Head level",
@@ -40,10 +37,9 @@ fn tune(config: &mut DrillConfig) {
 mod tests {
     use bevy::prelude::*;
 
-    use crate::{
-        camera::ViewCone,
-        drill::{DrillConfig, DrillKind, kinds::microflick::flick_position},
-    };
+    use crate::camera::ViewCone;
+    use crate::drill::kinds::microflick::flick_position;
+    use crate::drill::{DrillConfig, DrillKind};
 
     #[test]
     fn head_level_targets_stay_at_eye_height() {

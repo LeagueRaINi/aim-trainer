@@ -1,26 +1,26 @@
 //! Insights tab: flick weak spots found in your recent replays (see [`crate::analysis`]), with
 //! one-click adaptive training for each.
 
-use bevy::{
-    feathers::{constants::fonts, controls::ButtonVariant, theme::ThemeBackgroundColor, tokens},
-    prelude::*,
-    ui_widgets::Activate,
-};
+use bevy::feathers::constants::fonts;
+use bevy::feathers::controls::ButtonVariant;
+use bevy::feathers::theme::ThemeBackgroundColor;
+use bevy::feathers::tokens;
+use bevy::prelude::*;
+use bevy::ui_widgets::Activate;
 
 use super::MenuTab;
-use crate::ui::{charts::*, theme::*, widgets::*};
-use crate::{
-    AppState,
-    analysis::{
-        self, Analysis, Cell, MIN_FLICKS, MIN_SAMPLES, RECENT_REPLAYS, SECTORS, TRAINING_SECS,
-        band_label,
-    },
-    custom::CustomContent,
-    replay::Replay,
-    drill::{DrillConfig, DrillKind, DrillSpec, Run, RunPurpose, VARIANT_SEPARATOR, begin_run},
-    metrics::quest::{QuestMode, TARGET_HIT},
-    settings::Settings,
+use crate::AppState;
+use crate::analysis::{
+    self, Analysis, Cell, MIN_FLICKS, MIN_SAMPLES, RECENT_REPLAYS, SECTORS, TRAINING_SECS, band_label,
 };
+use crate::custom::CustomContent;
+use crate::drill::{DrillConfig, DrillKind, DrillSpec, Run, RunPurpose, VARIANT_SEPARATOR, begin_run};
+use crate::metrics::quest::{QuestMode, TARGET_HIT};
+use crate::replay::Replay;
+use crate::settings::Settings;
+use crate::ui::charts::*;
+use crate::ui::theme::*;
+use crate::ui::widgets::*;
 
 /// Width of the left column (direction wheel and tendencies).
 const LEFT_W: f32 = 312.0;
@@ -28,7 +28,8 @@ const TILE_W: f32 = 88.0;
 const TILE_H: f32 = 56.0;
 const TILE_GAP: f32 = 6.0;
 /// Sectors laid out as on screen, row by row; `None` is the middle.
-const WHEEL: [[Option<usize>; 3]; 3] = [[Some(3), Some(2), Some(1)], [Some(4), None, Some(0)], [Some(5), Some(6), Some(7)]];
+const WHEEL: [[Option<usize>; 3]; 3] =
+    [[Some(3), Some(2), Some(1)], [Some(4), None, Some(0)], [Some(5), Some(6), Some(7)]];
 /// Weakness score shown with full color.
 const FULL_COLOR_SCORE: f32 = 0.8;
 
@@ -103,7 +104,11 @@ fn spawn_insights(commands: &mut Commands, body: Entity, analysis: &Analysis) {
 fn weakness_color(score: f32) -> Color {
     let neutral = Color::srgb(0.24, 0.26, 0.3);
     let t = (score / FULL_COLOR_SCORE).clamp(-1.0, 1.0);
-    if t >= 0.0 { neutral.mix(&Color::srgb(0.78, 0.24, 0.24), t) } else { neutral.mix(&Color::srgb(0.2, 0.58, 0.32), -t) }
+    if t >= 0.0 {
+        neutral.mix(&Color::srgb(0.78, 0.24, 0.24), t)
+    } else {
+        neutral.mix(&Color::srgb(0.2, 0.58, 0.32), -t)
+    }
 }
 
 /// The 8 directions around the crosshair, each colored by its weakness score and showing its kill
@@ -138,9 +143,10 @@ fn spawn_wheel(commands: &mut Commands, parent: Entity, analysis: &Analysis) {
                 None => format!("{} flicks", stats.n),
             };
             let (background, value) = match stats.score {
-                Some(score) => {
-                    (weakness_color(score), stats.ttk_vs(&analysis.overall).map_or("-".into(), |ms| format!("{ms:+.0} ms")))
-                }
+                Some(score) => (
+                    weakness_color(score),
+                    stats.ttk_vs(&analysis.overall).map_or("-".into(), |ms| format!("{ms:+.0} ms")),
+                ),
                 None => (Color::srgb(0.17, 0.18, 0.2), "-".into()),
             };
             let tile = commands.spawn((ChildOf(line), tile, BackgroundColor(background))).id();
@@ -166,7 +172,13 @@ fn spawn_findings(commands: &mut Commands, parent: Entity, analysis: &Analysis) 
         let words = commands
             .spawn((
                 ChildOf(row),
-                Node { flex_direction: FlexDirection::Column, flex_grow: 1.0, flex_basis: px(0), row_gap: px(2), ..default() },
+                Node {
+                    flex_direction: FlexDirection::Column,
+                    flex_grow: 1.0,
+                    flex_basis: px(0),
+                    row_gap: px(2),
+                    ..default()
+                },
             ))
             .id();
         let title = format!("{}  ·  {} flicks", finding.title, finding.n);

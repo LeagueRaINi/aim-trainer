@@ -2,29 +2,21 @@
 
 use std::time::Duration;
 
-use bevy::{
-    feathers::{
-        constants::fonts,
-        controls::ButtonVariant,
-        display::label_dim,
-        theme::{ThemeBackgroundColor, ThemeToken},
-        tokens,
-    },
-    prelude::*,
-    input_focus::InputFocus,
-    ui_widgets::Activate,
-};
+use bevy::feathers::constants::fonts;
+use bevy::feathers::controls::ButtonVariant;
+use bevy::feathers::display::label_dim;
+use bevy::feathers::theme::{ThemeBackgroundColor, ThemeToken};
+use bevy::feathers::tokens;
+use bevy::input_focus::InputFocus;
+use bevy::prelude::*;
+use bevy::ui_widgets::Activate;
 
-use crate::ui::{
-    screens::score::{go_to_menu, score_summary, screen_title},
-    theme::*,
-    widgets::*,
-};
-use crate::{
-    AppState,
-    routine::{Routine, StepResult, start_routine},
-    settings::Settings,
-};
+use crate::AppState;
+use crate::routine::{Routine, StepResult, start_routine};
+use crate::settings::Settings;
+use crate::ui::screens::score::{go_to_menu, score_summary, screen_title};
+use crate::ui::theme::*;
+use crate::ui::widgets::*;
 
 /// When the current break started (real time).
 #[derive(Resource)]
@@ -36,11 +28,7 @@ pub struct BreakTimer;
 const DRILL_W: f32 = 230.0;
 const VALUE_W: f32 = 110.0;
 
-pub fn spawn_routine_screen(
-    mut commands: Commands,
-    routine: Res<Routine>,
-    time: Res<Time<Real>>,
-) {
+pub fn spawn_routine_screen(mut commands: Commands, routine: Res<Routine>, time: Res<Time<Real>>) {
     commands.insert_resource(BreakStart(time.elapsed()));
     let total = routine.steps.len();
     let mut entity = match routine.next_step() {
@@ -109,7 +97,7 @@ pub fn spawn_routine_screen(
                     ]
                 ]
             })
-        }
+        },
         None => {
             let mut rows = vec![table_row(
                 vec![
@@ -126,7 +114,7 @@ pub fn spawn_routine_screen(
                     Some(r) => {
                         let percent = (score / r - 1.0) * 100.0;
                         cell(format!("{percent:+.1}%"), VALUE_W, delta_color(percent))
-                    }
+                    },
                     None => cell("-".to_string(), VALUE_W, tokens::TEXT_DIM),
                 };
                 rows.push(table_row(
@@ -140,7 +128,8 @@ pub fn spawn_routine_screen(
                 ));
             }
             let skipped = total - routine.results.len();
-            let skipped: Vec<_> = (skipped > 0).then(|| label_dim(format!("{skipped} step(s) skipped."))).into_iter().collect();
+            let skipped: Vec<_> =
+                (skipped > 0).then(|| label_dim(format!("{skipped} step(s) skipped."))).into_iter().collect();
             commands.spawn_scene(bsn! {
                 @overlay()
                 Children [
@@ -167,7 +156,7 @@ pub fn spawn_routine_screen(
                     ]
                 ]
             })
-        }
+        },
     };
     entity.insert(DespawnOnExit(AppState::Routine));
 }

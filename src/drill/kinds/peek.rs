@@ -3,17 +3,13 @@
 
 use bevy::prelude::*;
 
-use crate::{
-    AppState,
-    drill::{
-        DrillSet, Run,
-        def::{Category, DecayRule, DrillDef, Environment, TtkFrom, no_tuning},
-        geometry::{TARGET_DISTANCE, random_range, random_sign, ray_box},
-        params::ParamId,
-        stats::ScoreModel,
-        targets::{NextSpawn, SpawnCtx, TargetAssets},
-    },
-};
+use crate::AppState;
+use crate::drill::def::{Category, DecayRule, DrillDef, Environment, TtkFrom, no_tuning};
+use crate::drill::geometry::{TARGET_DISTANCE, random_range, random_sign, ray_box};
+use crate::drill::params::ParamId;
+use crate::drill::stats::ScoreModel;
+use crate::drill::targets::{NextSpawn, SpawnCtx, TargetAssets};
+use crate::drill::{DrillSet, Run};
 
 /// Peek cover: a box between the player and the target plane. Targets start hidden behind it.
 pub(crate) const COVER_MIN: Vec3 = Vec3::new(-1.5, -2.5, -8.75);
@@ -121,10 +117,10 @@ fn move_peeks(
                 if x.abs() >= peek.out_x {
                     peek.phase = PeekPhase::Hold(random_range(hold_min, hold_max));
                 }
-            }
+            },
             PeekPhase::Hold(left) => {
                 peek.phase = if left > dt { PeekPhase::Hold(left - dt) } else { PeekPhase::Back };
-            }
+            },
             PeekPhase::Back => {
                 *x -= peek.side * peek.speed * dt;
                 if x.abs() <= PEEK_HIDDEN_X {
@@ -132,7 +128,7 @@ fn move_peeks(
                     commands.entity(entity).despawn();
                     next.0 = Some(run.elapsed + random_range(0.5, 1.4));
                 }
-            }
+            },
         }
     }
 }

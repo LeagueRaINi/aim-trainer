@@ -1,12 +1,11 @@
 //! The replay file format: [`Replay`] data, the v3 encoding (and the v1/v2 decoders), saving,
 //! loading, pruning, and the background migration of old files to v3.
 
-use std::{
-    array, fs, io,
-    path::{Path, PathBuf},
-};
+use std::path::{Path, PathBuf};
+use std::{array, fs, io};
 
-use bevy::{prelude::*, tasks::IoTaskPool};
+use bevy::prelude::*;
+use bevy::tasks::IoTaskPool;
 
 use crate::drill::DrillKind;
 
@@ -75,9 +74,8 @@ impl Replay {
     /// Timestamps of every replay saved in `dir`, oldest first.
     fn saved_stamps(dir: &Path) -> Vec<u64> {
         let Ok(dir) = fs::read_dir(dir) else { return Vec::new() };
-        let mut stamps: Vec<u64> = dir
-            .filter_map(|entry| entry.ok()?.path().file_stem()?.to_str()?.parse().ok())
-            .collect();
+        let mut stamps: Vec<u64> =
+            dir.filter_map(|entry| entry.ok()?.path().file_stem()?.to_str()?.parse().ok()).collect();
         stamps.sort_unstable();
         stamps
     }
@@ -89,7 +87,9 @@ impl Replay {
             .into_iter()
             .rev()
             .filter_map(|stamp| fs::read(Self::path(stamp)).ok())
-            .filter(|bytes| bytes.get(5).and_then(|&i| DrillKind::ALL.get(i as usize)).is_some_and(|s| kinds.contains(s)))
+            .filter(|bytes| {
+                bytes.get(5).and_then(|&i| DrillKind::ALL.get(i as usize)).is_some_and(|s| kinds.contains(s))
+            })
             .filter_map(|bytes| Self::decode(&bytes))
             .take(limit)
             .collect()
@@ -649,7 +649,8 @@ pub(super) mod tests {
             .fold(0.0_f32, |max, error| max.max(error.abs()));
         assert!(angle_error <= 1e-6, "{angle_error}");
         // Shots keep their count, order and exact times, including those between samples.
-        let shots = |r: &Replay| r.frames.iter().filter(|f| f.shot != Shot::None).map(|f| (f.t, f.shot)).collect::<Vec<_>>();
+        let shots =
+            |r: &Replay| r.frames.iter().filter(|f| f.shot != Shot::None).map(|f| (f.t, f.shot)).collect::<Vec<_>>();
         assert_eq!(shots(&decoded).len(), 31);
         assert_eq!(shots(&decoded), shots(&replay));
         // Target sets change (spawns, kills, reorders, movement) exactly where they did.
@@ -732,10 +733,28 @@ pub(super) mod tests {
     /// The replay the `fixtures/replay_v*.bin` files were saved from.
     fn fixture_replay() -> Replay {
         let frames = vec![
-            ReplayFrame { t: 0.0, yaw: 0.0, pitch: 0.0, shot: Shot::None, targets: vec![(Vec3::new(1.5, 0.25, -10.0), 0.2)] },
-            ReplayFrame { t: 0.004, yaw: -0.0125, pitch: 0.003, shot: Shot::Miss, targets: vec![(Vec3::new(1.4, 0.25, -10.0), 0.2)] },
+            ReplayFrame {
+                t: 0.0,
+                yaw: 0.0,
+                pitch: 0.0,
+                shot: Shot::None,
+                targets: vec![(Vec3::new(1.5, 0.25, -10.0), 0.2)],
+            },
+            ReplayFrame {
+                t: 0.004,
+                yaw: -0.0125,
+                pitch: 0.003,
+                shot: Shot::Miss,
+                targets: vec![(Vec3::new(1.4, 0.25, -10.0), 0.2)],
+            },
             ReplayFrame { t: 0.0085, yaw: -0.025, pitch: 0.006, shot: Shot::Hit, targets: vec![] },
-            ReplayFrame { t: 0.0125, yaw: -0.03, pitch: 0.005, shot: Shot::None, targets: vec![(Vec3::new(-2.0, 0.0, -10.0), 0.2), (Vec3::new(0.5, 1.0, -9.5), 0.15)] },
+            ReplayFrame {
+                t: 0.0125,
+                yaw: -0.03,
+                pitch: 0.005,
+                shot: Shot::None,
+                targets: vec![(Vec3::new(-2.0, 0.0, -10.0), 0.2), (Vec3::new(0.5, 1.0, -9.5), 0.15)],
+            },
         ];
         Replay { kind: DrillKind::Peek, name: "Peeks".into(), sens: 0.4, duration: 20.0, frames }
     }

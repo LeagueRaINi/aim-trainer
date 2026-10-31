@@ -12,26 +12,26 @@ mod play;
 mod sensitivity;
 mod video;
 
-use bevy::{
-    app::Propagate,
-    feathers::{
-        controls::ButtonVariant,
-        theme::{SurfaceLevel, ThemeBackgroundColor, ThemeContext},
-        tokens,
-    },
-    prelude::*,
-    ui_widgets::Activate,
-};
-
+use bevy::app::Propagate;
+use bevy::feathers::controls::ButtonVariant;
+use bevy::feathers::theme::{SurfaceLevel, ThemeBackgroundColor, ThemeContext};
+use bevy::feathers::tokens;
+use bevy::prelude::*;
+use bevy::ui_widgets::Activate;
 pub use discord::update_discord_status;
 pub use sensitivity::update_sens_info;
 
-use self::{
-    audio::audio_page, crosshair::crosshair_page, discord::discord_page, finder::finder_page, play::play_page,
-    sensitivity::sensitivity_page, video::video_page,
-};
-use super::{theme::*, widgets::*};
-use crate::{AppState, settings::Settings};
+use self::audio::audio_page;
+use self::crosshair::crosshair_page;
+use self::discord::discord_page;
+use self::finder::finder_page;
+use self::play::play_page;
+use self::sensitivity::sensitivity_page;
+use self::video::video_page;
+use super::theme::*;
+use super::widgets::*;
+use crate::AppState;
+use crate::settings::Settings;
 
 /// Which menu page is visible. Kept across visits so you return to where you were.
 #[derive(Resource, Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -225,4 +225,3 @@ pub fn show_tab(
         variant.set_if_neq(if tab == *current { ButtonVariant::Primary } else { ButtonVariant::Plain });
     }
 }
-

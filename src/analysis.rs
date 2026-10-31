@@ -45,15 +45,12 @@
 
 use bevy::math::{EulerRot, Quat, Vec2, Vec3};
 
-use crate::{
-    drill::{DrillConfig, DrillKind, def::TtkFrom},
-    metrics::{
-        bow,
-        flick_probe::{END_SPEED, FlickProbe, START_SPEED, angles, screen_angle, wrap},
-        throughput::{self, BANDS, Click},
-    },
-    replay::{Replay, ReplayFrame, Shot},
-};
+use crate::drill::def::TtkFrom;
+use crate::drill::{DrillConfig, DrillKind};
+use crate::metrics::bow;
+use crate::metrics::flick_probe::{END_SPEED, FlickProbe, START_SPEED, angles, screen_angle, wrap};
+use crate::metrics::throughput::{self, BANDS, Click};
+use crate::replay::{Replay, ReplayFrame, Shot};
 
 /// Drills whose replays are made of flicks ([`DrillDef::flick_analysis`](crate::drill::def::DrillDef::flick_analysis)).
 pub fn flick_kinds() -> Vec<DrillKind> {
@@ -164,7 +161,8 @@ pub fn extract_flicks(replay: &Replay) -> Vec<Flick> {
     let kind = replay.kind;
     let frames = &replay.frames;
     let (true, Some(first)) = (kind.def().flick_analysis, frames.first()) else { return Vec::new() };
-    let mut alive: Vec<Alive> = first.targets.iter().map(|&(center, radius)| Alive { center, radius, born: 0 }).collect();
+    let mut alive: Vec<Alive> =
+        first.targets.iter().map(|&(center, radius)| Alive { center, radius, born: 0 }).collect();
     let mut last_kill = 0;
     // A hit whose target only disappears in a later frame (shouldn't happen: the kill is applied
     // before the frame is recorded) is attributed then.
@@ -183,7 +181,8 @@ pub fn extract_flicks(replay: &Replay) -> Vec<Flick> {
         let aim = Quat::from_euler(EulerRot::YXZ, frame.yaw, frame.pitch, 0.0) * Vec3::NEG_Z;
         pending_hit |= frame.shot == Shot::Hit;
         let killed = if pending_hit {
-            (0..gone.len()).min_by(|&a, &b| aim.angle_between(gone[a].center).total_cmp(&aim.angle_between(gone[b].center)))
+            (0..gone.len())
+                .min_by(|&a, &b| aim.angle_between(gone[a].center).total_cmp(&aim.angle_between(gone[b].center)))
         } else {
             None
         };
@@ -401,7 +400,8 @@ enum Metric {
     Errors,
 }
 
-const METRICS: [Metric; 6] = [Metric::Time, Metric::Landing, Metric::OffAxis, Metric::Bow, Metric::Corrections, Metric::Errors];
+const METRICS: [Metric; 6] =
+    [Metric::Time, Metric::Landing, Metric::OffAxis, Metric::Bow, Metric::Corrections, Metric::Errors];
 
 impl Metric {
     fn index(self) -> usize {
@@ -437,15 +437,15 @@ impl Metric {
             Metric::Errors => {
                 let attempts: f32 = samples.iter().map(|s| s.attempts).sum();
                 (samples.len() >= enough).then(|| samples.iter().map(|s| s.errors).sum::<f32>() / attempts)
-            }
+            },
             Metric::Corrections => {
                 let values: Vec<f32> = samples.iter().filter_map(|s| self.value(s)).collect();
                 (values.len() >= enough).then(|| mean(&values))
-            }
+            },
             _ => {
                 let mut values: Vec<f32> = samples.iter().filter_map(|s| self.value(s)).collect();
                 if values.len() < enough { None } else { median(&mut values) }
-            }
+            },
         }
     }
 
@@ -458,16 +458,17 @@ impl Metric {
                 let values: Vec<f32> = samples.iter().filter_map(|s| self.value(s)).collect();
                 let var = values.iter().map(|v| (v - center).powi(2)).sum::<f32>() / values.len().max(1) as f32;
                 var.sqrt().max(0.3)
-            }
+            },
             _ => {
-                let mut deviations: Vec<f32> = samples.iter().filter_map(|s| Some((self.value(s)? - center).abs())).collect();
+                let mut deviations: Vec<f32> =
+                    samples.iter().filter_map(|s| Some((self.value(s)? - center).abs())).collect();
                 let floor = match self {
                     Metric::Time => 0.05,
                     Metric::Landing => 0.02,
                     _ => 0.01,
                 };
                 (1.4826 * median(&mut deviations).unwrap_or(0.0)).max(floor)
-            }
+            },
         }
     }
 }
@@ -501,8 +502,8 @@ fn pseudo_count(groups: &[Vec<f32>]) -> f32 {
     let (n, count) = (sizes.iter().sum::<f32>(), groups.len() as f32);
     let means: Vec<f32> = groups.iter().map(|g| mean(g)).collect();
     let grand = sizes.iter().zip(&means).map(|(n, m)| n * m).sum::<f32>() / n;
-    let within =
-        groups.iter().zip(&means).map(|(g, m)| g.iter().map(|v| (v - m).powi(2)).sum::<f32>()).sum::<f32>() / (n - count);
+    let within = groups.iter().zip(&means).map(|(g, m)| g.iter().map(|v| (v - m).powi(2)).sum::<f32>()).sum::<f32>()
+        / (n - count);
     let between = sizes.iter().zip(&means).map(|(n, m)| n * (m - grand).powi(2)).sum::<f32>() / (count - 1.0);
     let n0 = (n - sizes.iter().map(|s| s * s).sum::<f32>() / n) / (count - 1.0);
     let tau2 = (between - within) / n0;
@@ -644,10 +645,8 @@ impl Cell {
 
     /// Name of the custom scenario training this cell, e.g. "Weak spot: down-left 15-25°".
     pub fn scenario_name(&self) -> String {
-        let parts: Vec<String> = [self.sector.map(|s| SECTORS[s].to_lowercase()), self.band.map(band_label)]
-            .into_iter()
-            .flatten()
-            .collect();
+        let parts: Vec<String> =
+            [self.sector.map(|s| SECTORS[s].to_lowercase()), self.band.map(band_label)].into_iter().flatten().collect();
         format!("Weak spot: {}", parts.join(" "))
     }
 
@@ -771,10 +770,8 @@ fn percent(value: f32) -> String {
 
 /// What stands out in a weak group, versus your overall numbers.
 fn describe(stats: &CellStats, overall: &CellStats) -> String {
-    let mut notable: Vec<(f32, Metric)> = METRICS[1..]
-        .iter()
-        .filter_map(|&m| Some((stats.gaps[m.index()].filter(|&g| g >= NOTABLE)?, m)))
-        .collect();
+    let mut notable: Vec<(f32, Metric)> =
+        METRICS[1..].iter().filter_map(|&m| Some((stats.gaps[m.index()].filter(|&g| g >= NOTABLE)?, m))).collect();
     notable.sort_by(|a, b| b.0.total_cmp(&a.0));
     let parts: Vec<String> = notable
         .iter()
@@ -785,17 +782,27 @@ fn describe(stats: &CellStats, overall: &CellStats) -> String {
                     let (landing, usual) = (stats.landing?, overall.landing?);
                     let verb = if landing < 1.0 { "undershoot" } else { "overshoot" };
                     format!("you {verb} by {:.0}% (overall {})", (landing - 1.0).abs() * 100.0, landing_text(usual))
-                }
+                },
                 Metric::OffAxis => {
-                    format!("your first flick ends {} off-line (overall {})", percent(stats.off_axis?), percent(overall.off_axis?))
-                }
-                Metric::Bow => format!("your path curves more (bow {}, overall {})", percent(stats.bow?), percent(overall.bow?)),
+                    format!(
+                        "your first flick ends {} off-line (overall {})",
+                        percent(stats.off_axis?),
+                        percent(overall.off_axis?)
+                    )
+                },
+                Metric::Bow => {
+                    format!("your path curves more (bow {}, overall {})", percent(stats.bow?), percent(overall.bow?))
+                },
                 Metric::Corrections => {
                     format!("you need {:.1} corrections (overall {:.1})", stats.corrections?, overall.corrections?)
-                }
+                },
                 Metric::Errors => {
-                    format!("you miss {} of attempts (overall {})", percent(stats.error_rate?), percent(overall.error_rate?))
-                }
+                    format!(
+                        "you miss {} of attempts (overall {})",
+                        percent(stats.error_rate?),
+                        percent(overall.error_rate?)
+                    )
+                },
                 Metric::Time => return None,
             })
         })
@@ -818,8 +825,13 @@ fn tendencies(samples: &[Sample], reference: &Reference, overall: &CellStats) ->
     let mut lines = Vec::new();
     if let Some(landing) = overall.landing {
         lines.push(match landing {
-            l if l < 0.97 => format!("Your first flick covers {} of the distance: you tend to undershoot, then correct.", percent(l)),
-            l if l > 1.03 => format!("Your first flick covers {} of the distance: you tend to overshoot, then come back.", percent(l)),
+            l if l < 0.97 => {
+                format!("Your first flick covers {} of the distance: you tend to undershoot, then correct.", percent(l))
+            },
+            l if l > 1.03 => format!(
+                "Your first flick covers {} of the distance: you tend to overshoot, then come back.",
+                percent(l)
+            ),
             l => format!("Your first flick lands on target on average ({}).", percent(l)),
         });
     }
@@ -832,7 +844,11 @@ fn tendencies(samples: &[Sample], reference: &Reference, overall: &CellStats) ->
             b if b < 0.15 => "slightly curved",
             _ => "curved (the horizontal and vertical parts of the motion aren't in sync)",
         };
-        lines.push(format!("Your flick paths are {shape}: median bow {}, first flicks end {} off-line.", percent(bow), percent(off)));
+        lines.push(format!(
+            "Your flick paths are {shape}: median bow {}, first flicks end {} off-line.",
+            percent(bow),
+            percent(off)
+        ));
     }
     if let Some(corrections) = overall.corrections {
         lines.push(format!("You make {corrections:.1} corrective movements per kill on average."));
@@ -842,7 +858,13 @@ fn tendencies(samples: &[Sample], reference: &Reference, overall: &CellStats) ->
 
 /// Compares the flicks on `a_side` (named `name_a`) with the rest: kill time versus expected,
 /// and first-flick landing. `None` without enough flicks on both sides.
-fn compare(samples: &[Sample], reference: &Reference, name_a: &str, name_b: &str, a_side: impl Fn(&Sample) -> bool) -> Option<String> {
+fn compare(
+    samples: &[Sample],
+    reference: &Reference,
+    name_a: &str,
+    name_b: &str,
+    a_side: impl Fn(&Sample) -> bool,
+) -> Option<String> {
     let (a, b): (Vec<&Sample>, Vec<&Sample>) = samples.iter().partition(|&s| a_side(s));
     if a.len() < MIN_SAMPLES || b.len() < MIN_SAMPLES {
         return None;
@@ -857,7 +879,11 @@ fn compare(samples: &[Sample], reference: &Reference, name_a: &str, name_b: &str
     if let Some((x, y)) = a.landing.zip(b.landing).filter(|(x, y)| (x - y).abs() >= 0.04) {
         facts.push(format!("{name_a} first flicks land {} vs {} for {name_b}", landing_text(x), landing_text(y)));
     }
-    Some(if facts.is_empty() { format!("{name_a} and {name_b} flicks are even.") } else { format!("{}.", facts.join("; ")) })
+    Some(if facts.is_empty() {
+        format!("{name_a} and {name_b} flicks are even.")
+    } else {
+        format!("{}.", facts.join("; "))
+    })
 }
 
 fn mean(values: &[f32]) -> f32 {
@@ -905,7 +931,8 @@ mod tests {
 
     impl Script {
         fn new(targets: &[Vec2]) -> Self {
-            let mut script = Self { frames: Vec::new(), aim: Vec2::ZERO, targets: targets.iter().map(|&a| (at(a), 0.2)).collect() };
+            let mut script =
+                Self { frames: Vec::new(), aim: Vec2::ZERO, targets: targets.iter().map(|&a| (at(a), 0.2)).collect() };
             script.frame(Shot::None);
             script
         }
@@ -932,7 +959,9 @@ mod tests {
         /// Kills the target nearest the crosshair and spawns `next` in the same frame.
         fn kill(&mut self, next: Option<Vec2>) {
             let aim = at(self.aim);
-            let nearest = (0..self.targets.len()).min_by(|&a, &b| self.targets[a].0.distance(aim).total_cmp(&self.targets[b].0.distance(aim))).unwrap();
+            let nearest = (0..self.targets.len())
+                .min_by(|&a, &b| self.targets[a].0.distance(aim).total_cmp(&self.targets[b].0.distance(aim)))
+                .unwrap();
             self.targets.remove(nearest);
             self.targets.extend(next.map(|a| (at(a), 0.2)));
             self.frame(Shot::Hit);
@@ -1119,7 +1148,8 @@ mod tests {
     #[test]
     fn pseudo_counts_follow_the_real_differences_between_groups() {
         // Within-group spread 0.1; group means 0..7 apart: almost no shrinkage needed.
-        let distinct: Vec<Vec<f32>> = (0..8).map(|g| (0..30).map(|i| g as f32 + (i % 5) as f32 * 0.05).collect()).collect();
+        let distinct: Vec<Vec<f32>> =
+            (0..8).map(|g| (0..30).map(|i| g as f32 + (i % 5) as f32 * 0.05).collect()).collect();
         assert_eq!(pseudo_count(&distinct), MIN_PSEUDO);
         // Identical groups: anything that sets one apart is noise, so shrink all the way.
         let same: Vec<Vec<f32>> = (0..8).map(|_| (0..30).map(|i| (i % 5) as f32).collect()).collect();
@@ -1146,7 +1176,8 @@ mod tests {
         let (big, small) = (&analysis.sectors[2], &analysis.sectors[5]);
         let (big_ms, small_ms) = (big.ttk_vs(&analysis.overall).unwrap(), small.ttk_vs(&analysis.overall).unwrap());
         assert!((small_ms / big_ms - 1.0).abs() < 0.35, "raw gaps {big_ms} vs {small_ms}");
-        let (big_time, small_time) = (big.gaps[Metric::Time.index()].unwrap(), small.gaps[Metric::Time.index()].unwrap());
+        let (big_time, small_time) =
+            (big.gaps[Metric::Time.index()].unwrap(), small.gaps[Metric::Time.index()].unwrap());
         assert!(small_time / small_ms < 0.9 * big_time / big_ms, "shrunk {big_time} vs {small_time}");
         assert!(small.score.unwrap() < big.score.unwrap());
         assert_eq!(analysis.findings[0].cell.sector, Some(2), "{:?}", analysis.findings);

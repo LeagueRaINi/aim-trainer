@@ -1,19 +1,16 @@
 //! Finder page: sensitivity finder setup.
 
-use bevy::{
-    feathers::{
-        controls::ButtonVariant,
-        display::label_dim,
-    },
-    prelude::*,
-};
+use bevy::feathers::controls::ButtonVariant;
+use bevy::feathers::display::label_dim;
+use bevy::prelude::*;
 
 use super::{MenuTab, main_column, page, side_column};
-use crate::{
-    drill::DrillKind,
-    settings::{FinderFocus, FinderMethod, SettingField, Settings},
-    ui::{bindings::*, screens::finder::start_finder, theme::*, widgets::*},
-};
+use crate::drill::DrillKind;
+use crate::settings::{FinderFocus, FinderMethod, SettingField, Settings};
+use crate::ui::bindings::*;
+use crate::ui::screens::finder::start_finder;
+use crate::ui::theme::*;
+use crate::ui::widgets::*;
 
 pub(super) fn finder_page(settings: &Settings) -> impl Scene {
     let classic_drills: Vec<_> = DrillKind::ALL
@@ -70,4 +67,3 @@ pub(super) fn finder_page(settings: &Settings) -> impl Scene {
         ]
     }
 }
-

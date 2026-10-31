@@ -1,15 +1,13 @@
 //! Sensitivity page: game presets, sensitivity, DPI, yaw and FOV.
 
-use bevy::{
-    feathers::display::{label, label_dim},
-    prelude::*,
-};
+use bevy::feathers::display::{label, label_dim};
+use bevy::prelude::*;
 
 use super::{MenuTab, main_column, page, side_column};
-use crate::{
-    settings::{SettingField, Settings},
-    ui::{bindings::*, theme::*, widgets::*},
-};
+use crate::settings::{SettingField, Settings};
+use crate::ui::bindings::*;
+use crate::ui::theme::*;
+use crate::ui::widgets::*;
 
 #[derive(Component, Clone, Copy, Default)]
 pub struct SensInfo;
@@ -61,7 +59,6 @@ pub(super) fn sensitivity_page(settings: &Settings) -> impl Scene {
         ]
     }
 }
-
 
 pub fn update_sens_info(settings: Res<Settings>, mut info: Query<&mut Text, With<SensInfo>>) {
     let wanted = settings.describe_sens(settings.sens).replace("  |  ", "\n");

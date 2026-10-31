@@ -1,12 +1,10 @@
 //! Chart primitives: plain UI entities spawned by systems inside containers they rebuild.
 
-use bevy::{
-    feathers::{constants::fonts, theme::{ThemeBackgroundColor, ThemeToken}},
-    prelude::*,
-};
+use bevy::feathers::constants::fonts;
+use bevy::feathers::theme::{ThemeBackgroundColor, ThemeToken};
+use bevy::prelude::*;
 
 use super::widgets::styled;
-
 
 /// Chart labels: small text in the regular Feathers font.
 pub fn text(commands: &mut Commands, parent: Entity, value: String, size: f32, color: ThemeToken, node: Node) {
@@ -39,4 +37,3 @@ pub fn polyline(commands: &mut Commands, parent: Entity, points: &[Vec2], color:
         ));
     }
 }
-

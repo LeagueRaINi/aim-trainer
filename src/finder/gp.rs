@@ -79,7 +79,8 @@ impl Gp {
         let mut chol = vec![0.0; n * n];
         for i in 0..n {
             for j in 0..n {
-                chol[i * n + j] = hyper.shape(xs[i], xs[j]) + CONSTANT_SD * CONSTANT_SD + DRIFT_SD * DRIFT_SD * ts[i] * ts[j];
+                chol[i * n + j] =
+                    hyper.shape(xs[i], xs[j]) + CONSTANT_SD * CONSTANT_SD + DRIFT_SD * DRIFT_SD * ts[i] * ts[j];
             }
             chol[i * n + i] += hyper.noise * hyper.noise;
         }
@@ -89,8 +90,9 @@ impl Gp {
         let centred: Vec<f64> = ys.iter().map(|y| y - offset).collect();
         let half = solve_lower(&chol, n, &centred);
         let log_det: f64 = (0..n).map(|i| chol[i * n + i].ln()).sum::<f64>() * 2.0;
-        let log_evidence =
-            -0.5 * half.iter().map(|v| v * v).sum::<f64>() - 0.5 * log_det - 0.5 * n as f64 * (2.0 * std::f64::consts::PI).ln();
+        let log_evidence = -0.5 * half.iter().map(|v| v * v).sum::<f64>()
+            - 0.5 * log_det
+            - 0.5 * n as f64 * (2.0 * std::f64::consts::PI).ln();
         let alpha = solve_upper(&chol, n, &half);
         Some(Self { hyper, xs: xs.to_vec(), ts, offset, chol, alpha, log_evidence })
     }
@@ -170,7 +172,8 @@ impl Gp {
             for i in 0..g {
                 draw[i] = means[i] + (0..=i).map(|j| cov[i * g + j] * z[j]).sum::<f64>();
             }
-            let (best_index, best) = draw.iter().enumerate().fold((0, f64::MIN), |acc, (i, &v)| if v > acc.1 { (i, v) } else { acc });
+            let (best_index, best) =
+                draw.iter().enumerate().fold((0, f64::MIN), |acc, (i, &v)| if v > acc.1 { (i, v) } else { acc });
             counts.peak[best_index] += 1.0;
             for (count, &value) in counts.near.iter_mut().zip(&draw) {
                 if value >= best - tolerance {
@@ -229,7 +232,8 @@ impl Mixture {
 
     /// Posterior mean and variance of `c + f(x)` at the average trial.
     pub fn predict(&self, x: f64) -> (f64, f64) {
-        let parts: Vec<(f64, (f64, f64))> = self.components.iter().map(|(weight, gp)| (*weight, gp.predict(x))).collect();
+        let parts: Vec<(f64, (f64, f64))> =
+            self.components.iter().map(|(weight, gp)| (*weight, gp.predict(x))).collect();
         let mean: f64 = parts.iter().map(|(w, (m, _))| w * m).sum();
         let second: f64 = parts.iter().map(|(w, (m, v))| w * (v + m * m)).sum();
         (mean, (second - mean * mean).max(0.0))
@@ -272,7 +276,10 @@ impl Mixture {
             drawn += share;
         }
         let n = drawn as f64;
-        NearBest { near: counts.near.into_iter().map(|c| c / n).collect(), peak: counts.peak.into_iter().map(|c| c / n).collect() }
+        NearBest {
+            near: counts.near.into_iter().map(|c| c / n).collect(),
+            peak: counts.peak.into_iter().map(|c| c / n).collect(),
+        }
     }
 }
 
@@ -349,7 +356,12 @@ mod tests {
         // A = [[4, 2], [2, 3]] = L L^T with L = [[2, 0], [1, sqrt 2]].
         let mut a = vec![4.0, 2.0, 2.0, 3.0];
         assert!(cholesky(&mut a, 2));
-        assert!((a[0] - 2.0).abs() < 1e-12 && (a[2] - 1.0).abs() < 1e-12 && (a[3] - 2f64.sqrt()).abs() < 1e-12 && a[1] == 0.0);
+        assert!(
+            (a[0] - 2.0).abs() < 1e-12
+                && (a[2] - 1.0).abs() < 1e-12
+                && (a[3] - 2f64.sqrt()).abs() < 1e-12
+                && a[1] == 0.0
+        );
         // A x = [8, 7] -> x = [1.25, 1.5].
         let x = solve_upper(&a, 2, &solve_lower(&a, 2, &[8.0, 7.0]));
         assert!((x[0] - 1.25).abs() < 1e-12 && (x[1] - 1.5).abs() < 1e-12, "{x:?}");
@@ -380,7 +392,10 @@ mod tests {
         let ys: Vec<f64> = xs.iter().zip(&ts).map(|(x, t)| 1.0 - x * x + 0.03 * t).collect();
         let gp = Mixture::fit(&xs, &ts, &ys).unwrap();
         assert!((gp.drift() - 0.03).abs() < 5e-3, "{}", gp.drift());
-        let best = (-50..=50).map(|i| f64::from(i) / 100.0).max_by(|a, b| gp.predict(*a).0.total_cmp(&gp.predict(*b).0)).unwrap();
+        let best = (-50..=50)
+            .map(|i| f64::from(i) / 100.0)
+            .max_by(|a, b| gp.predict(*a).0.total_cmp(&gp.predict(*b).0))
+            .unwrap();
         assert!(best.abs() <= 0.03, "{best}");
     }
 

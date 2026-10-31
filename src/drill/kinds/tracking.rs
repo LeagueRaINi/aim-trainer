@@ -2,17 +2,13 @@
 
 use bevy::prelude::*;
 
-use crate::{
-    camera::PlayerCamera,
-    drill::{
-        DrillSet, Run,
-        def::{Category, DecayRule, DrillDef, Environment, TtkFrom, no_respawn, no_spawn_next, no_tuning},
-        geometry::{TARGET_DISTANCE, random_range, ray_hit},
-        params::ParamId,
-        stats::ScoreModel,
-        targets::{SpawnCtx, TargetAssets},
-    },
-};
+use crate::camera::PlayerCamera;
+use crate::drill::def::{Category, DecayRule, DrillDef, Environment, TtkFrom, no_respawn, no_spawn_next, no_tuning};
+use crate::drill::geometry::{TARGET_DISTANCE, random_range, ray_hit};
+use crate::drill::params::ParamId;
+use crate::drill::stats::ScoreModel;
+use crate::drill::targets::{SpawnCtx, TargetAssets};
+use crate::drill::{DrillSet, Run};
 
 pub const DEF: DrillDef = DrillDef {
     name: "Tracking",
@@ -60,11 +56,7 @@ fn move_strafers(time: Res<Time>, run: Res<Run>, mut strafers: Query<(&mut Straf
         strafer.turn_in -= dt;
         let out_of_bounds = transform.translation.x.abs() > config.lane;
         if strafer.turn_in <= 0.0 || out_of_bounds {
-            let direction = if out_of_bounds {
-                -transform.translation.x.signum()
-            } else {
-                -strafer.velocity.signum()
-            };
+            let direction = if out_of_bounds { -transform.translation.x.signum() } else { -strafer.velocity.signum() };
             strafer.velocity = direction * random_range(config.strafe_min, config.strafe_max);
             strafer.turn_in = random_range(config.turn_min, config.turn_max);
         }

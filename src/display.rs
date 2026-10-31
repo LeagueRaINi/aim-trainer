@@ -6,26 +6,19 @@
 //! instead minimizes itself when it loses focus, which is how exclusive fullscreen behaves in
 //! games; "Borderless" stays where it is.
 
-use std::{
-    num::NonZero,
-    sync::{
-        Arc,
-        atomic::{AtomicU32, Ordering},
-    },
-    time::{Duration, Instant},
-};
+use std::num::NonZero;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicU32, Ordering};
+use std::time::{Duration, Instant};
 
-use bevy::{
-    camera::Viewport,
-    prelude::*,
-    render::{Render, RenderApp, RenderSystems, view::Msaa},
-    window::{MonitorSelection, PresentMode, PrimaryWindow, WindowFocused, WindowMode},
-};
+use bevy::camera::Viewport;
+use bevy::prelude::*;
+use bevy::render::view::Msaa;
+use bevy::render::{Render, RenderApp, RenderSystems};
+use bevy::window::{MonitorSelection, PresentMode, PrimaryWindow, WindowFocused, WindowMode};
 
-use crate::{
-    camera::PlayerCamera,
-    settings::{AspectMode, DisplayMode, Settings, VideoSettings},
-};
+use crate::camera::PlayerCamera;
+use crate::settings::{AspectMode, DisplayMode, Settings, VideoSettings};
 
 const SIXTEEN_NINE: f32 = 16.0 / 9.0;
 /// Menus and HUD are laid out for this many logical pixels of height and scaled from there.
@@ -161,11 +154,8 @@ fn fit_viewport(
     };
     let current = camera.viewport.as_ref().map(|v| (v.physical_position, v.physical_size));
     if current != wanted {
-        camera.viewport = wanted.map(|(physical_position, physical_size)| Viewport {
-            physical_position,
-            physical_size,
-            ..default()
-        });
+        camera.viewport =
+            wanted.map(|(physical_position, physical_size)| Viewport { physical_position, physical_size, ..default() });
     }
 
     // Keep menus the same relative size at 1440p/4K, and shrink them (down to a limit) when

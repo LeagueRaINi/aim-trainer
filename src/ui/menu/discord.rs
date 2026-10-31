@@ -1,16 +1,13 @@
 //! Discord page: Rich Presence toggle and connection status.
 
-use bevy::{
-    feathers::display::{label, label_dim},
-    prelude::*,
-};
+use bevy::feathers::display::{label, label_dim};
+use bevy::prelude::*;
 
 use super::{MenuTab, main_column, page, side_column};
-use crate::{
-    presence::{Connection, PresenceLink},
-    settings::Settings,
-    ui::{bindings::*, widgets::*},
-};
+use crate::presence::{Connection, PresenceLink};
+use crate::settings::Settings;
+use crate::ui::bindings::*;
+use crate::ui::widgets::*;
 
 pub(super) fn discord_page() -> impl Scene {
     bsn! {
@@ -45,11 +42,17 @@ pub(super) fn discord_page() -> impl Scene {
 #[derive(Component, Clone, Copy, Default)]
 pub struct DiscordStatus;
 
-pub fn update_discord_status(settings: Res<Settings>, link: Res<PresenceLink>, mut labels: Query<&mut Text, With<DiscordStatus>>) {
+pub fn update_discord_status(
+    settings: Res<Settings>,
+    link: Res<PresenceLink>,
+    mut labels: Query<&mut Text, With<DiscordStatus>>,
+) {
     let wanted = match (settings.discord.enabled, link.connection()) {
         (false, _) => "Off.",
         (true, Connection::Connected) => "Connected: your profile shows what you're playing.",
-        (true, Connection::Searching | Connection::Off) => "Not connected: is the Discord app running? Retrying every 10 s.",
+        (true, Connection::Searching | Connection::Off) => {
+            "Not connected: is the Discord app running? Retrying every 10 s."
+        },
     };
     for mut text in &mut labels {
         if text.0 != wanted {
@@ -57,4 +60,3 @@ pub fn update_discord_status(settings: Res<Settings>, link: Res<PresenceLink>, m
         }
     }
 }
-

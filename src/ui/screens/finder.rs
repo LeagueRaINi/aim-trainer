@@ -1,32 +1,22 @@
 //! Sensitivity finder screens: classic blind A/B and the smart score-model finder.
 
-use bevy::{
-    feathers::{
-        controls::ButtonVariant,
-        display::{label, label_dim},
-        theme::ThemeBackgroundColor,
-        tokens,
-    },
-    prelude::*,
-    ui::InteractionDisabled,
-    ui_widgets::Activate,
-};
+use bevy::feathers::controls::ButtonVariant;
+use bevy::feathers::display::{label, label_dim};
+use bevy::feathers::theme::ThemeBackgroundColor;
+use bevy::feathers::tokens;
+use bevy::prelude::*;
+use bevy::ui::InteractionDisabled;
+use bevy::ui_widgets::Activate;
 
-use crate::ui::{
-    charts::*,
-    screens::score::{go_to_menu, screen_title},
-    theme::*,
-    widgets::*,
-};
-use crate::{
-    AppState,
-    finder::{
-        classic::{Finder, FinderStep},
-        smart::{MAX_TRIALS, MIN_TRIALS, OPENING, PLATEAU, SmartFinder, SmartStep, WARM_IN},
-    },
-    drill::{DrillSpec, Run, RunPurpose, begin_run},
-    settings::{FinderMethod, Settings},
-};
+use crate::AppState;
+use crate::drill::{DrillSpec, Run, RunPurpose, begin_run};
+use crate::finder::classic::{Finder, FinderStep};
+use crate::finder::smart::{MAX_TRIALS, MIN_TRIALS, OPENING, PLATEAU, SmartFinder, SmartStep, WARM_IN};
+use crate::settings::{FinderMethod, Settings};
+use crate::ui::charts::*;
+use crate::ui::screens::score::{go_to_menu, screen_title};
+use crate::ui::theme::*;
+use crate::ui::widgets::*;
 
 /// Starts the finder with the method chosen in settings.
 pub fn start_finder(
@@ -51,7 +41,7 @@ pub fn spawn_finder_screen(
     match (classic, smart) {
         (Some(finder), _) => spawn_classic(commands, finder, settings),
         (_, Some(finder)) => spawn_smart(commands, finder, settings),
-        _ => {}
+        _ => {},
     }
 }
 
@@ -101,7 +91,7 @@ fn spawn_classic(mut commands: Commands, finder: Res<Finder>, settings: Res<Sett
                     ]
                 ]
             })
-        }
+        },
         FinderStep::Choose => {
             let higher_a = finder.score_a >= finder.score_b;
             let caption = |trial: &str, higher: bool| {
@@ -149,7 +139,7 @@ fn spawn_classic(mut commands: Commands, finder: Res<Finder>, settings: Res<Sett
                     ]
                 ]
             })
-        }
+        },
         FinderStep::Done => {
             let recommended = finder.recommendation();
             const ROUND_W: f32 = 70.0;
@@ -201,7 +191,7 @@ fn spawn_classic(mut commands: Commands, finder: Res<Finder>, settings: Res<Sett
                     ]
                 ]
             })
-        }
+        },
     };
     entity.insert(DespawnOnExit(AppState::Finder));
 }
@@ -526,12 +516,18 @@ fn apply_smart_result(
 /// as dim lines, the best range shaded, the recommendation as a green marker and the sens where
 /// your aim is on target (first flicks land on it, clicks on its centre) as a blue one. X axis is
 /// log-scaled sensitivity.
-pub fn draw_smart_chart(mut commands: Commands, finder: Option<Res<SmartFinder>>, charts: Query<Entity, Added<SmartChart>>) {
+pub fn draw_smart_chart(
+    mut commands: Commands,
+    finder: Option<Res<SmartFinder>>,
+    charts: Query<Entity, Added<SmartChart>>,
+) {
     let Some(finder) = finder else { return };
     for chart in &charts {
         let band = finder.band();
         let objectives = finder.corrected_objectives();
-        let span = |values: &mut dyn Iterator<Item = f32>| values.fold((f32::MAX, f32::MIN), |(lo, hi), v| (lo.min(v), hi.max(v)));
+        let span = |values: &mut dyn Iterator<Item = f32>| {
+            values.fold((f32::MAX, f32::MIN), |(lo, hi), v| (lo.min(v), hi.max(v)))
+        };
         let (min, max) = span(&mut band.iter().map(|p| p.1).chain(objectives.iter().copied()));
         // The band widens away from the trials: show it, but not at the cost of squashing the
         // mean and the dots (it's clipped at the plot edges instead).
@@ -555,16 +551,26 @@ pub fn draw_smart_chart(mut commands: Commands, finder: Option<Res<SmartFinder>>
         let (range_lo, range_hi) = finder.best_range();
         if range_hi > range_lo {
             let left = x(range_lo);
-            commands.spawn((ChildOf(plot), absolute(left, 0.0, x(range_hi) - left, CHART_H), ThemeBackgroundColor(DIVIDER)));
+            commands.spawn((
+                ChildOf(plot),
+                absolute(left, 0.0, x(range_hi) - left, CHART_H),
+                ThemeBackgroundColor(DIVIDER),
+            ));
         }
 
-        let line = |value: fn(&(f32, f32, f32, f32)) -> f32| -> Vec<Vec2> { band.iter().map(|p| Vec2::new(x(p.0), y(value(p)))).collect() };
+        let line = |value: fn(&(f32, f32, f32, f32)) -> f32| -> Vec<Vec2> {
+            band.iter().map(|p| Vec2::new(x(p.0), y(value(p)))).collect()
+        };
         polyline(&mut commands, plot, &line(|p| p.2), tokens::TEXT_DIM);
         polyline(&mut commands, plot, &line(|p| p.3), tokens::TEXT_DIM);
         polyline(&mut commands, plot, &line(|p| p.1), tokens::TEXT_MAIN);
 
         if let Some(on_target) = finder.precision_sens().filter(|s| (sens_lo..=sens_hi).contains(s)) {
-            commands.spawn((ChildOf(plot), absolute(x(on_target) - 1.0, 0.0, 2.0, CHART_H), ThemeBackgroundColor(TEXT_ACCENT)));
+            commands.spawn((
+                ChildOf(plot),
+                absolute(x(on_target) - 1.0, 0.0, 2.0, CHART_H),
+                ThemeBackgroundColor(TEXT_ACCENT),
+            ));
         }
         let recommended = x(finder.recommendation());
         commands.spawn((
@@ -579,7 +585,10 @@ pub fn draw_smart_chart(mut commands: Commands, finder: Option<Res<SmartFinder>>
             let color = if value >= best { GOLD } else { CHART_BAR };
             commands.spawn((
                 ChildOf(plot),
-                Node { border_radius: BorderRadius::MAX, ..absolute(x(trial.sens) - size * 0.5, y(value) - size * 0.5, size, size) },
+                Node {
+                    border_radius: BorderRadius::MAX,
+                    ..absolute(x(trial.sens) - size * 0.5, y(value) - size * 0.5, size, size)
+                },
                 ThemeBackgroundColor(color),
             ));
         }

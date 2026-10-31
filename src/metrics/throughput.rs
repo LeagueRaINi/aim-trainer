@@ -24,7 +24,8 @@ use bevy::math::Vec2;
 use super::flick_probe::{MIN_DISTANCE, wrap};
 
 /// Flick distance bands, degrees.
-pub const BANDS: [(f32, f32); 5] = [(MIN_DISTANCE, 8.0), (8.0, 15.0), (15.0, 25.0), (25.0, 40.0), (40.0, f32::INFINITY)];
+pub const BANDS: [(f32, f32); 5] =
+    [(MIN_DISTANCE, 8.0), (8.0, 15.0), (15.0, 25.0), (25.0, 40.0), (40.0, f32::INFINITY)];
 /// Clicks a condition needs before its throughput counts.
 pub const MIN_GROUP: usize = 8;
 /// ISO 9241-411 effective width per standard deviation: `sqrt(2 * pi * e)`, so `We` covers 96%
@@ -150,7 +151,16 @@ mod tests {
     fn click(angle: f32, distance: f32, offset: Vec2, radius: f32, time: f32) -> Click {
         let target = screen_offset(angle, distance);
         let aim = target + screen_offset(angle, offset.x) + screen_offset(angle + 90.0, offset.y);
-        Click { start: Vec2::ZERO, target, radius, size: radius, aim, time, hit: offset.length() <= radius, first: true }
+        Click {
+            start: Vec2::ZERO,
+            target,
+            radius,
+            size: radius,
+            aim,
+            time,
+            hit: offset.length() <= radius,
+            first: true,
+        }
     }
 
     #[test]
@@ -169,7 +179,12 @@ mod tests {
             assert!((c.amplitude() - 20.0).abs() < 1e-3);
         }
         // Counter-clockwise of a flick to the right is up (pitch grows upward).
-        let right = Click { start: Vec2::ZERO, target: Vec2::new(-10.0, 0.0), aim: Vec2::new(-10.0, 0.4), ..click(0.0, 10.0, Vec2::ZERO, 1.0, 0.2) };
+        let right = Click {
+            start: Vec2::ZERO,
+            target: Vec2::new(-10.0, 0.0),
+            aim: Vec2::new(-10.0, 0.4),
+            ..click(0.0, 10.0, Vec2::ZERO, 1.0, 0.2)
+        };
         assert!((right.task_offset().unwrap() - Vec2::new(0.0, 0.4)).length() < 1e-5);
         // Too short to have a direction.
         assert_eq!(click(0.0, MIN_DISTANCE - 0.5, Vec2::ZERO, 1.0, 0.2).task_offset(), None);
@@ -179,16 +194,17 @@ mod tests {
     fn bias_off_axis_and_centre_hits() {
         let radius = 0.8;
         let clicks = [
-            click(0.0, 20.0, Vec2::new(0.4, 0.0), radius, 0.3),   // past, centre
-            click(90.0, 20.0, Vec2::new(0.8, -0.4), radius, 0.3), // past, edge
+            click(0.0, 20.0, Vec2::new(0.4, 0.0), radius, 0.3),    // past, centre
+            click(90.0, 20.0, Vec2::new(0.8, -0.4), radius, 0.3),  // past, edge
             click(200.0, 20.0, Vec2::new(-0.3, 0.2), radius, 0.3), // short, centre
-            click(300.0, 20.0, Vec2::new(1.2, 0.4), radius, 0.3), // past, miss
+            click(300.0, 20.0, Vec2::new(1.2, 0.4), radius, 0.3),  // past, miss
         ];
         // (0.5 + 1.0 - 0.375 + 1.5) / 4 radii past the centre: overshooting at the click.
         assert!((bias(&clicks).unwrap() - 0.65625).abs() < 1e-4);
         assert!((off_axis(&clicks).unwrap() - (0.0 + 0.5 + 0.25 + 0.5) / 4.0).abs() < 1e-4);
         assert!((centre_hits(&clicks).unwrap() - 0.5).abs() < 1e-6);
-        let short: Vec<Click> = clicks.iter().map(|c| click(0.0, 20.0, -c.task_offset().unwrap(), radius, 0.3)).collect();
+        let short: Vec<Click> =
+            clicks.iter().map(|c| click(0.0, 20.0, -c.task_offset().unwrap(), radius, 0.3)).collect();
         assert!(bias(&short).unwrap() < 0.0);
         // Only first clicks count.
         let later = clicks.map(|c| Click { first: false, ..c });

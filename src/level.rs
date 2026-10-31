@@ -1,23 +1,17 @@
 //! The training room: a lit box with subtly tiled surfaces, so turning has a visual reference.
 
-use bevy::{
-    asset::RenderAssetUsages,
-    image::{ImageAddressMode, ImageFilterMode, ImageSampler, ImageSamplerDescriptor},
-    math::Affine2,
-    prelude::*,
-    render::render_resource::{Extent3d, TextureDimension, TextureFormat},
-};
+use bevy::asset::RenderAssetUsages;
+use bevy::image::{ImageAddressMode, ImageFilterMode, ImageSampler, ImageSamplerDescriptor};
+use bevy::math::Affine2;
+use bevy::prelude::*;
+use bevy::render::render_resource::{Extent3d, TextureDimension, TextureFormat};
 
 pub struct LevelPlugin;
 
 impl Plugin for LevelPlugin {
     fn build(&self, app: &mut App) {
         app.insert_resource(ClearColor(Color::BLACK))
-            .insert_resource(GlobalAmbientLight {
-                color: Color::WHITE,
-                brightness: 1500.0,
-                ..default()
-            })
+            .insert_resource(GlobalAmbientLight { color: Color::WHITE, brightness: 1500.0, ..default() })
             .add_systems(Startup, spawn_room);
     }
 }

@@ -1,15 +1,12 @@
 //! Video page: display mode, aspect, VSync, MSAA and the FPS cap.
 
-use bevy::{
-    feathers::display::label_dim,
-    prelude::*,
-};
+use bevy::feathers::display::label_dim;
+use bevy::prelude::*;
 
 use super::{MenuTab, main_column, page, side_column};
-use crate::{
-    settings::{AspectMode, DisplayMode, SettingField, Settings},
-    ui::{bindings::*, widgets::*},
-};
+use crate::settings::{AspectMode, DisplayMode, SettingField, Settings};
+use crate::ui::bindings::*;
+use crate::ui::widgets::*;
 
 pub(super) fn video_page(settings: &Settings) -> impl Scene {
     bsn! {
@@ -61,4 +58,3 @@ pub(super) fn video_page(settings: &Settings) -> impl Scene {
         ]
     }
 }
-

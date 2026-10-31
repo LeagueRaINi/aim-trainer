@@ -11,7 +11,9 @@ pub mod widgets;
 
 use bevy::prelude::*;
 
-use crate::{AppState, drill::DrillSet, settings::Settings};
+use crate::AppState;
+use crate::drill::DrillSet;
+use crate::settings::Settings;
 
 pub struct UiPlugin;
 

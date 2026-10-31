@@ -2,7 +2,10 @@
 //! menus, the custom editor, history, analysis, replays) asks the definition instead of
 //! matching on the kind.
 
-use super::{DrillConfig, params::ParamId, stats::ScoreModel, targets::SpawnCtx};
+use super::DrillConfig;
+use super::params::ParamId;
+use super::stats::ScoreModel;
+use super::targets::SpawnCtx;
 
 /// One built-in drill. Each kind module in [`super::kinds`] defines its `DEF`.
 pub struct DrillDef {

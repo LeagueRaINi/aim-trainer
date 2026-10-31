@@ -1,13 +1,9 @@
 //! The UI theme: the Feathers dark theme plus a few game-specific color tokens, and the
 //! spacing scale shared by every screen.
 
-use bevy::{
-    feathers::{
-        dark_theme::create_dark_theme,
-        theme::{SemanticToken, ThemeToken, UiTheme},
-    },
-    prelude::*,
-};
+use bevy::feathers::dark_theme::create_dark_theme;
+use bevy::feathers::theme::{SemanticToken, ThemeToken, UiTheme};
+use bevy::prelude::*;
 
 // Spacing scale (logical px). Everything in the UI is laid out on these steps.
 pub const SPACE_XS: f32 = 4.0;

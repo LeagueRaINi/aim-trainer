@@ -1,15 +1,15 @@
 //! Saving resources to RON files: load with backup of unreadable files, atomic debounced saves,
 //! and a last save on exit. Used by the settings and the custom content.
 
-use std::{
-    fs, io,
-    marker::PhantomData,
-    path::{Path, PathBuf},
-    time::Duration,
-};
+use std::marker::PhantomData;
+use std::path::{Path, PathBuf};
+use std::time::Duration;
+use std::{fs, io};
 
-use bevy::{prelude::*, window::WindowCloseRequested};
-use serde::{Serialize, de::DeserializeOwned};
+use bevy::prelude::*;
+use bevy::window::WindowCloseRequested;
+use serde::Serialize;
+use serde::de::DeserializeOwned;
 
 /// Files are written this long after the last change, so dragging a value doesn't hammer the disk.
 const SAVE_DEBOUNCE: Duration = Duration::from_millis(500);
@@ -68,7 +68,7 @@ pub(crate) fn load_ron<T: DeserializeOwned + Default>(path: &Path) -> (T, LoadRe
         Err(err) => {
             let problem = format!("Couldn't read {shown}: {err}. Using defaults; changes won't be saved this session.");
             return (T::default(), LoadReport { problem: Some(problem), can_save: false });
-        }
+        },
     };
     match ron::from_str(&text) {
         Ok(value) => (value, LoadReport::default()),
@@ -76,7 +76,10 @@ pub(crate) fn load_ron<T: DeserializeOwned + Default>(path: &Path) -> (T, LoadRe
             let backup = with_suffix(path, ".bak");
             let report = match fs::copy(path, &backup) {
                 Ok(_) => LoadReport {
-                    problem: Some(format!("Ignoring invalid {shown}: {err}. The old file was copied to {}.", backup.display())),
+                    problem: Some(format!(
+                        "Ignoring invalid {shown}: {err}. The old file was copied to {}.",
+                        backup.display()
+                    )),
                     can_save: true,
                 },
                 Err(copy_err) => LoadReport {
@@ -87,7 +90,7 @@ pub(crate) fn load_ron<T: DeserializeOwned + Default>(path: &Path) -> (T, LoadRe
                 },
             };
             (T::default(), report)
-        }
+        },
     }
 }
 

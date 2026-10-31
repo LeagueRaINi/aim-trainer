@@ -1,18 +1,20 @@
 //! History tab: per-drill progress chart, trend numbers and recent runs with replays.
 
-use bevy::{
-    feathers::{controls::ButtonVariant, display::label_dim, theme::ThemeBackgroundColor, tokens},
-    prelude::*,
-    ui_widgets::Activate,
-};
+use bevy::feathers::controls::ButtonVariant;
+use bevy::feathers::display::label_dim;
+use bevy::feathers::theme::ThemeBackgroundColor;
+use bevy::feathers::tokens;
+use bevy::prelude::*;
+use bevy::ui_widgets::Activate;
 
-use crate::ui::{charts::*, theme::*, widgets::*};
-use crate::{
-    AppState,
-    drill::{DrillKind, stats::HistoryStat},
-    history::{History, HistoryEntry, RECENT_RUNS, format_date, overall_change, recent_change},
-    replay::{Replay, watch},
-};
+use crate::AppState;
+use crate::drill::DrillKind;
+use crate::drill::stats::HistoryStat;
+use crate::history::{History, HistoryEntry, RECENT_RUNS, format_date, overall_change, recent_change};
+use crate::replay::{Replay, watch};
+use crate::ui::charts::*;
+use crate::ui::theme::*;
+use crate::ui::widgets::*;
 
 /// Most recent runs drawn in the chart.
 const CHART_RUNS: usize = 40;
@@ -93,10 +95,7 @@ pub fn rebuild_history(
         let top = commands
             .spawn((ChildOf(body), Node { column_gap: px(SPACE_L), align_items: AlignItems::Stretch, ..default() }))
             .id();
-        let chart = commands
-            .spawn_scene(bsn! { @surface() Node { flex_grow: 1.0 } })
-            .insert(ChildOf(top))
-            .id();
+        let chart = commands.spawn_scene(bsn! { @surface() Node { flex_grow: 1.0 } }).insert(ChildOf(top)).id();
         commands.spawn_scene(overline("Progress")).insert(ChildOf(chart));
         spawn_chart(&mut commands, chart, &runs[runs.len().saturating_sub(CHART_RUNS)..]);
         let summary = commands
@@ -105,10 +104,7 @@ pub fn rebuild_history(
             .id();
         spawn_summary(&mut commands, summary, &history, &view.0);
 
-        let list = commands
-            .spawn_scene(bsn! { @surface() Node { row_gap: px(2) } })
-            .insert(ChildOf(body))
-            .id();
+        let list = commands.spawn_scene(bsn! { @surface() Node { row_gap: px(2) } }).insert(ChildOf(body)).id();
         spawn_run_list(&mut commands, list, &runs);
     }
 }
@@ -117,12 +113,7 @@ pub fn rebuild_history(
 fn spawn_summary(commands: &mut Commands, parent: Entity, history: &History, drill: &str) {
     let scores = history.scores(drill);
     let runs: Vec<_> = history.practice_runs(drill).collect();
-    let (best_index, best) = scores
-        .iter()
-        .copied()
-        .enumerate()
-        .max_by(|a, b| a.1.total_cmp(&b.1))
-        .unwrap_or_default();
+    let (best_index, best) = scores.iter().copied().enumerate().max_by(|a, b| a.1.total_cmp(&b.1)).unwrap_or_default();
     let recent = &scores[scores.len().saturating_sub(RECENT_RUNS)..];
     let average = recent.iter().sum::<f32>() / recent.len() as f32;
 
@@ -152,9 +143,7 @@ fn spawn_chart(commands: &mut Commands, parent: Entity, runs: &[&HistoryEntry]) 
     let slot = CHART_W / scores.len() as f32;
     let bar_width = (slot * 0.6).clamp(2.0, 28.0);
 
-    let row = commands
-        .spawn((ChildOf(parent), Node { column_gap: px(SPACE_S), ..default() }))
-        .id();
+    let row = commands.spawn((ChildOf(parent), Node { column_gap: px(SPACE_S), ..default() })).id();
     let labels = commands
         .spawn((
             ChildOf(row),
@@ -175,12 +164,7 @@ fn spawn_chart(commands: &mut Commands, parent: Entity, runs: &[&HistoryEntry]) 
     let plot = commands
         .spawn((
             ChildOf(row),
-            Node {
-                width: px(CHART_W),
-                height: px(CHART_H),
-                border_radius: BorderRadius::all(px(4)),
-                ..default()
-            },
+            Node { width: px(CHART_W), height: px(CHART_H), border_radius: BorderRadius::all(px(4)), ..default() },
             ThemeBackgroundColor(CHART_BG),
         ))
         .id();
@@ -222,7 +206,9 @@ fn spawn_run_list(commands: &mut Commands, parent: Entity, runs: &[&HistoryEntry
         .insert(ChildOf(parent));
     let mut header = vec![cell("#", NUMBER_W, tokens::TEXT_DIM), cell("Date", DATE_W, tokens::TEXT_DIM)];
     let headers = columns.iter().map(|(header, _)| header);
-    header.extend(["Score"].iter().chain(headers).chain(&["Sens", "cm/360"]).map(|h| cell(*h, VALUE_W, tokens::TEXT_DIM)));
+    header.extend(
+        ["Score"].iter().chain(headers).chain(&["Sens", "cm/360"]).map(|h| cell(*h, VALUE_W, tokens::TEXT_DIM)),
+    );
     commands.spawn_scene(table_row(header, false)).insert(ChildOf(parent));
 
     let best = runs.iter().map(|r| r.score).fold(f32::MIN, f32::max);

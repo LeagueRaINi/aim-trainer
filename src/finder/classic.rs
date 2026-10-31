@@ -85,12 +85,12 @@ impl Finder {
             FinderStep::TrialA => {
                 self.score_a = score;
                 self.step = FinderStep::TrialB;
-            }
+            },
             FinderStep::TrialB => {
                 self.score_b = score;
                 self.step = FinderStep::Choose;
-            }
-            FinderStep::Choose | FinderStep::Done => {}
+            },
+            FinderStep::Choose | FinderStep::Done => {},
         }
     }
 
@@ -102,13 +102,7 @@ impl Finder {
         let picked_high = picked_a != self.a_is_low;
         let (low_score, high_score) =
             if self.a_is_low { (self.score_a, self.score_b) } else { (self.score_b, self.score_a) };
-        self.history.push(FinderRound {
-            low: self.low,
-            high: self.high,
-            low_score,
-            high_score,
-            picked_high,
-        });
+        self.history.push(FinderRound { low: self.low, high: self.high, low_score, high_score, picked_high });
 
         let mid = (self.low + self.high) * 0.5;
         if picked_high {

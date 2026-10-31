@@ -1,19 +1,19 @@
 //! Score presentation shared by the post-run screens, and the way back to the menu.
 
-use bevy::{
-    feathers::{constants::fonts, display::label_dim, tokens},
-    prelude::*,
-    ui_widgets::Activate,
-};
+use bevy::feathers::constants::fonts;
+use bevy::feathers::display::label_dim;
+use bevy::feathers::tokens;
+use bevy::prelude::*;
+use bevy::ui_widgets::Activate;
 
-use crate::{
-    AppState,
-    finder::{classic::Finder, smart::SmartFinder},
-    history::Comparison,
-    routine::Routine,
-    drill::RunStats,
-    ui::{theme::*, widgets::*},
-};
+use crate::AppState;
+use crate::drill::RunStats;
+use crate::finder::classic::Finder;
+use crate::finder::smart::SmartFinder;
+use crate::history::Comparison;
+use crate::routine::Routine;
+use crate::ui::theme::*;
+use crate::ui::widgets::*;
 
 /// Back to the menu, ending any finder or routine in progress.
 pub fn go_to_menu(_: On<Activate>, mut commands: Commands, mut next_state: ResMut<NextState<AppState>>) {
@@ -42,11 +42,11 @@ pub fn comparison(score: f32, previous: &Comparison) -> impl Scene {
             headline.push(styled("NEW PERSONAL BEST!", fonts::BOLD, 16.0, GOLD));
             let label = if only_one { "Your only previous run" } else { "Previous best" };
             rows.push(comparison_row(label.into(), best, percent(best)));
-        }
+        },
         Some(best) => {
             let label = if only_one { "Your only previous run" } else { "Personal best" };
             rows.push(comparison_row(label.into(), best, percent(best)));
-        }
+        },
     }
     if let Some(avg) = previous.recent_avg.filter(|_| !only_one) {
         let runs = format!("Avg of your last {} runs", previous.recent_count);
@@ -113,4 +113,3 @@ pub fn screen_title(context: impl Into<String>, title: impl Into<String>) -> imp
         Children [ @overline(context) -- @heading(title) ]
     }
 }
-

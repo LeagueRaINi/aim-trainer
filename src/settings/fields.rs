@@ -89,7 +89,9 @@ impl SettingField {
             SettingField::FinderRounds => spec("Rounds", 0, 1.0, (1.0, 12.0), (1.0, 12.0)),
             SettingField::FinderTrialSecs => spec("Trial length (s)", 0, 5.0, (5.0, 60.0), (5.0, 120.0)),
             SettingField::FpsCap => spec("FPS cap (0 = unlimited)", 0, 10.0, (0.0, 500.0), (0.0, 1000.0)),
-            SettingField::Volume => FieldSpec { scale: 100.0, ..spec("Volume (%)", 0, 5.0, (0.0, 100.0), (0.0, 100.0)) },
+            SettingField::Volume => {
+                FieldSpec { scale: 100.0, ..spec("Volume (%)", 0, 5.0, (0.0, 100.0), (0.0, 100.0)) }
+            },
             SettingField::DotThickness => spec("Dot thickness", 0, 1.0, (1.0, 10.0), (1.0, 10.0)),
             SettingField::LineLength => px("Line length"),
             SettingField::LineThickness => spec("Line thickness", 0, 1.0, (1.0, 10.0), (1.0, 10.0)),

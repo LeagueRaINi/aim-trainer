@@ -1,8 +1,10 @@
 //! Hit sounds, synthesized at startup so the game ships without asset files.
 
-use std::{f32::consts::TAU, sync::Arc};
+use std::f32::consts::TAU;
+use std::sync::Arc;
 
-use bevy::{audio::Volume, prelude::*};
+use bevy::audio::Volume;
+use bevy::prelude::*;
 
 use crate::settings::{AudioSettings, HitSound};
 
@@ -31,10 +33,8 @@ impl HitSounds {
             HitSound::Pop => &self.pop,
             HitSound::Ding => &self.ding,
         };
-        commands.spawn((
-            AudioPlayer(handle.clone()),
-            PlaybackSettings::DESPAWN.with_volume(Volume::Linear(audio.volume)),
-        ));
+        commands
+            .spawn((AudioPlayer(handle.clone()), PlaybackSettings::DESPAWN.with_volume(Volume::Linear(audio.volume))));
     }
 }
 

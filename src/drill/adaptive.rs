@@ -7,15 +7,11 @@ use std::collections::HashMap;
 
 use bevy::prelude::*;
 
-use super::{
-    DrillSet, Run, VARIANT_SEPARATOR,
-    targets::{Target, TargetExpired, TargetKilled},
-};
-use crate::{
-    AppState,
-    camera::PlayerCamera,
-    metrics::quest::{Estimate, Quest, QuestMode},
-};
+use super::targets::{Target, TargetExpired, TargetKilled};
+use super::{DrillSet, Run, VARIANT_SEPARATOR};
+use crate::AppState;
+use crate::camera::PlayerCamera;
+use crate::metrics::quest::{Estimate, Quest, QuestMode};
 
 /// Length of a Measure run, seconds: at least 60 targets even if every one expires at the
 /// default time limit, enough for a θ75 within about 10% (see [`crate::metrics::quest`]).
@@ -87,7 +83,9 @@ pub fn quest_task(drill: &str) -> &str {
 
 pub(super) fn register(app: &mut App) {
     app.init_resource::<AdaptiveRun>()
-        .add_systems(OnEnter(AppState::Playing), |run: Res<Run>, mut adaptive: ResMut<AdaptiveRun>| adaptive.begin(&run))
+        .add_systems(OnEnter(AppState::Playing), |run: Res<Run>, mut adaptive: ResMut<AdaptiveRun>| {
+            adaptive.begin(&run)
+        })
         .add_systems(Update, adapt_targets.in_set(DrillSet::Measure));
 }
 
@@ -123,10 +121,8 @@ mod tests {
     use bevy::state::app::StatesPlugin;
 
     use super::*;
-    use crate::{
-        drill::{DrillKind, DrillSpec, RunPurpose},
-        settings::Settings,
-    };
+    use crate::drill::{DrillKind, DrillSpec, RunPurpose};
+    use crate::settings::Settings;
 
     #[test]
     fn task_ignores_the_mode() {

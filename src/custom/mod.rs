@@ -8,13 +8,11 @@ use std::path::Path;
 use bevy::prelude::*;
 use serde::{Deserialize, Serialize};
 
-use crate::{
-    history::csv_safe,
-    persist::{self, PersistPlugin, Persisted},
-    routine::{Routine, RoutineStep},
-    drill::{DrillConfig, DrillKind, DrillSpec, SECS_RANGE, VARIANT_SEPARATOR},
-    settings::Settings,
-};
+use crate::drill::{DrillConfig, DrillKind, DrillSpec, SECS_RANGE, VARIANT_SEPARATOR};
+use crate::history::csv_safe;
+use crate::persist::{self, PersistPlugin, Persisted};
+use crate::routine::{Routine, RoutineStep};
+use crate::settings::Settings;
 
 const CUSTOM_PATH: &str = "aim_trainer_custom.ron";
 /// Longest scenario/playlist name, matching the editor's name box.
@@ -193,7 +191,7 @@ impl CustomContent {
             Some(scenario) if !clash => {
                 scenario.name = name.to_string();
                 true
-            }
+            },
             _ => false,
         }
     }
@@ -230,7 +228,7 @@ impl CustomContent {
             DrillRef::Custom(id) => {
                 let scenario = self.scenario(id)?;
                 Some(DrillSpec { name: scenario.name.clone(), config: scenario.config.clone() })
-            }
+            },
         }
     }
 
@@ -281,7 +279,11 @@ mod tests {
         let scenario = content.new_scenario(DrillKind::Gridshot);
         content.scenario_mut(scenario).unwrap().config.grid_cols = 5;
         let playlist = content.new_playlist();
-        content.playlist_mut(playlist).unwrap().steps.push(PlaylistStep { drill: DrillRef::Custom(scenario), secs: 20.0 });
+        content
+            .playlist_mut(playlist)
+            .unwrap()
+            .steps
+            .push(PlaylistStep { drill: DrillRef::Custom(scenario), secs: 20.0 });
         let routine = content.playlist_routine(playlist, &Settings::default()).unwrap();
         assert_eq!(routine.steps[0].drill.config.grid_cols, 5);
         assert_eq!(routine.steps[0].secs, 20.0);
@@ -320,7 +322,8 @@ mod tests {
 
     #[test]
     fn loaded_ids_never_collide() {
-        let mut content: CustomContent = ron::from_str("(scenarios: [(id: 7, name: \"a\", duration: 60, config: ())])").unwrap();
+        let mut content: CustomContent =
+            ron::from_str("(scenarios: [(id: 7, name: \"a\", duration: 60, config: ())])").unwrap();
         content.repair();
         assert_eq!(content.new_playlist(), 8);
     }
@@ -328,10 +331,15 @@ mod tests {
     #[test]
     fn upserting_creates_once_then_updates_in_place() {
         let mut content = CustomContent::default();
-        let config = DrillConfig { max_flick: 25.0, flick_direction: Some(225.0), ..DrillConfig::defaults(DrillKind::Microflick) };
+        let config = DrillConfig {
+            max_flick: 25.0,
+            flick_direction: Some(225.0),
+            ..DrillConfig::defaults(DrillKind::Microflick)
+        };
         let id = content.upsert_scenario("Weak spot: down-left 15-25°", 60.0, config.clone());
         content.scenario_mut(id).unwrap().duration = 45.0;
-        let again = content.upsert_scenario("Weak spot: down-left 15-25°", 60.0, DrillConfig { max_flick: 20.0, ..config });
+        let again =
+            content.upsert_scenario("Weak spot: down-left 15-25°", 60.0, DrillConfig { max_flick: 20.0, ..config });
         assert_eq!(again, id);
         assert_eq!(content.scenarios.len(), 1);
         let scenario = content.scenario(id).unwrap();
@@ -344,8 +352,10 @@ mod tests {
 
     #[test]
     fn old_custom_files_without_flick_constraints_still_load() {
-        let mut content: CustomContent =
-            ron::from_str("(scenarios: [(id: 3, name: \"wide\", duration: 60, config: (kind: Microflick, yaw_range: 45.0))])").unwrap();
+        let mut content: CustomContent = ron::from_str(
+            "(scenarios: [(id: 3, name: \"wide\", duration: 60, config: (kind: Microflick, yaw_range: 45.0))])",
+        )
+        .unwrap();
         content.repair();
         let config = &content.scenarios[0].config;
         assert_eq!(config.yaw_range, 45.0);
@@ -399,5 +409,4 @@ mod tests {
         let written = ron::ser::to_string_pretty(&expected, ron::ser::PrettyConfig::default()).unwrap();
         assert_eq!(written.replace("\r\n", "\n"), fixture.replace("\r\n", "\n"));
     }
-
 }

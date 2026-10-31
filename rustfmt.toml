@@ -1,0 +1,8 @@
+use_small_heuristics = "Max"
+max_width = 120
+match_block_trailing_comma = true
+
+group_imports = "StdExternalCrate"
+imports_granularity = "Module"
+reorder_imports = true
+inline_attribute_width = 75

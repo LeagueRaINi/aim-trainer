@@ -2,14 +2,12 @@
 
 use bevy::prelude::*;
 
-use crate::drill::{
-    DrillConfig,
-    def::{Category, DecayRule, DrillDef, Environment, TtkFrom, no_spawn_next, no_tuning},
-    geometry::{TARGET_DISTANCE, direction},
-    params::ParamId,
-    stats::ScoreModel,
-    targets::{Slot, SpawnCtx},
-};
+use crate::drill::DrillConfig;
+use crate::drill::def::{Category, DecayRule, DrillDef, Environment, TtkFrom, no_spawn_next, no_tuning};
+use crate::drill::geometry::{TARGET_DISTANCE, direction};
+use crate::drill::params::ParamId;
+use crate::drill::stats::ScoreModel;
+use crate::drill::targets::{Slot, SpawnCtx};
 
 pub const DEF: DrillDef = DrillDef {
     name: "Gridshot",
@@ -61,8 +59,7 @@ fn grid_position(slot: usize, config: &DrillConfig) -> Vec3 {
     let cols = config.grid_cols as usize;
     let col = (slot % cols) as f32 - (config.grid_cols as f32 - 1.0) * 0.5;
     let row = (slot / cols) as f32 - (config.grid_rows as f32 - 1.0) * 0.5;
-    direction((col * config.grid_spacing).to_radians(), (row * config.grid_spacing).to_radians())
-        * TARGET_DISTANCE
+    direction((col * config.grid_spacing).to_radians(), (row * config.grid_spacing).to_radians()) * TARGET_DISTANCE
 }
 
 /// A random free grid cell. The cell just cleared is avoided so every kill forces a new flick,

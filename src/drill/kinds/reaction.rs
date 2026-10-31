@@ -3,20 +3,16 @@
 
 use bevy::prelude::*;
 
-use crate::{
-    camera::PlayerCamera,
-    drill::{
-        DrillSet, Run,
-        def::{Category, DecayRule, DrillDef, Environment, TtkFrom, no_respawn, no_spawn_next, no_tuning},
-        geometry::{TARGET_DISTANCE, random_range, ray_hit},
-        params::ParamId,
-        stats::ScoreModel,
-        targets::{Dormant, SpawnCtx, Target, TargetAssets},
-    },
-    replay::Recorder,
-    settings::Settings,
-    sfx::HitSounds,
-};
+use crate::camera::PlayerCamera;
+use crate::drill::def::{Category, DecayRule, DrillDef, Environment, TtkFrom, no_respawn, no_spawn_next, no_tuning};
+use crate::drill::geometry::{TARGET_DISTANCE, random_range, ray_hit};
+use crate::drill::params::ParamId;
+use crate::drill::stats::ScoreModel;
+use crate::drill::targets::{Dormant, SpawnCtx, Target, TargetAssets};
+use crate::drill::{DrillSet, Run};
+use crate::replay::Recorder;
+use crate::settings::Settings;
+use crate::sfx::HitSounds;
 
 /// How long a lit reaction cue waits for a click before it counts as missed.
 const REACTION_WINDOW: f32 = 1.0;
@@ -56,8 +52,11 @@ struct ReactionCue {
 fn spawn_initial(ctx: &mut SpawnCtx) {
     let lit_at = random_range(ctx.config.delay_min, ctx.config.delay_max);
     let wait = ctx.assets.wait.clone();
-    ctx.spawn_target(Vec3::new(0.0, 0.0, -TARGET_DISTANCE), None)
-        .insert((ReactionCue { lit_at, lit: false }, Dormant, MeshMaterial3d(wait)));
+    ctx.spawn_target(Vec3::new(0.0, 0.0, -TARGET_DISTANCE), None).insert((
+        ReactionCue { lit_at, lit: false },
+        Dormant,
+        MeshMaterial3d(wait),
+    ));
 }
 
 /// The cue lights up after a random delay; click as fast as possible. Clicking before it lights

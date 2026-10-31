@@ -1,11 +1,10 @@
 //! Valorant-style crosshair: center dot, four inner lines and outlines, sized in physical pixels.
 
-use bevy::{prelude::*, window::PrimaryWindow};
+use bevy::prelude::*;
+use bevy::window::PrimaryWindow;
 
-use crate::{
-    AppState,
-    settings::{CrosshairSettings, Settings},
-};
+use crate::AppState;
+use crate::settings::{CrosshairSettings, Settings};
 
 pub struct CrosshairPlugin;
 
@@ -35,12 +34,7 @@ fn crosshair_overlay(
         let root = commands
             .spawn((
                 DespawnOnExit(state),
-                Node {
-                    position_type: PositionType::Absolute,
-                    width: percent(100),
-                    height: percent(100),
-                    ..default()
-                },
+                Node { position_type: PositionType::Absolute, width: percent(100), height: percent(100), ..default() },
             ))
             .id();
         spawn_crosshair(&mut commands, root, &settings.crosshair, pixel_scale(&window, &ui_scale));
@@ -94,12 +88,7 @@ fn spawn_crosshair(commands: &mut Commands, parent: Entity, cfg: &CrosshairSetti
     let anchor = commands
         .spawn((
             ChildOf(parent),
-            Node {
-                position_type: PositionType::Absolute,
-                left: percent(50),
-                top: percent(50),
-                ..default()
-            },
+            Node { position_type: PositionType::Absolute, left: percent(50), top: percent(50), ..default() },
         ))
         .id();
     for (center, size) in parts {

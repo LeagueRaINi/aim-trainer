@@ -1,15 +1,12 @@
 //! Audio page: hit sound and volume.
 
-use bevy::{
-    feathers::display::label_dim,
-    prelude::*,
-};
+use bevy::feathers::display::label_dim;
+use bevy::prelude::*;
 
 use super::{MenuTab, main_column, page};
-use crate::{
-    settings::{HitSound, SettingField, Settings},
-    ui::{bindings::*, widgets::*},
-};
+use crate::settings::{HitSound, SettingField, Settings};
+use crate::ui::bindings::*;
+use crate::ui::widgets::*;
 
 pub(super) fn audio_page(settings: &Settings) -> impl Scene {
     bsn! {
@@ -36,4 +33,3 @@ pub(super) fn audio_page(settings: &Settings) -> impl Scene {
         ]
     }
 }
-

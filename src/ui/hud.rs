@@ -3,21 +3,17 @@
 
 use std::borrow::Cow;
 
-use bevy::{
-    diagnostic::{DiagnosticsStore, FrameTimeDiagnosticsPlugin},
-    feathers::{constants::fonts, tokens},
-    prelude::*,
-};
+use bevy::diagnostic::{DiagnosticsStore, FrameTimeDiagnosticsPlugin};
+use bevy::feathers::constants::fonts;
+use bevy::feathers::tokens;
+use bevy::prelude::*;
 
-use crate::{
-    AppState,
-    drill::{Phase, Run, adaptive::AdaptiveRun},
-    settings::Settings,
-    ui::{
-        theme::{TEXT_ACCENT, TEXT_STRONG},
-        widgets::{hud_anchor, hud_bar, styled, vertical_divider},
-    },
-};
+use crate::AppState;
+use crate::drill::adaptive::AdaptiveRun;
+use crate::drill::{Phase, Run};
+use crate::settings::Settings;
+use crate::ui::theme::{TEXT_ACCENT, TEXT_STRONG};
+use crate::ui::widgets::{hud_anchor, hud_bar, styled, vertical_divider};
 
 /// Text slots of the in-game HUD, filled by `update_hud`.
 #[derive(Component, Clone, Copy, Default, PartialEq, Eq)]
@@ -107,17 +103,14 @@ pub(super) fn update_hud(
 ) {
     let stats = run.stats(&settings);
     let adaptive_mode = run.drill.config.adaptive();
-    let fps = diagnostics
-        .get(&FrameTimeDiagnosticsPlugin::FPS)
-        .and_then(|fps| fps.smoothed())
-        .unwrap_or(0.0);
+    let fps = diagnostics.get(&FrameTimeDiagnosticsPlugin::FPS).and_then(|fps| fps.smoothed()).unwrap_or(0.0);
     for (field, mut text) in &mut fields {
         let wanted: Cow<str> = match field {
             HudField::Title | HudField::ReadyTitle => Cow::Borrowed(&run.title),
             HudField::Time => Cow::Owned(format!("{:.1}s", (run.duration - run.elapsed()).max(0.0))),
             HudField::Detail if !run.counting() => {
                 Cow::Owned(format!("Warm-in {:.1}s (not scored)", run.warm_in_left()))
-            }
+            },
             HudField::Detail => {
                 let detail = run.kind().def().score.hud_detail(&stats);
                 match adaptive.estimate().filter(|_| adaptive_mode.is_some()) {
@@ -127,7 +120,7 @@ pub(super) fn update_hud(
                     )),
                     _ => Cow::Owned(detail),
                 }
-            }
+            },
             HudField::Info => Cow::Owned(format!("{fps:.0} fps   Esc to quit")),
             HudField::ReadyBlurb => match adaptive_mode {
                 Some(mode) => Cow::Owned(format!(

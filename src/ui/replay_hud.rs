@@ -1,19 +1,15 @@
 //! The replay player's HUD: title, time, speed, shot counts and the timeline.
 
-use bevy::{
-    diagnostic::{DiagnosticsStore, FrameTimeDiagnosticsPlugin},
-    feathers::{constants::fonts, theme::ThemeBackgroundColor, tokens},
-    prelude::*,
-};
+use bevy::diagnostic::{DiagnosticsStore, FrameTimeDiagnosticsPlugin};
+use bevy::feathers::constants::fonts;
+use bevy::feathers::theme::ThemeBackgroundColor;
+use bevy::feathers::tokens;
+use bevy::prelude::*;
 
-use crate::{
-    AppState,
-    replay::Playback,
-    ui::{
-        theme::{DIVIDER, TEXT_ACCENT, TEXT_BAD, TEXT_GOOD, TEXT_STRONG},
-        widgets::{hud_anchor, hud_bar, styled, vertical_divider},
-    },
-};
+use crate::AppState;
+use crate::replay::Playback;
+use crate::ui::theme::{DIVIDER, TEXT_ACCENT, TEXT_BAD, TEXT_GOOD, TEXT_STRONG};
+use crate::ui::widgets::{hud_anchor, hud_bar, styled, vertical_divider};
 
 /// Text slots of the replay HUD, filled by `update_replay_hud`.
 #[derive(Component, Clone, Copy, Default)]
@@ -111,17 +107,14 @@ pub(super) fn update_replay_hud(
 ) {
     let end = playback.end().max(f32::EPSILON);
     let (hits, misses) = playback.shots_until(playback.time);
-    let fps = diagnostics
-        .get(&FrameTimeDiagnosticsPlugin::FPS)
-        .and_then(|fps| fps.smoothed())
-        .unwrap_or(0.0);
+    let fps = diagnostics.get(&FrameTimeDiagnosticsPlugin::FPS).and_then(|fps| fps.smoothed()).unwrap_or(0.0);
     for (field, mut text) in &mut fields {
         let wanted = match field {
             ReplayField::Title => format!("{}  ·  sens {:.3}", playback.replay.name, playback.replay.sens),
             ReplayField::Time => format!("{:.1} / {:.1} s", playback.time, end),
             ReplayField::Speed => {
                 format!("{}x{}", playback.speed(), if playback.paused { "  PAUSED" } else { "" })
-            }
+            },
             ReplayField::Hits => format!("{hits} hits"),
             ReplayField::Misses => format!("{misses} misses"),
             ReplayField::Fps => format!("{fps:.0} fps"),

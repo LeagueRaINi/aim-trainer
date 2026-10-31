@@ -4,12 +4,10 @@
 use bevy::prelude::*;
 
 use super::format::{Replay, Shot};
-use crate::{
-    AppState,
-    camera::Look,
-    drill::{TargetAssets, spawn_environment},
-    metrics::bow,
-};
+use crate::AppState;
+use crate::camera::Look;
+use crate::drill::{TargetAssets, spawn_environment};
+use crate::metrics::bow;
 
 const SPEEDS: [f32; 5] = [0.1, 0.25, 0.5, 1.0, 2.0];
 /// How long (replay time) a shot marker stays visible.
@@ -98,7 +96,6 @@ pub(crate) struct ShotMarker {
     t: f32,
 }
 
-
 pub(super) fn create_marker_assets(
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
@@ -172,16 +169,15 @@ pub(super) fn draw_tracer(playback: Res<Playback>, mut gizmos: Gizmos<TracerGizm
     let frames = &playback.replay.frames;
     let first = frames.partition_point(|f| f.t <= now - TRACER_SECS);
     let last = playback.frame_at(now);
-    let mut points: Vec<(f32, Vec2)> = frames[first.min(last)..=last]
-        .iter()
-        .map(|f| (f.t, Vec2::new(f.yaw, f.pitch)))
-        .collect();
+    let mut points: Vec<(f32, Vec2)> =
+        frames[first.min(last)..=last].iter().map(|f| (f.t, Vec2::new(f.yaw, f.pitch))).collect();
     // End exactly at the crosshair, between recorded frames.
     let (yaw, pitch) = playback.angles_at(now);
     if points.last().is_some_and(|p| p.0 < now) {
         points.push((now, Vec2::new(yaw, pitch)));
     }
-    let in_degrees: Vec<(f32, Vec2)> = points.iter().map(|&(t, a)| (t, Vec2::new(a.x.to_degrees(), a.y.to_degrees()))).collect();
+    let in_degrees: Vec<(f32, Vec2)> =
+        points.iter().map(|&(t, a)| (t, Vec2::new(a.x.to_degrees(), a.y.to_degrees()))).collect();
     let on_plane = |a: Vec2| Quat::from_euler(EulerRot::YXZ, a.x, a.y, 0.0) * Vec3::NEG_Z * MARKER_DISTANCE;
     for (pair, bow) in points.windows(2).zip(bow::segment_bows(&in_degrees)) {
         // Older parts of the trail fade out.
@@ -237,7 +233,7 @@ pub(crate) fn advance_playback(
             Some((mut existing, mut visibility)) => {
                 *existing = transform;
                 *visibility = Visibility::Inherited;
-            }
+            },
             None => {
                 commands.spawn((
                     DespawnOnExit(AppState::Replay),
@@ -246,7 +242,7 @@ pub(crate) fn advance_playback(
                     MeshMaterial3d(target_assets.idle.clone()),
                     transform,
                 ));
-            }
+            },
         }
     }
     for (_, mut visibility) in pool {
@@ -286,11 +282,7 @@ pub(crate) fn advance_playback(
 /// adds only the shots since the last update; jumping back or far ahead rebuilds the whole
 /// window, so `reset` asks for existing markers to be cleared first.
 fn marker_range(shown_until: f32, now: f32) -> (f32, bool) {
-    if now < shown_until || now - shown_until > MARKER_SECS {
-        (now - MARKER_SECS, true)
-    } else {
-        (shown_until, false)
-    }
+    if now < shown_until || now - shown_until > MARKER_SECS { (now - MARKER_SECS, true) } else { (shown_until, false) }
 }
 
 /// The drill's scenery (e.g. the peek cover), rebuilt for the replay.
@@ -305,7 +297,7 @@ pub fn bow_color(bow: Option<f32>) -> Color {
         Some(bow) => {
             let curved = ((bow - bow::STRAIGHT) / (bow::CURVED - bow::STRAIGHT)).clamp(0.0, 1.0);
             Color::hsl(130.0 * (1.0 - curved), 0.9, 0.55)
-        }
+        },
     }
 }
 

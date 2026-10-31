@@ -3,34 +3,28 @@
 //! The lists and the editor are rebuilt only on structural changes (select, create, delete,
 //! reorder), never while a value is being dragged or typed, so inputs keep focus.
 
-use bevy::{
-    app::Propagate,
-    clipboard::{Clipboard, ClipboardError},
-    feathers::{
-        controls::{
-            ButtonVariant, FeathersNumberInput, FeathersTextInput, FeathersTextInputContainer, HardLimit,
-            NumberInputPrecision, NumberInputStep, NumberInputValue, SoftLimit,
-        },
-        display::{label, label_dim},
-        theme::{SurfaceLevel, ThemeBackgroundColor, ThemeBorderColor, ThemeContext},
-        tokens,
-    },
-    prelude::*,
-    text::{EditableText, TextEdit, TextEditChange},
-    ui_widgets::{Activate, ValueChange},
+use bevy::app::Propagate;
+use bevy::clipboard::{Clipboard, ClipboardError};
+use bevy::feathers::controls::{
+    ButtonVariant, FeathersNumberInput, FeathersTextInput, FeathersTextInputContainer, HardLimit, NumberInputPrecision,
+    NumberInputStep, NumberInputValue, SoftLimit,
 };
+use bevy::feathers::display::{label, label_dim};
+use bevy::feathers::theme::{SurfaceLevel, ThemeBackgroundColor, ThemeBorderColor, ThemeContext};
+use bevy::feathers::tokens;
+use bevy::prelude::*;
+use bevy::text::{EditableText, TextEdit, TextEditChange};
+use bevy::ui_widgets::{Activate, ValueChange};
 
-use crate::ui::{bindings::*, theme::*, widgets::*};
-use crate::{
-    AppState,
-    custom::{CustomContent, DrillRef, MAX_NAME_CHARS, PlaylistStep},
-    drill::{
-        ADAPTIVE_TIME_LIMIT, DrillKind, DrillSpec, Run, RunPurpose, SECS_RANGE, begin_run,
-        params::{ParamId, ParamSpec},
-    },
-    routine::start_routine,
-    settings::Settings,
-};
+use crate::AppState;
+use crate::custom::{CustomContent, DrillRef, MAX_NAME_CHARS, PlaylistStep};
+use crate::drill::params::{ParamId, ParamSpec};
+use crate::drill::{ADAPTIVE_TIME_LIMIT, DrillKind, DrillSpec, Run, RunPurpose, SECS_RANGE, begin_run};
+use crate::routine::start_routine;
+use crate::settings::Settings;
+use crate::ui::bindings::*;
+use crate::ui::theme::*;
+use crate::ui::widgets::*;
 
 /// What the editor shows, plus a revision counter bumped on structural changes.
 #[derive(Resource, Default)]
@@ -131,7 +125,7 @@ impl EditorField {
             EditorField::Param(param) => {
                 let ParamSpec { label, precision, step, soft, hard } = param.spec();
                 (label, precision, step, soft, hard)
-            }
+            },
         }
     }
 
@@ -360,7 +354,7 @@ pub fn rebuild_custom(
                          scenarios into playlists that play back-to-back with breaks in between.",
                     ))
                     .insert(ChildOf(editor));
-            }
+            },
             Editing::Scenario(id) => {
                 let Some(scenario) = content.scenario(id) else { continue };
                 let kind = scenario.config.kind;
@@ -387,7 +381,7 @@ pub fn rebuild_custom(
                     commands.spawn_scene(custom_field_row(field, value)).insert(ChildOf(editor));
                 }
                 commands.spawn_scene(editor_actions(ItemAction::PlayScenario(id))).insert(ChildOf(editor));
-            }
+            },
             Editing::Playlist(id) => {
                 let Some(playlist) = content.playlist(id) else { continue };
                 commands.spawn_scene(overline("Edit playlist")).insert(ChildOf(editor));
@@ -402,7 +396,9 @@ pub fn rebuild_custom(
                         .insert(ChildOf(editor))
                         .id();
                     if index > 0 {
-                        commands.spawn_scene(small_button("Up", ButtonVariant::Normal, ItemAction::StepUp(id, index))).insert(ChildOf(row));
+                        commands
+                            .spawn_scene(small_button("Up", ButtonVariant::Normal, ItemAction::StepUp(id, index)))
+                            .insert(ChildOf(row));
                     }
                     commands
                         .spawn_scene(small_button("Remove", ButtonVariant::Plain, ItemAction::StepRemove(id, index)))
@@ -427,7 +423,7 @@ pub fn rebuild_custom(
                         .insert(ChildOf(chips));
                 }
                 commands.spawn_scene(editor_actions(ItemAction::PlayPlaylist(id))).insert(ChildOf(editor));
-            }
+            },
         }
     }
 }
@@ -503,7 +499,10 @@ fn edit_custom_field(
 }
 
 /// Fills name inputs with the current name once they exist.
-pub fn init_name_inputs(content: Res<CustomContent>, mut inputs: Query<(&NameInput, &mut EditableText), Added<NameInput>>) {
+pub fn init_name_inputs(
+    content: Res<CustomContent>,
+    mut inputs: Query<(&NameInput, &mut EditableText), Added<NameInput>>,
+) {
     for (NameInput(editing), mut text) in &mut inputs {
         let name = match *editing {
             Editing::Scenario(id) => content.scenario(id).map(|s| s.name.clone()),
@@ -526,7 +525,7 @@ fn rename(change: On<TextEditChange>, inputs: Query<(&NameInput, &EditableText)>
             if content.scenario(id).is_some_and(|s| s.name != name.trim()) {
                 content.rename_scenario(id, &name);
             }
-        }
+        },
         Editing::Playlist(id) => {
             let trimmed = name.trim();
             if let Some(playlist) = content.playlist_mut(id)
@@ -535,8 +534,8 @@ fn rename(change: On<TextEditChange>, inputs: Query<(&NameInput, &EditableText)>
             {
                 playlist.name = trimmed.to_string();
             }
-        }
-        Editing::Nothing => {}
+        },
+        Editing::Nothing => {},
     }
 }
 
@@ -551,10 +550,10 @@ fn import_playlist(
         Some(Ok(text)) => text,
         Some(Err(ClipboardError::ContentNotAvailable)) => {
             return status.0 = "The clipboard has no text. Copy a share code first, then click Import.".into();
-        }
+        },
         Some(Err(ClipboardError::ClipboardOccupied)) => {
             return status.0 = "Another program is using the clipboard, try again.".into();
-        }
+        },
         Some(Err(err)) => return status.0 = format!("Couldn't read the clipboard: {err}"),
         None => return status.0 = "The clipboard isn't ready yet, try again.".into(),
     };
@@ -562,7 +561,7 @@ fn import_playlist(
         Ok(id) => {
             status.0 = "Playlist imported.".into();
             selection.select(Editing::Playlist(id));
-        }
+        },
         Err(err) => status.0 = format!("{err} Copy a share code first, then click Import."),
     }
 }
@@ -614,29 +613,29 @@ fn item_action(
 ) {
     let Ok(&action) = actions.get(activate.event_target()) else { return };
     match action {
-        ItemAction::None => {}
+        ItemAction::None => {},
         ItemAction::PlayScenario(id) => {
             let Some(scenario) = content.scenario(id) else { return };
             let drill = DrillSpec { name: scenario.name.clone(), config: scenario.config.clone() };
             let run = Run::new(drill, settings.sens, scenario.duration, RunPurpose::Practice, scenario.name.clone());
             begin_run(&mut commands, &mut next_state, run);
-        }
+        },
         ItemAction::EditScenario(id) => selection.select(Editing::Scenario(id)),
         ItemAction::CopyScenario(id) => {
             if let Some(copy) = content.duplicate_scenario(id) {
                 selection.select(Editing::Scenario(copy));
             }
-        }
+        },
         ItemAction::DeleteScenario(id) => {
             content.delete_scenario(id);
             let editing = if selection.editing == Editing::Scenario(id) { Editing::Nothing } else { selection.editing };
             selection.select(editing);
-        }
+        },
         ItemAction::PlayPlaylist(id) => {
             if let Some(routine) = content.playlist_routine(id, &settings) {
                 start_routine(&mut commands, &mut next_state, routine);
             }
-        }
+        },
         ItemAction::EditPlaylist(id) => selection.select(Editing::Playlist(id)),
         ItemAction::SharePlaylist(id) => {
             let Some(code) = content.export_playlist(id) else { return };
@@ -644,12 +643,12 @@ fn item_action(
                 Ok(()) => "Share code copied to the clipboard. Paste it to a friend; they use \"Import\".".into(),
                 Err(err) => format!("Couldn't copy to the clipboard: {err}"),
             };
-        }
+        },
         ItemAction::DeletePlaylist(id) => {
             content.delete_playlist(id);
             let editing = if selection.editing == Editing::Playlist(id) { Editing::Nothing } else { selection.editing };
             selection.select(editing);
-        }
+        },
         ItemAction::StepUp(id, index) => {
             if let Some(playlist) = content.playlist_mut(id)
                 && index > 0
@@ -658,7 +657,7 @@ fn item_action(
                 playlist.steps.swap(index - 1, index);
                 selection.refresh();
             }
-        }
+        },
         ItemAction::StepRemove(id, index) => {
             if let Some(playlist) = content.playlist_mut(id)
                 && index < playlist.steps.len()
@@ -666,13 +665,13 @@ fn item_action(
                 playlist.steps.remove(index);
                 selection.refresh();
             }
-        }
+        },
         ItemAction::AddStep(id, drill) => {
             if let Some(playlist) = content.playlist_mut(id) {
                 playlist.steps.push(PlaylistStep { drill, secs: draft.secs });
                 selection.refresh();
             }
-        }
+        },
         ItemAction::Close => selection.select(Editing::Nothing),
     }
 }

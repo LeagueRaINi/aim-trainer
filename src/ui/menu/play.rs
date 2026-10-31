@@ -1,28 +1,21 @@
 //! Play page: built-in drills by category, their adaptive modes and the warmup routines.
 
-use bevy::{
-    feathers::{
-        controls::ButtonVariant,
-        display::{label, label_dim},
-    },
-    prelude::*,
-    ui_widgets::Activate,
-};
+use bevy::feathers::controls::ButtonVariant;
+use bevy::feathers::display::{label, label_dim};
+use bevy::prelude::*;
+use bevy::ui_widgets::Activate;
 
 use super::{MenuTab, main_column, page, side_column};
-use crate::{
-    AppState,
-    drill::{
-        ADAPTIVE_TIME_LIMIT, DrillKind, DrillSpec, Run, RunPurpose,
-        adaptive::MEASURE_SECS,
-        begin_run,
-        def::{Category, DecayRule},
-    },
-    metrics::quest::QuestMode,
-    routine::{ROUTINES, Routine, start_routine},
-    settings::{SettingField, Settings},
-    ui::{bindings::*, theme::*, widgets::*},
-};
+use crate::AppState;
+use crate::drill::adaptive::MEASURE_SECS;
+use crate::drill::def::{Category, DecayRule};
+use crate::drill::{ADAPTIVE_TIME_LIMIT, DrillKind, DrillSpec, Run, RunPurpose, begin_run};
+use crate::metrics::quest::QuestMode;
+use crate::routine::{ROUTINES, Routine, start_routine};
+use crate::settings::{SettingField, Settings};
+use crate::ui::bindings::*;
+use crate::ui::theme::*;
+use crate::ui::widgets::*;
 
 #[derive(Component, Clone, Copy, Default)]
 struct PlayButton(DrillKind);
@@ -58,7 +51,8 @@ fn adaptive_run(kind: DrillKind, mode: QuestMode, settings: &Settings) -> Run {
 
 /// One category of built-in drills: a small heading and a row per drill.
 fn category_section(category: Category) -> impl Scene {
-    let rows: Vec<_> = DrillKind::ALL.into_iter().filter(|kind| kind.def().category == category).map(drill_row).collect();
+    let rows: Vec<_> =
+        DrillKind::ALL.into_iter().filter(|kind| kind.def().category == category).map(drill_row).collect();
     bsn! {
         @column()
         Node { row_gap: px(SPACE_S) }
@@ -211,4 +205,3 @@ fn play_adaptive(
         begin_run(&mut commands, &mut next_state, adaptive_run(kind, mode, &settings));
     }
 }
-

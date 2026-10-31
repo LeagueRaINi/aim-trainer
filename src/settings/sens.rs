@@ -50,9 +50,7 @@ impl Settings {
 
     /// The preset whose yaw and FOV match the current values, if any.
     pub fn matching_preset(&self) -> Option<&'static GamePreset> {
-        PRESETS
-            .iter()
-            .find(|p| (p.yaw - self.yaw).abs() < 1e-6 && (p.hfov - self.hfov).abs() < 0.01)
+        PRESETS.iter().find(|p| (p.yaw - self.yaw).abs() < 1e-6 && (p.hfov - self.hfov).abs() < 0.01)
     }
 
     /// Switches to a game's yaw/FOV/aspect handling, converting `sens` so cm/360 stays the same.

@@ -1,20 +1,16 @@
 //! Crosshair page: color, center dot, lines, outlines and a live preview.
 
-use bevy::{
-    feathers::{
-        controls::ButtonVariant,
-        display::label_dim,
-    },
-    prelude::*,
-    ui_widgets::Activate,
-};
+use bevy::feathers::controls::ButtonVariant;
+use bevy::feathers::display::label_dim;
+use bevy::prelude::*;
+use bevy::ui_widgets::Activate;
 
 use super::{MenuTab, main_column, page, side_column};
-use crate::{
-    crosshair::CrosshairPreview,
-    settings::{CrosshairSettings, SettingField, Settings},
-    ui::{bindings::*, theme::*, widgets::*},
-};
+use crate::crosshair::CrosshairPreview;
+use crate::settings::{CrosshairSettings, SettingField, Settings};
+use crate::ui::bindings::*;
+use crate::ui::theme::*;
+use crate::ui::widgets::*;
 
 pub(super) fn crosshair_page(settings: &Settings) -> impl Scene {
     bsn! {
@@ -86,4 +82,3 @@ pub(super) fn crosshair_page(settings: &Settings) -> impl Scene {
         ]
     }
 }
-

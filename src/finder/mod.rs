@@ -7,16 +7,12 @@ pub mod smart;
 
 use bevy::prelude::*;
 
-use self::{
-    classic::Finder,
-    smart::{Segment, SmartFinder},
-};
-use crate::{
-    AppState,
-    drill::{DrillSet, RunPurpose, begin_run},
-    history::RunRecorded,
-    settings::Settings,
-};
+use self::classic::Finder;
+use self::smart::{Segment, SmartFinder};
+use crate::AppState;
+use crate::drill::{DrillSet, RunPurpose, begin_run};
+use crate::history::RunRecorded;
+use crate::settings::Settings;
 
 pub struct FinderPlugin;
 

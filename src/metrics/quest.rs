@@ -146,7 +146,11 @@ impl Quest {
         let params: Vec<Param> = log_grid(THETA_RANGE, THETAS)
             .into_iter()
             .flat_map(|theta| {
-                slopes.iter().map(move |&slope| Param { ln_theta: theta.ln(), slope, ln_theta75: theta.ln() + z * slope })
+                slopes.iter().map(move |&slope| Param {
+                    ln_theta: theta.ln(),
+                    slope,
+                    ln_theta75: theta.ln() + z * slope,
+                })
             })
             .collect();
         let table = radii.iter().flat_map(|r| params.iter().map(move |p| p.p_hit(r.ln()))).collect();
@@ -167,7 +171,7 @@ impl Quest {
                         (-0.5 * d * d).exp() + PRIOR_FLOOR
                     })
                     .collect()
-            }
+            },
         };
         normalise(&mut posterior);
         Self { radii, params, table, bins, bin_count, by_theta75, posterior, trials: 0, hits: 0 }
@@ -407,7 +411,8 @@ mod tests {
                 }
             }
             let n = players as f32;
-            let (within, covered, bias, rms) = (within as f32 / n, covered as f32 / n, log_error / n, (squared / n).sqrt());
+            let (within, covered, bias, rms) =
+                (within as f32 / n, covered as f32 / n, log_error / n, (squared / n).sqrt());
             println!(
                 "slope {slope}: {players} players, within 10% {within:.2}, rms {rms:.3}, bias {bias:+.3}, {CREDIBLE} interval covers {covered:.2}"
             );

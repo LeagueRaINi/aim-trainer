@@ -2,22 +2,21 @@
 //! [`DrillDef`](super::def::DrillDef) hooks, click shooting, decay and delayed spawns.
 //! Per-drill behaviour lives in [`super::kinds`].
 
-use bevy::{ecs::system::EntityCommands, prelude::*};
+use bevy::ecs::system::EntityCommands;
+use bevy::prelude::*;
 
-use super::{
-    DrillConfig, Run,
-    def::{Environment, TtkFrom},
-    geometry::{TARGET_DISTANCE, ray_hit},
-    kinds::peek,
-};
-use crate::{
-    AppState,
-    camera::{PlayerCamera, ViewCone},
-    metrics::{flick_probe::angles, quest::RADIUS_RANGE, throughput::Click},
-    replay::Recorder,
-    settings::Settings,
-    sfx::HitSounds,
-};
+use super::def::{Environment, TtkFrom};
+use super::geometry::{TARGET_DISTANCE, ray_hit};
+use super::kinds::peek;
+use super::{DrillConfig, Run};
+use crate::AppState;
+use crate::camera::{PlayerCamera, ViewCone};
+use crate::metrics::flick_probe::angles;
+use crate::metrics::quest::RADIUS_RANGE;
+use crate::metrics::throughput::Click;
+use crate::replay::Recorder;
+use crate::settings::Settings;
+use crate::sfx::HitSounds;
 
 /// Fraction of its size a decaying target has left when it expires.
 const DECAY_MIN_SCALE: f32 = 0.35;
@@ -180,7 +179,7 @@ pub(super) fn sync_target_colors(
 /// Spawns a drill's static scenery; used by drills and by their replays.
 pub fn spawn_environment(commands: &mut Commands, assets: &TargetAssets, environment: Environment, state: AppState) {
     match environment {
-        Environment::Open => {}
+        Environment::Open => {},
         Environment::Cover => peek::spawn_cover(commands, assets, state),
     }
 }
@@ -200,7 +199,13 @@ pub(super) fn spawn_static(mut commands: Commands, assets: Res<TargetAssets>, ru
 }
 
 /// Initial targets, spawned when the countdown starts.
-pub(super) fn spawn_initial(commands: &mut Commands, assets: &TargetAssets, next: &mut NextSpawn, run: &Run, view: &ViewCone) {
+pub(super) fn spawn_initial(
+    commands: &mut Commands,
+    assets: &TargetAssets,
+    next: &mut NextSpawn,
+    run: &Run,
+    view: &ViewCone,
+) {
     let mut occupied = Vec::new();
     let mut ctx = SpawnCtx {
         commands,

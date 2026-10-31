@@ -8,15 +8,12 @@ mod sens;
 use std::path::Path;
 
 use bevy::prelude::*;
-use serde::{Deserialize, Serialize};
-
 pub use fields::SettingField;
 pub use sens::PRESETS;
+use serde::{Deserialize, Serialize};
 
-use crate::{
-    persist::{LoadReport, Persisted, load_ron},
-    drill::DrillKind,
-};
+use crate::drill::DrillKind;
+use crate::persist::{LoadReport, Persisted, load_ron};
 
 const SETTINGS_PATH: &str = "aim_trainer_settings.ron";
 

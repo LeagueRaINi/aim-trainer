@@ -2,13 +2,12 @@
 
 use std::f32::consts::FRAC_PI_2;
 
-use bevy::{
-    input::mouse::AccumulatedMouseMotion,
-    prelude::*,
-    window::{CursorGrabMode, CursorOptions},
-};
+use bevy::input::mouse::AccumulatedMouseMotion;
+use bevy::prelude::*;
+use bevy::window::{CursorGrabMode, CursorOptions};
 
-use crate::{AppState, settings::Settings};
+use crate::AppState;
+use crate::settings::Settings;
 
 pub struct CameraPlugin;
 
@@ -54,10 +53,7 @@ fn spawn_camera(mut commands: Commands, settings: Res<Settings>) {
         Camera3d::default(),
         // Menus and HUD follow this camera's (possibly 16:9-locked) viewport.
         IsDefaultUiCamera,
-        Projection::from(PerspectiveProjection {
-            fov: settings.vfov_rad(),
-            ..default()
-        }),
+        Projection::from(PerspectiveProjection { fov: settings.vfov_rad(), ..default() }),
         Transform::IDENTITY,
     ));
 }
@@ -77,7 +73,12 @@ fn reset_look(mut look: ResMut<Look>) {
     *look = Look::default();
 }
 
-pub fn mouse_look(motion: Res<AccumulatedMouseMotion>, sens: Res<ActiveSens>, settings: Res<Settings>, mut look: ResMut<Look>) {
+pub fn mouse_look(
+    motion: Res<AccumulatedMouseMotion>,
+    sens: Res<ActiveSens>,
+    settings: Res<Settings>,
+    mut look: ResMut<Look>,
+) {
     // Raw counts, unaccelerated: no delta-time scaling, exactly like the games do it.
     let rad_per_count = settings.deg_per_count(sens.0).to_radians();
     const PITCH_LIMIT: f32 = FRAC_PI_2 - 0.01;
@@ -126,7 +127,8 @@ impl ViewCone {
         if local.z >= 0.0 {
             return false;
         }
-        let inside = |tan_half: f32, offset: f32| (offset / -local.z).abs() <= (tan_half.atan() - margin).max(0.0).tan();
+        let inside =
+            |tan_half: f32, offset: f32| (offset / -local.z).abs() <= (tan_half.atan() - margin).max(0.0).tan();
         inside(self.tan_half_h, local.x) && inside(self.tan_half_v, local.y)
     }
 

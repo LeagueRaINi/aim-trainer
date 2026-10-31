@@ -56,11 +56,11 @@ impl FlickProbe {
                     self.moving = Some(0.0);
                 }
                 None
-            }
+            },
             Some(time) => {
                 *time += dt;
                 (*time >= MIN_SUBMOVEMENT && self.speed < END_SPEED).then(|| self.landing(aim))
-            }
+            },
         }
     }
 

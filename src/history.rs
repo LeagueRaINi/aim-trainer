@@ -2,19 +2,15 @@
 //! Records each [`RunFinished`] and announces it as [`RunRecorded`] for the systems reacting
 //! to finished runs (replay saving, finders, routines, the results screen).
 
-use std::{
-    fs::{self, OpenOptions},
-    io::Write,
-    path::{Path, PathBuf},
-    time::{SystemTime, UNIX_EPOCH},
-};
+use std::fs::{self, OpenOptions};
+use std::io::Write;
+use std::path::{Path, PathBuf};
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use bevy::prelude::*;
 
-use crate::{
-    drill::{DrillKind, DrillSet, DrillSpec, RunFinished, RunPurpose, RunStats},
-    settings::Settings,
-};
+use crate::drill::{DrillKind, DrillSet, DrillSpec, RunFinished, RunPurpose, RunStats};
+use crate::settings::Settings;
 
 const RESULTS_PATH: &str = "aim_trainer_results.csv";
 const HEADER: &str = "unix_time,purpose,drill,sens,yaw,dpi,hfov,cm_per_360,duration_s,hits,shots,accuracy,avg_kill_ms,on_target_pct,score,kind";
@@ -164,9 +160,7 @@ impl History {
     /// they're played at deliberately wrong sensitivities.
     pub fn practice_runs<'a>(&'a self, drill: &str) -> impl DoubleEndedIterator<Item = &'a HistoryEntry> + use<'a> {
         let drill = csv_safe(drill);
-        self.entries
-            .iter()
-            .filter(move |e| e.drill == drill && e.purpose == RunPurpose::Practice)
+        self.entries.iter().filter(move |e| e.drill == drill && e.purpose == RunPurpose::Practice)
     }
 
     /// Scores of the practice runs of a drill, oldest first.
@@ -287,7 +281,8 @@ mod tests {
             entry("Practice", "Tracking", 500.0),
             entry("Practice", "Gridshot", 200.0),
         ];
-        let history = History { entries: rows.iter().filter_map(|r| HistoryEntry::parse(r)).collect(), path: PathBuf::new() };
+        let history =
+            History { entries: rows.iter().filter_map(|r| HistoryEntry::parse(r)).collect(), path: PathBuf::new() };
         let cmp = history.compare("Gridshot");
         assert_eq!(cmp.best, Some(200.0));
         assert_eq!(cmp.recent_avg, Some(150.0));
@@ -298,7 +293,8 @@ mod tests {
     #[test]
     fn recent_average_covers_only_latest_runs() {
         let rows: Vec<String> = (0..15).map(|i| entry("Practice", "Microflick", i as f32)).collect();
-        let history = History { entries: rows.iter().filter_map(|r| HistoryEntry::parse(r)).collect(), path: PathBuf::new() };
+        let history =
+            History { entries: rows.iter().filter_map(|r| HistoryEntry::parse(r)).collect(), path: PathBuf::new() };
         // Latest 10 scores are 5..=14.
         assert_eq!(history.compare("Microflick").recent_avg, Some(9.5));
     }
@@ -369,8 +365,10 @@ mod fixture_tests {
     /// Pins the CSV row text: column order, number formats, purpose strings, drill names.
     #[test]
     fn row_format_fixture() {
-        let rows: Vec<String> =
-            fixture_runs().iter().map(|(t, stats, purpose)| format_row(*t, stats, *purpose, &Settings::default())).collect();
+        let rows: Vec<String> = fixture_runs()
+            .iter()
+            .map(|(t, stats, purpose)| format_row(*t, stats, *purpose, &Settings::default()))
+            .collect();
         assert_eq!(rows, FIXTURE.lines().collect::<Vec<_>>());
     }
 

@@ -3,12 +3,10 @@
 
 use bevy::prelude::*;
 
-use crate::{
-    AppState,
-    drill::{DrillKind, DrillSet, DrillSpec, Run, RunPurpose, RunStats, begin_run},
-    history::{Comparison, RunRecorded},
-    settings::Settings,
-};
+use crate::AppState;
+use crate::drill::{DrillKind, DrillSet, DrillSpec, Run, RunPurpose, RunStats, begin_run};
+use crate::history::{Comparison, RunRecorded};
+use crate::settings::Settings;
 
 pub struct RoutinePlugin;
 

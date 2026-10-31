@@ -1,27 +1,23 @@
 //! Widgets bound to [`Settings`]: choice buttons for discrete settings and number inputs for
 //! the numeric [`SettingField`]s, plus the systems that apply and highlight them.
 
-use bevy::{
-    feathers::{
-        controls::{
-            ButtonVariant, FeathersButton, FeathersNumberInput, HardLimit, NumberInputPrecision, NumberInputStep,
-            NumberInputValue, SoftLimit,
-        },
-        display::caption,
-    },
-    prelude::*,
-    ui_widgets::{Activate, ValueChange},
+use bevy::feathers::controls::{
+    ButtonVariant, FeathersButton, FeathersNumberInput, HardLimit, NumberInputPrecision, NumberInputStep,
+    NumberInputValue, SoftLimit,
 };
+use bevy::feathers::display::caption;
+use bevy::prelude::*;
+use bevy::ui_widgets::{Activate, ValueChange};
 
-use super::{theme::*, widgets::*};
-use crate::{
-    drill::DrillKind,
-    settings::{
-        AspectMode, CROSSHAIR_COLORS, DisplayMode, FinderFocus, FinderMethod, HitSound, PRESETS, SettingField, Settings,
-        TARGET_COLORS, fields::FieldSpec,
-    },
-    sfx::HitSounds,
+use super::theme::*;
+use super::widgets::*;
+use crate::drill::DrillKind;
+use crate::settings::fields::FieldSpec;
+use crate::settings::{
+    AspectMode, CROSSHAIR_COLORS, DisplayMode, FinderFocus, FinderMethod, HitSound, PRESETS, SettingField, Settings,
+    TARGET_COLORS,
 };
+use crate::sfx::HitSounds;
 
 /// Width of every number input in a setting row.
 pub const FIELD_W: f32 = 120.0;
@@ -247,7 +243,11 @@ fn edit_field(
 }
 
 /// Pushes setting changes made elsewhere (presets, finder results) into the number inputs.
-pub fn sync_fields(settings: Res<Settings>, fields: Query<(Entity, &SettingField, &NumberInputValue)>, mut commands: Commands) {
+pub fn sync_fields(
+    settings: Res<Settings>,
+    fields: Query<(Entity, &SettingField, &NumberInputValue)>,
+    mut commands: Commands,
+) {
     for (entity, field, value) in &fields {
         let wanted = field.get(&settings);
         if !matches!(value, NumberInputValue::F32(shown) if *shown == wanted) {
@@ -255,7 +255,6 @@ pub fn sync_fields(settings: Res<Settings>, fields: Query<(Entity, &SettingField
         }
     }
 }
-
 
 /// A setting row with "On" and "Off" choices.
 pub fn on_off_row(text: &'static str, on: Choice, off: Choice) -> impl Scene {
@@ -276,5 +275,4 @@ mod tests {
         assert!(Choice::Aspect(AspectMode::Native).is_selected(&settings));
         assert!((settings.cm_per_360(settings.sens) - before).abs() < 1e-3);
     }
-
 }

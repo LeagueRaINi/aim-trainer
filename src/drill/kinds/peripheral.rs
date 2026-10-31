@@ -2,17 +2,13 @@
 
 use bevy::prelude::*;
 
-use crate::{
-    camera::ViewCone,
-    drill::{
-        DrillConfig,
-        def::{Category, DecayRule, DrillDef, Environment, TtkFrom},
-        geometry::{away_from, direction, random_range, random_sign},
-        params::ParamId,
-        stats::ScoreModel,
-        targets::SpawnCtx,
-    },
-};
+use crate::camera::ViewCone;
+use crate::drill::DrillConfig;
+use crate::drill::def::{Category, DecayRule, DrillDef, Environment, TtkFrom};
+use crate::drill::geometry::{away_from, direction, random_range, random_sign};
+use crate::drill::params::ParamId;
+use crate::drill::stats::ScoreModel;
+use crate::drill::targets::SpawnCtx;
 
 pub const DEF: DrillDef = DrillDef {
     name: "Peripheral",

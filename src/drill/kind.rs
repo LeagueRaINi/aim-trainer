@@ -3,7 +3,8 @@
 
 use serde::{Deserialize, Serialize};
 
-use super::{def::DrillDef, kinds};
+use super::def::DrillDef;
+use super::kinds;
 
 /// Persisted: the variant names are stored in the settings and custom-content RON files, and
 /// replays store the index in [`DrillKind::ALL`]. Never rename or reorder; only append.

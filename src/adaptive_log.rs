@@ -4,21 +4,15 @@
 //! carries the score under the adaptive drill name (e.g. `Microflick · adaptive · measure`).
 //! Each task's latest θ75 becomes the prior of its next run.
 
-use std::{
-    fs,
-    path::{Path, PathBuf},
-};
+use std::fs;
+use std::path::{Path, PathBuf};
 
 use bevy::prelude::*;
 
-use crate::{
-    drill::{
-        DrillSet,
-        adaptive::{AdaptiveRun, quest_task},
-    },
-    history::{RunRecorded, append_csv_row, csv_safe},
-    metrics::quest::{Estimate, QuestMode},
-};
+use crate::drill::DrillSet;
+use crate::drill::adaptive::{AdaptiveRun, quest_task};
+use crate::history::{RunRecorded, append_csv_row, csv_safe};
+use crate::metrics::quest::{Estimate, QuestMode};
 
 const ADAPTIVE_PATH: &str = "aim_trainer_adaptive.csv";
 const HEADER: &str = "unix_time,drill,mode,time_limit_s,targets,hits,theta75_deg,low_deg,high_deg,slope";
@@ -188,7 +182,10 @@ mod tests {
         }
         let text = fs::read_to_string(&path).unwrap();
         assert_eq!(text.lines().next(), Some(HEADER));
-        assert_eq!(text.lines().nth(1), Some("100,Microflick · adaptive · measure,Measure,1.50,70,50,0.6200,0.5000,1.2500,0.2500"));
+        assert_eq!(
+            text.lines().nth(1),
+            Some("100,Microflick · adaptive · measure,Measure,1.50,70,50,0.6200,0.5000,1.2500,0.2500")
+        );
 
         let loaded = AdaptiveLog::load(&path);
         assert_eq!(loaded.entries.len(), 3);
@@ -206,11 +203,9 @@ mod tests {
     /// prior; a fixed-size run isn't logged.
     #[test]
     fn finished_adaptive_runs_are_logged() {
-        use crate::{
-            drill::{DrillKind, DrillSpec, Run, RunFinished, RunPurpose},
-            history::Comparison,
-            settings::Settings,
-        };
+        use crate::drill::{DrillKind, DrillSpec, Run, RunFinished, RunPurpose};
+        use crate::history::Comparison;
+        use crate::settings::Settings;
 
         let path = temp_path("adaptive_record");
         let settings = Settings::default();
@@ -228,7 +223,8 @@ mod tests {
                 adaptive.next_target();
                 adaptive.outcome(hit, true);
             }
-            let finished = RunFinished { stats: run.stats(&settings), purpose: RunPurpose::Practice, drill, duration: 90.0 };
+            let finished =
+                RunFinished { stats: run.stats(&settings), purpose: RunPurpose::Practice, drill, duration: 90.0 };
             app.world_mut().write_message(RunRecorded { run: finished, previous: Comparison::default(), timestamp });
             app.update();
         };

@@ -14,20 +14,17 @@ pub mod stats;
 mod targets;
 
 use bevy::prelude::*;
-
 pub use config::{ADAPTIVE_TIME_LIMIT, DrillConfig, DrillSpec, SECS_RANGE, VARIANT_SEPARATOR};
 pub use kind::DrillKind;
 pub use run::{Phase, Run, RunFinished, RunPurpose, begin_run};
 pub use stats::RunStats;
-pub use targets::{TargetAssets, spawn_environment};
 use targets::{Dormant, Target, TargetExpired, TargetKilled};
+pub use targets::{TargetAssets, spawn_environment};
 
-use crate::{
-    AppState,
-    camera::{ActiveSens, Look, apply_look, mouse_look},
-    replay::Recorder,
-    settings::Settings,
-};
+use crate::AppState;
+use crate::camera::{ActiveSens, Look, apply_look, mouse_look};
+use crate::replay::Recorder;
+use crate::settings::Settings;
 
 pub struct DrillPlugin;
 
@@ -68,9 +65,10 @@ impl Plugin for DrillPlugin {
             .add_message::<RunFinished>()
             .add_systems(Startup, targets::create_target_assets)
             .add_systems(Update, targets::sync_target_colors.run_if(resource_changed::<Settings>))
-            .add_systems(OnEnter(AppState::Playing), (targets::spawn_static, |mut commands: Commands| {
-                commands.insert_resource(Recorder::default())
-            }))
+            .add_systems(
+                OnEnter(AppState::Playing),
+                (targets::spawn_static, |mut commands: Commands| commands.insert_resource(Recorder::default())),
+            )
             // Mouse look turns at the run's sensitivity (read every frame: a finder trial's next
             // part may replace the run without leaving `Playing`).
             .add_systems(

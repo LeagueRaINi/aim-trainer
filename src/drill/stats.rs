@@ -127,7 +127,7 @@ impl ScoreModel {
                     list.insert(1, ("Expired", stats.expired.to_string()));
                 }
                 list
-            }
+            },
         }
     }
 

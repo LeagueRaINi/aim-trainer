@@ -2,7 +2,9 @@
 //! window directly (on the main thread, as winit requires) once it exists. The art lives in
 //! `assets/icons` (SVG sources; the .exe icon is embedded by `build.rs`).
 
-use bevy::{ecs::system::NonSendMarker, prelude::*, winit::WINIT_WINDOWS};
+use bevy::ecs::system::NonSendMarker;
+use bevy::prelude::*;
+use bevy::winit::WINIT_WINDOWS;
 use winit::window::Icon;
 
 /// The simplified logo, legible at title-bar size.

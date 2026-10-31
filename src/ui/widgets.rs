@@ -3,19 +3,17 @@
 //! Layout uses the spacing scale in [`super::theme`]; text always uses the Feathers fonts and
 //! theme tokens, never the default font or hard-coded colors.
 
-use bevy::{
-    app::Propagate,
-    feathers::{
-        constants::fonts,
-        controls::{ButtonVariant, FeathersButton},
-        display::{caption, label},
-        theme::{SurfaceLevel, ThemeBackgroundColor, ThemeBorderColor, ThemeContext, ThemeTextColor, ThemeToken},
-        tokens,
-    },
-    input_focus::tab_navigation::TabGroup,
-    prelude::*,
-    text::{FontSourceTemplate, FontWeight},
+use bevy::app::Propagate;
+use bevy::feathers::constants::fonts;
+use bevy::feathers::controls::{ButtonVariant, FeathersButton};
+use bevy::feathers::display::{caption, label};
+use bevy::feathers::theme::{
+    SurfaceLevel, ThemeBackgroundColor, ThemeBorderColor, ThemeContext, ThemeTextColor, ThemeToken,
 };
+use bevy::feathers::tokens;
+use bevy::input_focus::tab_navigation::TabGroup;
+use bevy::prelude::*;
+use bevy::text::{FontSourceTemplate, FontWeight};
 
 use super::theme::*;
 

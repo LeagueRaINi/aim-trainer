@@ -4,19 +4,15 @@
 
 use bevy::prelude::*;
 
-use crate::{
-    AppState,
-    camera::{PlayerCamera, ViewCone},
-    metrics::flick_probe::{FlickProbe, angles, screen_offset},
-    drill::{
-        DrillConfig, DrillSet, Run,
-        def::{Category, DecayRule, DrillDef, Environment, TtkFrom, no_spawn_next, no_tuning},
-        geometry::{TARGET_DISTANCE, away_from, direction, random_range},
-        params::ParamId,
-        stats::ScoreModel,
-        targets::{SpawnCtx, Target, TargetExpired, TargetKilled},
-    },
-};
+use crate::AppState;
+use crate::camera::{PlayerCamera, ViewCone};
+use crate::drill::def::{Category, DecayRule, DrillDef, Environment, TtkFrom, no_spawn_next, no_tuning};
+use crate::drill::geometry::{TARGET_DISTANCE, away_from, direction, random_range};
+use crate::drill::params::ParamId;
+use crate::drill::stats::ScoreModel;
+use crate::drill::targets::{SpawnCtx, Target, TargetExpired, TargetKilled};
+use crate::drill::{DrillConfig, DrillSet, Run};
+use crate::metrics::flick_probe::{FlickProbe, angles, screen_offset};
 
 /// Lowest pitch (degrees) a constrained flick target may sit at: lower ones (at
 /// `TARGET_DISTANCE`) would sink into the floor 2.5 m below the eye.
@@ -96,7 +92,10 @@ fn constrained_flick_position(aim: Vec3, view: &ViewCone, margin: f32, config: &
             None => random_range(0.0, 360.0),
         };
         let candidate = from + screen_offset(angle, random_range(near, far));
-        if candidate.cmpge(min).all() && candidate.cmple(max).all() && view.contains(aim, to_direction(candidate), margin) {
+        if candidate.cmpge(min).all()
+            && candidate.cmple(max).all()
+            && view.contains(aim, to_direction(candidate), margin)
+        {
             return to_direction(candidate) * TARGET_DISTANCE;
         }
     }
@@ -152,10 +151,8 @@ fn probe_flicks(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{
-        drill::DrillKind,
-        metrics::flick_probe::{screen_angle, wrap},
-    };
+    use crate::drill::DrillKind;
+    use crate::metrics::flick_probe::{screen_angle, wrap};
 
     /// A Microflick config trained on down-left flicks of 15-25 degrees.
     fn down_left() -> DrillConfig {
@@ -217,7 +214,8 @@ mod tests {
         let config = DrillConfig::defaults(DrillKind::Microflick);
         assert!(!config.flick_constrained());
         // Targets still land on both sides, as before.
-        let sides: Vec<bool> = (0..200).map(|_| flick_position(Vec3::NEG_Z, &view(), MARGIN, &config).x > 0.0).collect();
+        let sides: Vec<bool> =
+            (0..200).map(|_| flick_position(Vec3::NEG_Z, &view(), MARGIN, &config).x > 0.0).collect();
         assert!(sides.contains(&true) && sides.contains(&false));
     }
 
@@ -233,7 +231,8 @@ mod tests {
         // Plain Microflick and a long-flick weak spot (40-60°, beyond the 51.5° screen edge),
         // aiming straight ahead and from far off to the side.
         let mut long_left = down_left();
-        (long_left.yaw_range, long_left.min_flick, long_left.max_flick, long_left.flick_direction) = (80.0, 40.0, 60.0, Some(180.0));
+        (long_left.yaw_range, long_left.min_flick, long_left.max_flick, long_left.flick_direction) =
+            (80.0, 40.0, 60.0, Some(180.0));
         long_left.sanitize();
         for config in [DrillConfig::defaults(DrillKind::Microflick), long_left] {
             for aim in [Vec3::NEG_Z, direction(0.45, 0.1), direction(-0.5, -0.15)] {

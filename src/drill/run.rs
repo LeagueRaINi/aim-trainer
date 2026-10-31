@@ -2,10 +2,14 @@
 //! timer, aborting, and announcing a finished run as [`RunFinished`]. What happens next
 //! (history, replay, finders, routines, results) is up to the systems reading that message.
 
-use bevy::{prelude::*, window::WindowFocused};
+use bevy::prelude::*;
+use bevy::window::WindowFocused;
 
 use super::{DrillKind, DrillSpec, RunStats, TargetAssets, targets};
-use crate::{AppState, camera::ViewCone, metrics::throughput::Click, settings::Settings};
+use crate::AppState;
+use crate::camera::ViewCone;
+use crate::metrics::throughput::Click;
+use crate::settings::Settings;
 
 const COUNTDOWN_SECS: f32 = 1.5;
 const READY_ARM_SECS: f32 = 0.6;
@@ -271,23 +275,30 @@ pub(super) fn ready_gate(
             // Clicks still in flight from the previous run (shooting at the buzzer) must not
             // skip this gate: only accept input once it has been up for a moment.
             run.ready_for += time.delta_secs();
-            if run.ready_for >= READY_ARM_SECS && (mouse.just_pressed(MouseButton::Left) || keys.just_pressed(KeyCode::Space)) {
+            if run.ready_for >= READY_ARM_SECS
+                && (mouse.just_pressed(MouseButton::Left) || keys.just_pressed(KeyCode::Space))
+            {
                 run.phase = Phase::Countdown;
                 targets::spawn_initial(&mut commands, &assets, &mut next, &run, &view);
             }
-        }
+        },
         Phase::Countdown => {
             run.countdown -= time.delta_secs();
             if run.countdown <= 0.0 {
                 run.phase = Phase::Live;
             }
-        }
-        Phase::Live => {}
+        },
+        Phase::Live => {},
     }
 }
 
 /// Advances the timer and announces the run once it's over.
-pub(super) fn tick_run(time: Res<Time>, mut run: ResMut<Run>, settings: Res<Settings>, mut finished: MessageWriter<RunFinished>) {
+pub(super) fn tick_run(
+    time: Res<Time>,
+    mut run: ResMut<Run>,
+    settings: Res<Settings>,
+    mut finished: MessageWriter<RunFinished>,
+) {
     if !run.live() {
         return;
     }
@@ -326,15 +337,15 @@ mod tests {
     use bevy::state::app::StatesPlugin;
 
     use super::*;
-    use crate::{
-        drill::DrillSet,
-        finder::{self, classic::Finder, smart::SmartFinder},
-        history::{self, History, LastRun},
-        replay::{self, Recorder, ReplayDir},
-        routine::{self, Routine, RoutineStep},
-        settings::FinderFocus,
-        ui::screens::results,
-    };
+    use crate::drill::DrillSet;
+    use crate::finder::classic::Finder;
+    use crate::finder::smart::SmartFinder;
+    use crate::finder::{self};
+    use crate::history::{self, History, LastRun};
+    use crate::replay::{self, Recorder, ReplayDir};
+    use crate::routine::{self, Routine, RoutineStep};
+    use crate::settings::FinderFocus;
+    use crate::ui::screens::results;
 
     #[test]
     fn warm_in_is_not_scored() {
@@ -507,8 +518,13 @@ mod tests {
         let finder = Finder::new(0.4, 3);
         let sens = finder.trial_sens().unwrap();
         let drill = DrillSpec::builtin(DrillKind::Gridshot, &Settings::default());
-        app.insert_resource(finder)
-            .insert_resource(finishing(Run::new(drill, sens, 20.0, RunPurpose::FinderTrial, String::new())));
+        app.insert_resource(finder).insert_resource(finishing(Run::new(
+            drill,
+            sens,
+            20.0,
+            RunPurpose::FinderTrial,
+            String::new(),
+        )));
         app.update();
         app.update();
         assert_eq!(state(&app), AppState::Finder);

@@ -37,11 +37,9 @@
 use bevy::prelude::*;
 
 use super::gp::Mixture;
-use crate::{
-    drill::{DrillKind, DrillSpec, Run, RunPurpose, RunStats},
-    metrics::throughput,
-    settings::{FinderFocus, Settings},
-};
+use crate::drill::{DrillKind, DrillSpec, Run, RunPurpose, RunStats};
+use crate::metrics::throughput;
+use crate::settings::{FinderFocus, Settings};
 
 /// Relative range searched around the starting sensitivity.
 const PROBE_LOW: f32 = 0.6;
@@ -188,7 +186,7 @@ impl Model {
             _ => {
                 let best = (0..GRID).max_by(|&a, &b| near_best.near[a].total_cmp(&near_best.near[b])).unwrap_or(0);
                 (best, best)
-            }
+            },
         };
         let confidence = near_best.peak[first..=last].iter().sum::<f64>() as f32;
 
@@ -196,15 +194,17 @@ impl Model {
         // candidates not too close to a tested one. Ties keep the lowest candidate.
         let candidates = along(CANDIDATES);
         let predictions: Vec<(f64, f64)> = candidates.iter().map(|&x| gp.predict(x)).collect();
-        let peak_index = (0..CANDIDATES).fold(0, |best, i| if predictions[i].0 > predictions[best].0 { i } else { best });
+        let peak_index =
+            (0..CANDIDATES).fold(0, |best, i| if predictions[i].0 > predictions[best].0 { i } else { best });
         let incumbent = xs64.iter().map(|&x| gp.predict(x).0).fold(f64::MIN, f64::max);
-        let open: Vec<usize> = (0..CANDIDATES)
-            .filter(|&i| xs.iter().all(|&x| (candidates[i] as f32 - x).abs() >= MIN_SPACING))
-            .collect();
-        let pick = |score: &dyn Fn(usize) -> f64| open.iter().copied().fold(None, |best: Option<(usize, f64)>, i| {
-            let value = score(i);
-            if best.is_none_or(|(_, b)| value > b) { Some((i, value)) } else { best }
-        });
+        let open: Vec<usize> =
+            (0..CANDIDATES).filter(|&i| xs.iter().all(|&x| (candidates[i] as f32 - x).abs() >= MIN_SPACING)).collect();
+        let pick = |score: &dyn Fn(usize) -> f64| {
+            open.iter().copied().fold(None, |best: Option<(usize, f64)>, i| {
+                let value = score(i);
+                if best.is_none_or(|(_, b)| value > b) { Some((i, value)) } else { best }
+            })
+        };
         let ei = |i: usize| gp.expected_improvement(candidates[i], incumbent);
         let next = match pick(&ei) {
             Some((i, value)) if value > 1e-12 => i,
@@ -398,7 +398,10 @@ impl SmartFinder {
             (a.0 - b.0).abs() < SETTLED && (a.1 - b.1).abs() < SETTLED
         };
         let n = self.trials.len();
-        n >= MAX_TRIALS || (n >= MIN_TRIALS && self.ranges.len() >= 3 && self.ranges[self.ranges.len() - 3..].windows(2).all(settled))
+        n >= MAX_TRIALS
+            || (n >= MIN_TRIALS
+                && self.ranges.len() >= 3
+                && self.ranges[self.ranges.len() - 3..].windows(2).all(settled))
     }
 
     /// Throws away a finished trial (e.g. a mis-click or distraction) so all its parts can be
@@ -428,8 +431,9 @@ impl SmartFinder {
         };
         let score_means: Vec<f32> =
             (0..self.drills.len()).map(|d| mean(self.trials.iter().map(|t| t.scores[d]).collect())).collect();
-        let throughput_means: Vec<f32> =
-            (0..self.drills.len()).map(|d| mean(self.trials.iter().filter_map(|t| t.throughputs[d]).collect())).collect();
+        let throughput_means: Vec<f32> = (0..self.drills.len())
+            .map(|d| mean(self.trials.iter().filter_map(|t| t.throughputs[d]).collect()))
+            .collect();
         let relative = |value: f32, mean: f32| if mean > 0.0 { value / mean } else { 1.0 };
         self.trials
             .iter()
@@ -785,7 +789,13 @@ mod tests {
         assert!(finder.confidence().is_some());
         // The order is shuffled.
         let orders: std::collections::HashSet<_> = (0..20)
-            .map(|seed| SmartFinder::with_rng(1.0, FinderFocus::Balanced, &mut fastrand::Rng::with_seed(seed)).opening.iter().map(|x| x.to_bits()).collect::<Vec<_>>())
+            .map(|seed| {
+                SmartFinder::with_rng(1.0, FinderFocus::Balanced, &mut fastrand::Rng::with_seed(seed))
+                    .opening
+                    .iter()
+                    .map(|x| x.to_bits())
+                    .collect::<Vec<_>>()
+            })
             .collect();
         assert!(orders.len() > 1);
     }
@@ -894,9 +904,8 @@ mod tests {
     fn drills_are_normalised_so_neither_dominates() {
         // Microflick peaks at 0.2 below the start, Tracking 0.2 above, on a 10x larger scale.
         // Raw scores would put the peak near +0.16; normalised, the drills weigh equally.
-        let finder = finished(|x| {
-            ([100.0 * (1.0 - 0.8 * (x + 0.2).powi(2)), 1000.0 * (1.0 - 0.8 * (x - 0.2).powi(2))], None)
-        });
+        let finder =
+            finished(|x| ([100.0 * (1.0 - 0.8 * (x + 0.2).powi(2)), 1000.0 * (1.0 - 0.8 * (x - 0.2).powi(2))], None));
         assert!(finder.peak_sens().ln().abs() < 0.03, "{}", finder.peak_sens());
     }
 
@@ -1027,7 +1036,10 @@ mod tests {
     #[test]
     fn click_bias_breaks_the_tie_inside_the_best_range() {
         // No landing data; clicks land on the centre at x = 0.15 (past it above, short below).
-        let biased = finished_trials(FinderFocus::Balanced, |_, x| SmartTrial { bias: Some(0.8 * (x - 0.15)), ..trial(x, &flat_top(x)) });
+        let biased = finished_trials(FinderFocus::Balanced, |_, x| SmartTrial {
+            bias: Some(0.8 * (x - 0.15)),
+            ..trial(x, &flat_top(x))
+        });
         assert!(biased.uses_precision());
         assert!((biased.recommendation().ln() - 0.15).abs() < 0.01, "{}", biased.recommendation());
         assert!((biased.bias_sens().unwrap().ln() - 0.15).abs() < 0.01);
@@ -1045,7 +1057,10 @@ mod tests {
 
         // Biases without a clear trend are ignored, like landings.
         let jitter = [0.9, -0.6, 1.0, -1.0, 0.3, -0.2, 0.7, -0.9, 0.1];
-        let noisy = finished_trials(FinderFocus::Balanced, |i, x| SmartTrial { bias: Some(0.3 * jitter[i]), ..trial(x, &flat_top(x)) });
+        let noisy = finished_trials(FinderFocus::Balanced, |i, x| SmartTrial {
+            bias: Some(0.3 * jitter[i]),
+            ..trial(x, &flat_top(x))
+        });
         assert!(!noisy.uses_precision());
         assert_eq!(noisy.recommendation(), 1.0);
     }
@@ -1082,7 +1097,11 @@ mod tests {
 
     /// Plays `seeds` finders, against `player(seed)` each: the fraction that `pass`, and the mean
     /// trial count.
-    fn over_seeds(seeds: u64, player: impl Fn(u64) -> Player, pass: impl Fn(&Player, &SmartFinder) -> bool) -> (f32, f32) {
+    fn over_seeds(
+        seeds: u64,
+        player: impl Fn(u64) -> Player,
+        pass: impl Fn(&Player, &SmartFinder) -> bool,
+    ) -> (f32, f32) {
         let (mut passed, mut trials) = (0, 0);
         for seed in 0..seeds {
             let player = player(seed);
@@ -1141,7 +1160,10 @@ mod tests {
         for peak in [0.25, 0.05] {
             let player = |_| Player { peak, curvature: 1.5, noise: 0.01, drift: 0.0 };
             let (rate, trials) = over_seeds(50, player, in_plateau);
-            println!("easy players (peak {peak}): {:.0}% inside the plateau, {trials:.1} trials on average", rate * 100.0);
+            println!(
+                "easy players (peak {peak}): {:.0}% inside the plateau, {trials:.1} trials on average",
+                rate * 100.0
+            );
             assert!(rate >= 0.95 && trials < 8.0, "{rate} {trials}");
         }
     }

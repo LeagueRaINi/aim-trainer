@@ -22,10 +22,8 @@ pub const CURVED: f32 = 0.25;
 /// bow of the movement it belongs to, or `None` while resting or micro-adjusting.
 pub fn segment_bows(points: &[(f32, Vec2)]) -> Vec<Option<f32>> {
     let segments = points.len().saturating_sub(1);
-    let moving: Vec<bool> = points
-        .windows(2)
-        .map(|w| (w[1].1 - w[0].1).length() / (w[1].0 - w[0].0).max(1e-6) > MOVE_SPEED)
-        .collect();
+    let moving: Vec<bool> =
+        points.windows(2).map(|w| (w[1].1 - w[0].1).length() / (w[1].0 - w[0].0).max(1e-6) > MOVE_SPEED).collect();
     let mut bows = vec![None; segments];
     let mut i = 0;
     while i < segments {

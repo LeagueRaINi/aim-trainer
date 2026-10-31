@@ -18,7 +18,7 @@ Bevy 0.20 app (Rust 2024). `main.rs` declares `AppState` (Menu, Playing, Results
 | `adaptive_log.rs` | Adaptive-mode results CSV (θ75 per adaptive run, joined to the history row by timestamp); feeds each task's latest θ75 back as the next run's prior. |
 | `routine.rs` | Built-in warmups, `Routine`, and the handler for finished routine steps. |
 | `custom/` | `mod.rs`: custom scenarios and playlists (`CustomContent`). `share.rs`: `AIMPL1:` share codes. |
-| `finder/` | `classic.rs`: A/B bisection. `smart.rs`: the model-based finder. `mod.rs`: `FinderPlugin` and the handler for finished finder trials (including smart-finder auto-chaining). |
+| `finder/` | `classic.rs`: A/B bisection. `smart.rs`: the Bayesian-optimisation finder (opening design, expected-improvement trial picks, best range, stopping rule, recommendation). `gp.rs`: its Gaussian process (squared-exponential kernel + trial drift + noise, hyperparameter mixture, joint posterior draws). `mod.rs`: `FinderPlugin` and the handler for finished finder trials (including smart-finder auto-chaining). |
 | `analysis.rs` | Weak-spot analysis over flick replays (the Insights tab). |
 | `ui/` | All UI. `hud.rs`: in-game HUD. `replay_hud.rs`: replay HUD. `menu/`: one module per tab. `screens/`: results, finder, routine screens. `widgets.rs`, `bindings.rs`, `charts.rs`, `theme.rs`: shared building blocks. |
 

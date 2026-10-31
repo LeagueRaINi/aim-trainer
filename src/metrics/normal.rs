@@ -24,6 +24,11 @@ pub(crate) fn normal_cdf(x: f64) -> f64 {
     0.5 * erfc(-x * FRAC_1_SQRT_2)
 }
 
+/// Standard normal probability density function.
+pub(crate) fn normal_pdf(x: f64) -> f64 {
+    (-0.5 * x * x).exp() / (2.0 * std::f64::consts::PI).sqrt()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -22,7 +22,7 @@ use crate::{
     AppState,
     finder::{
         classic::{Finder, FinderStep},
-        smart::{PLATEAU, SmartFinder, SmartStep, WARM_IN},
+        smart::{MAX_TRIALS, MIN_TRIALS, OPENING, PLATEAU, SmartFinder, SmartStep, WARM_IN},
     },
     drill::{DrillSpec, Run, RunPurpose, begin_run},
     settings::{FinderMethod, Settings},
@@ -285,14 +285,15 @@ pub struct SmartChart;
 
 fn spawn_smart(mut commands: Commands, finder: Res<SmartFinder>, settings: Res<Settings>) {
     let done = finder.trials.len();
-    let total = finder.total_trials();
-    let context = format!("Smart sens finder  ·  Trial {} / {total}", done + 1);
+    let context = format!("Smart sens finder  ·  Trial {} (up to {MAX_TRIALS})", done + 1);
     let mut entity = match finder.step {
         SmartStep::Trial => {
-            let phase = if done < crate::finder::smart::PROBES {
-                "Probing 5 sensitivities from 0.6x to 1.6x yours, in random order."
+            let phase = if done < OPENING {
+                "Opening: your sens, 0.6x and 1.6x of it, in random order.".to_string()
             } else {
-                "Refining around the predicted best sensitivity."
+                format!(
+                    "Testing where the model expects to learn most about your best range. It stops once that range settles ({MIN_TRIALS} to {MAX_TRIALS} trials)."
+                )
             };
             let names: Vec<&str> = finder.segment_order().iter().map(|drill| drill.name()).collect();
             let (each, parts) = if names.len() > 1 { (" each", "of each aren't") } else { ("", "aren't") };
@@ -309,7 +310,7 @@ fn spawn_smart(mut commands: Commands, finder: Res<SmartFinder>, settings: Res<S
                     Children [
                         @screen_title(context, "Next trial")
                         --
-                        @trial_progress(done, total)
+                        @trial_progress(done)
                         --
                         @label(phase)
                         --
@@ -370,7 +371,7 @@ fn spawn_smart(mut commands: Commands, finder: Res<SmartFinder>, settings: Res<S
         }
         SmartStep::Done => {
             let recommended = finder.recommendation();
-            let (lo, hi) = finder.plateau();
+            let (lo, hi) = finder.best_range();
             let keep = (recommended / finder.start_sens - 1.0).abs() < 0.005;
             let basis = if finder.is_flat() {
                 "Your results barely changed across everything tested, so sensitivity isn't what limits you here: keep yours."
@@ -379,15 +380,24 @@ fn spawn_smart(mut commands: Commands, finder: Res<SmartFinder>, settings: Res<S
             } else if keep {
                 "Your current sens is already in your best range: changing it would cost re-adaptation for no measurable gain."
             } else {
-                "Your current sens scored measurably worse; this is the nearest sens in your best range."
+                "Your current sens is probably more than 3% worse than your best; this is the nearest sens that is probably (70%+) within 3% of it."
             };
             let started = format!("Started at {:.3}. {basis}", finder.start_sens);
             let sens = settings.describe_sens(recommended);
-            let mut notes = vec![format!(
-                "Best range {lo:.3} to {hi:.3}: these all score within the trial noise ({:.0}% or more) of the best (peak {:.3}).",
-                PLATEAU * 100.0,
-                finder.peak_sens(),
-            )];
+            let confidence = finder.confidence().unwrap_or(0.0) * 100.0;
+            let mut notes = vec![
+                format!(
+                    "Best range {lo:.3} to {hi:.3} ({confidence:.0}% sure your best sens is in it): each is at least even odds to perform within {:.0}% of your best (peak about {:.3}).",
+                    PLATEAU * 100.0,
+                    finder.peak_sens(),
+                ),
+                format!(
+                    "{} trials. Trial-to-trial noise about {:.1}%; warm-up drift {:+.1}% per trial, factored out.",
+                    finder.trials.len(),
+                    finder.noise().unwrap_or(0.0) * 100.0,
+                    finder.drift().unwrap_or(0.0) * 100.0,
+                ),
+            ];
             notes.push(match finder.landing_at_start() {
                 Some(landing) => {
                     let verdict = match landing {
@@ -448,11 +458,16 @@ fn spawn_smart(mut commands: Commands, finder: Res<SmartFinder>, settings: Res<S
     entity.insert(DespawnOnExit(AppState::Finder));
 }
 
-/// One bar segment per trial: finished ones filled with the accent color.
-fn trial_progress(done: usize, total: usize) -> impl Scene {
-    let pips: Vec<_> = (0..total)
+/// One bar segment per possible trial: finished ones filled with the accent color, the ones the
+/// finder may skip (after `MIN_TRIALS`, once the best range settles) fainter.
+fn trial_progress(done: usize) -> impl Scene {
+    let pips: Vec<_> = (0..MAX_TRIALS)
         .map(|index| {
-            let color = if index < done { tokens::BUTTON_PRIMARY_BG } else { tokens::GROUP_BG };
+            let color = match index {
+                i if i < done => tokens::BUTTON_PRIMARY_BG,
+                i if i < MIN_TRIALS => tokens::GROUP_BG,
+                _ => DIVIDER,
+            };
             bsn! {
                 Node { flex_grow: 1.0, height: px(4), border_radius: BorderRadius::all(px(2)) }
                 ThemeBackgroundColor(color)
@@ -507,22 +522,27 @@ fn apply_smart_result(
     next_state.set(AppState::Menu);
 }
 
-/// Trials as dots (gold = best feel-adjusted result), fitted curve as a line, the performance
-/// plateau shaded, the recommendation as a green marker and the sens where your aim is on target
-/// (first flicks land on it, clicks on its centre) as a blue one. X axis is log-scaled sensitivity.
+/// Trials as dots (drift-corrected; gold = best), the posterior mean as a line with its 90% band
+/// as dim lines, the best range shaded, the recommendation as a green marker and the sens where
+/// your aim is on target (first flicks land on it, clicks on its centre) as a blue one. X axis is
+/// log-scaled sensitivity.
 pub fn draw_smart_chart(mut commands: Commands, finder: Option<Res<SmartFinder>>, charts: Query<Entity, Added<SmartChart>>) {
     let Some(finder) = finder else { return };
     for chart in &charts {
-        let curve = finder.curve(60);
-        let objectives = finder.objectives();
-        let all_y: Vec<f32> = curve.iter().map(|p| p.1).chain(objectives.iter().copied()).collect();
-        let (min, max) = all_y.iter().fold((f32::MAX, f32::MIN), |(lo, hi), &v| (lo.min(v), hi.max(v)));
-        let pad = ((max - min) * 0.15).max(0.01);
-        let (lo, hi) = (min - pad, max + pad);
+        let band = finder.band();
+        let objectives = finder.corrected_objectives();
+        let span = |values: &mut dyn Iterator<Item = f32>| values.fold((f32::MAX, f32::MIN), |(lo, hi), v| (lo.min(v), hi.max(v)));
+        let (min, max) = span(&mut band.iter().map(|p| p.1).chain(objectives.iter().copied()));
+        // The band widens away from the trials: show it, but not at the cost of squashing the
+        // mean and the dots (it's clipped at the plot edges instead).
+        let (band_min, band_max) = span(&mut band.iter().flat_map(|p| [p.2, p.3]));
+        let reach = (max - min).max(0.02);
+        let pad = reach * 0.15;
+        let (lo, hi) = (band_min.max(min - reach).min(min) - pad, band_max.min(max + reach).max(max) + pad);
         let sens_lo = finder.start_sens * 0.55;
         let sens_hi = finder.start_sens * 1.75;
         let x = |sens: f32| (sens / sens_lo).ln() / (sens_hi / sens_lo).ln() * CHART_W;
-        let y = |value: f32| CHART_H - (value - lo) / (hi - lo) * CHART_H;
+        let y = |value: f32| (CHART_H - (value - lo) / (hi - lo) * CHART_H).clamp(0.0, CHART_H);
 
         commands.spawn_scene(overline("Result + feel by sensitivity")).insert(ChildOf(chart));
         let plot = commands
@@ -532,14 +552,16 @@ pub fn draw_smart_chart(mut commands: Commands, finder: Option<Res<SmartFinder>>
                 ThemeBackgroundColor(CHART_BG),
             ))
             .id();
-        let (plateau_lo, plateau_hi) = finder.plateau();
-        if plateau_hi > plateau_lo {
-            let left = x(plateau_lo);
-            commands.spawn((ChildOf(plot), absolute(left, 0.0, x(plateau_hi) - left, CHART_H), ThemeBackgroundColor(DIVIDER)));
+        let (range_lo, range_hi) = finder.best_range();
+        if range_hi > range_lo {
+            let left = x(range_lo);
+            commands.spawn((ChildOf(plot), absolute(left, 0.0, x(range_hi) - left, CHART_H), ThemeBackgroundColor(DIVIDER)));
         }
 
-        let points: Vec<Vec2> = curve.iter().map(|&(sens, value)| Vec2::new(x(sens), y(value))).collect();
-        polyline(&mut commands, plot, &points, tokens::TEXT_MAIN);
+        let line = |value: fn(&(f32, f32, f32, f32)) -> f32| -> Vec<Vec2> { band.iter().map(|p| Vec2::new(x(p.0), y(value(p)))).collect() };
+        polyline(&mut commands, plot, &line(|p| p.2), tokens::TEXT_DIM);
+        polyline(&mut commands, plot, &line(|p| p.3), tokens::TEXT_DIM);
+        polyline(&mut commands, plot, &line(|p| p.1), tokens::TEXT_MAIN);
 
         if let Some(on_target) = finder.precision_sens().filter(|s| (sens_lo..=sens_hi).contains(s)) {
             commands.spawn((ChildOf(plot), absolute(x(on_target) - 1.0, 0.0, 2.0, CHART_H), ThemeBackgroundColor(TEXT_ACCENT)));
@@ -566,7 +588,7 @@ pub fn draw_smart_chart(mut commands: Commands, finder: Option<Res<SmartFinder>>
             &mut commands,
             chart,
             format!(
-                "Sensitivity {sens_lo:.3} to {sens_hi:.3} (log scale).  Dots: trials (throughput or score, + feel).  Line: fitted model.  Shaded: best range (within the trial noise, at least {:.0}%, of the peak).  Green: recommendation.  Blue: aim on target (flick landing / click position).",
+                "Sensitivity {sens_lo:.3} to {sens_hi:.3} (log scale).  Dots: trials (throughput or score, + feel; warm-up drift removed).  Line: model estimate, dim lines its 90% band.  Shaded: best range (at least even odds to be within {:.0}% of your best).  Green: recommendation.  Blue: aim on target (flick landing / click position).",
                 PLATEAU * 100.0
             ),
             11.0,

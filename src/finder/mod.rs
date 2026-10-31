@@ -2,6 +2,7 @@
 //! finder ([`smart`]). Both are pure state machines; this module feeds them finished trials.
 
 pub mod classic;
+pub mod gp;
 pub mod smart;
 
 use bevy::prelude::*;

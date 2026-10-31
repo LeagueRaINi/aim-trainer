@@ -1,49 +1,77 @@
 //! Smart sensitivity finder: models performance as a function of sensitivity instead of
 //! bisecting on gut feel alone.
 //!
-//! 1. Probe: blind trials at 5 log-spaced sensitivities from 0.6x to 1.6x your current one, in
-//!    random order. Each trial is a battery of drills at the same sensitivity, picked by the
-//!    finder's focus (see [`FinderFocus`]): the best sensitivity depends on the task, so it's
-//!    found for the kind of aiming you care about. With several drills the order alternates
-//!    between trials to balance order effects, and the first `WARM_IN` seconds of each part
-//!    aren't scored (you adapt quickly right after a sens change).
+//! 1. Trials: each trial is a blind battery of drills at one sensitivity, picked by the finder's
+//!    focus (see [`FinderFocus`]): the best sensitivity depends on the task, so it's found for
+//!    the kind of aiming you care about. With several drills the order alternates between
+//!    trials to balance order effects, and the first `WARM_IN` seconds of each part aren't
+//!    scored (you adapt quickly right after a sens change).
 //! 2. After every trial you rate how it felt (1-5). Each trial's objective is the mean, over its
 //!    drills, of its result relative to that drill's average result, nudged by the feel rating.
 //!    A flick drill's result is its effective throughput (TPe, see
 //!    [`throughput`](crate::metrics::throughput)) when the part measured one, else its score:
 //!    TPe barely moves when you happen to play one trial faster and sloppier and the next one
 //!    slower and more careful, which a score does. Tracking uses its score.
-//! 3. Fit `objective = a*x^2 + b*x + c + d*trial` by least squares, where `x = ln(sens / start)`.
-//!    The `d*trial` term absorbs warm-up drift (later trials tend to score higher no matter the
-//!    sensitivity), which would otherwise bias the result toward whatever was tested last.
-//! 4. Refine: more trials around the fitted peak, then refit.
-//! 5. Recommend: performance is flat over a broad plateau around the peak (NVIDIA, CHI 2022),
-//!    and short trials are noisy, so the plateau is every sensitivity whose predicted result is
-//!    within the trial noise (at least 3%) of the peak. Inside it, prefer the sensitivity where
-//!    your aim is on target: where first flicks land on target (median ratio of first-submovement
-//!    travel to target distance) and where clicks land on the target centre along the flick
-//!    (mean click bias, in target radii), each fitted as a line in `x` and used only if that
-//!    trend is statistically clear; the average of the two when both are. Otherwise keep the
-//!    plateau sensitivity closest to your current one: no change unless the data shows one helps.
+//! 3. Model: `objective = f(x) + d*trial + noise` with `x = ln(sens / start)` over 0.6x to 1.6x,
+//!    `f` a Gaussian process (see [`gp`](super::gp)). The `d*trial` term absorbs warm-up drift
+//!    (later trials tend to score higher no matter the sensitivity), which would otherwise bias
+//!    the result toward whatever was tested last; everything below uses the drift-corrected
+//!    posterior.
+//! 4. Bayesian optimisation: the first 3 trials are the low end, your sens and the high end, in
+//!    random order; every later one goes where the expected improvement over the best so far is
+//!    largest, at least `MIN_SPACING` from every tested sens.
+//! 5. Best range: performance is flat over a broad plateau around the peak (NVIDIA, CHI 2022),
+//!    so the best range is every sensitivity that is at least as likely as not to be within
+//!    `PLATEAU` of the best, with its confidence (the probability that the best is inside it).
+//!    The finder stops once that range has settled for 2 trials in a row (from trial
+//!    `MIN_TRIALS`), or after `MAX_TRIALS`.
+//! 6. Recommend: inside the best range, prefer the sensitivity where your aim is on target: where
+//!    first flicks land on target (median ratio of first-submovement travel to target distance)
+//!    and where clicks land on the target centre along the flick (mean click bias, in target
+//!    radii), each fitted as a line in `x` and used only if that trend is statistically clear;
+//!    the average of the two when both are. Otherwise keep your current sensitivity if it's in
+//!    the best range: no change unless the data shows one helps. When the preferred sensitivity
+//!    is outside the range, move to the closest one that is probably (`CONFIDENT`) within
+//!    `PLATEAU` of the best, rather than to the range's coin-flip edge.
 
 use bevy::prelude::*;
 
+use super::gp::Mixture;
 use crate::{
     drill::{DrillKind, DrillSpec, Run, RunPurpose, RunStats},
     metrics::throughput,
     settings::{FinderFocus, Settings},
 };
 
-/// Relative range probed around the starting sensitivity.
+/// Relative range searched around the starting sensitivity.
 const PROBE_LOW: f32 = 0.6;
 const PROBE_HIGH: f32 = 1.6;
-pub const PROBES: usize = 5;
-pub const REFINEMENTS: usize = 4;
+/// Trials before the finder may stop.
+pub const MIN_TRIALS: usize = 6;
+/// The finder always stops after this many trials.
+pub const MAX_TRIALS: usize = 12;
+/// Space-filling opening trials (low end, start, high end) before the model picks.
+pub const OPENING: usize = 3;
+/// Closest (ln-sens) a model-picked trial may come to an already tested sensitivity.
+const MIN_SPACING: f32 = 0.04;
+/// Best-range edges moving less than this (ln-sens) between trials count as settled.
+const SETTLED: f32 = 0.03;
+/// Grid the best range and the chart are evaluated on.
+const GRID: usize = 61;
+/// Candidate grid for the next trial.
+const CANDIDATES: usize = 200;
+/// Joint posterior draws for the best range.
+const SAMPLES: usize = 600;
+const SAMPLE_SEED: u64 = 0x5EED_F1DE;
+/// Posterior probability of being within `PLATEAU` of the best needed to be in the best range.
+const NEAR_BEST: f32 = 0.5;
+/// Posterior probability of being within `PLATEAU` of the best a sensitivity needs to be moved
+/// to.
+const CONFIDENT: f32 = 0.7;
+/// Two-sided 90% normal quantile, for the chart's band.
+const BAND_Z: f32 = 1.644_853_6;
 /// How much one feel step (on a 1-5 scale) shifts a trial's objective, relative to its score.
 const FEEL_WEIGHT: f32 = 0.06;
-/// Offsets (in ln-space, ~ +-6%) applied to refinement trials so the peak region gets sampled
-/// on both sides instead of only at the current estimate.
-const REFINE_OFFSETS: [f32; REFINEMENTS] = [0.0, -0.06, 0.06, 0.0];
 /// Unscored seconds at the start of every part.
 pub const WARM_IN: f32 = 3.0;
 const MIN_LANDINGS: usize = 3;
@@ -54,8 +82,8 @@ const MIN_TREND_TRIALS: usize = 4;
 /// How clearly landings (or click biases) must grow with sensitivity (slope t statistic) to be
 /// trusted.
 const MIN_TREND_T: f32 = 2.5;
-/// Smallest objective tolerance of the performance plateau (relative to the peak); noisier
-/// data widens it to the trial noise.
+/// Objective tolerance of the best range, relative to the peak: smaller differences aren't
+/// worth re-adapting to a new sensitivity for.
 pub const PLATEAU: f32 = 0.03;
 /// On-target sensitivities further than this from the start are extrapolation.
 const MAX_TREND_FACTOR: f32 = 4.0;
@@ -107,19 +135,98 @@ impl Segment {
     }
 }
 
-/// Quadratic fit in ln-space plus a linear trial-order term.
-#[derive(Clone, Copy, Debug)]
-pub struct Fit {
-    a: f32,
-    b: f32,
-    c: f32,
-    d: f32,
+/// The fitted model after the latest trial, all in relative log-sens `x`.
+#[derive(Clone, Debug)]
+struct Model {
+    /// Evaluation grid across the searched range.
+    grid: Vec<f32>,
+    /// Drift-corrected posterior mean and standard deviation of the objective on the grid.
+    mean: Vec<f32>,
+    sd: Vec<f32>,
+    /// Probability of being within `PLATEAU` of the best, on the grid.
+    near: Vec<f32>,
+    /// Best range (inclusive).
+    range: (f32, f32),
+    /// Posterior probability that the best sensitivity is inside the range.
+    confidence: f32,
+    /// Highest posterior mean.
+    peak: f32,
+    /// Fitted gain per trial (warm-up drift).
+    drift: f32,
+    /// Fitted trial-to-trial noise (standard deviation).
+    noise: f32,
+    /// Each trial's share of the drift (`drift * (trial - average trial)`).
+    drift_shares: Vec<f32>,
+    /// Where the next trial goes: the largest expected improvement.
+    next: f32,
 }
 
-impl Fit {
-    /// Predicted objective at relative log-sens `x`, at a given trial index.
-    fn predict(&self, x: f32, trial: f32) -> f32 {
-        self.a * x * x + self.b * x + self.c + self.d * trial
+impl Model {
+    fn fit(xs: &[f32], ys: &[f32]) -> Option<Self> {
+        let (lo, hi) = (PROBE_LOW.ln(), PROBE_HIGH.ln());
+        let xs64: Vec<f64> = xs.iter().map(|&x| f64::from(x)).collect();
+        let ts: Vec<f64> = (0..xs.len()).map(|i| i as f64).collect();
+        let ys64: Vec<f64> = ys.iter().map(|&y| f64::from(y)).collect();
+        let gp = Mixture::fit(&xs64, &ts, &ys64)?;
+        let along = |points: usize| -> Vec<f64> {
+            (0..points).map(|i| f64::from(lo) + f64::from(hi - lo) * i as f64 / (points - 1) as f64).collect()
+        };
+
+        let grid = along(GRID);
+        let near_best = gp.near_best(&grid, f64::from(PLATEAU), SAMPLES, SAMPLE_SEED);
+        let (mean, sd): (Vec<f32>, Vec<f32>) = grid
+            .iter()
+            .map(|&x| {
+                let (mean, variance) = gp.predict(x);
+                (mean as f32, variance.sqrt() as f32)
+            })
+            .unzip();
+        let inside: Vec<usize> = (0..GRID).filter(|&i| near_best.near[i] as f32 >= NEAR_BEST).collect();
+        let (first, last) = match (inside.first(), inside.last()) {
+            (Some(&first), Some(&last)) => (first, last),
+            // Nothing even odds: the single most likely point.
+            _ => {
+                let best = (0..GRID).max_by(|&a, &b| near_best.near[a].total_cmp(&near_best.near[b])).unwrap_or(0);
+                (best, best)
+            }
+        };
+        let confidence = near_best.peak[first..=last].iter().sum::<f64>() as f32;
+
+        // Next trial: expected improvement over the best predicted tested sensitivity, among
+        // candidates not too close to a tested one. Ties keep the lowest candidate.
+        let candidates = along(CANDIDATES);
+        let predictions: Vec<(f64, f64)> = candidates.iter().map(|&x| gp.predict(x)).collect();
+        let peak_index = (0..CANDIDATES).fold(0, |best, i| if predictions[i].0 > predictions[best].0 { i } else { best });
+        let incumbent = xs64.iter().map(|&x| gp.predict(x).0).fold(f64::MIN, f64::max);
+        let open: Vec<usize> = (0..CANDIDATES)
+            .filter(|&i| xs.iter().all(|&x| (candidates[i] as f32 - x).abs() >= MIN_SPACING))
+            .collect();
+        let pick = |score: &dyn Fn(usize) -> f64| open.iter().copied().fold(None, |best: Option<(usize, f64)>, i| {
+            let value = score(i);
+            if best.is_none_or(|(_, b)| value > b) { Some((i, value)) } else { best }
+        });
+        let ei = |i: usize| gp.expected_improvement(candidates[i], incumbent);
+        let next = match pick(&ei) {
+            Some((i, value)) if value > 1e-12 => i,
+            // No expected gain anywhere (a confident model): measure where it's least sure.
+            Some(_) => pick(&|i: usize| predictions[i].1).map_or(peak_index, |(i, _)| i),
+            None => peak_index,
+        };
+
+        let drift = gp.drift();
+        Some(Self {
+            grid: grid.iter().map(|&x| x as f32).collect(),
+            mean,
+            sd,
+            near: near_best.near.iter().map(|&p| p as f32).collect(),
+            range: (grid[first] as f32, grid[last] as f32),
+            confidence,
+            peak: candidates[peak_index] as f32,
+            drift: drift as f32,
+            noise: gp.noise() as f32,
+            drift_shares: (0..xs.len()).map(|i| (drift * gp.trial_offset(i)) as f32).collect(),
+            next: candidates[next] as f32,
+        })
     }
 }
 
@@ -139,11 +246,15 @@ pub struct SmartFinder {
     /// The drills every trial plays, in canonical order (trial scores are stored in this
     /// order); chosen by the finder's focus.
     pub drills: &'static [DrillKind],
-    /// Probe sensitivities still to play (popped from the back).
-    probes: Vec<f32>,
+    /// Opening trials still to play, as relative log-sens (popped from the back).
+    opening: Vec<f32>,
     pub trials: Vec<SmartTrial>,
     pending: Pending,
     pub step: SmartStep,
+    /// Model after the latest trial, once there are `OPENING` trials.
+    model: Option<Model>,
+    /// Best range (relative log-sens) after each modelled trial, for the stopping rule.
+    ranges: Vec<(f32, f32)>,
 }
 
 /// The drills each trial plays for a focus.
@@ -157,27 +268,38 @@ pub fn focus_drills(focus: FinderFocus) -> &'static [DrillKind] {
 
 impl SmartFinder {
     pub fn new(start_sens: f32, focus: FinderFocus) -> Self {
-        let (lo, hi) = (PROBE_LOW.ln(), PROBE_HIGH.ln());
-        let mut probes: Vec<f32> = (0..PROBES)
-            .map(|i| start_sens * (lo + (hi - lo) * i as f32 / (PROBES - 1) as f32).exp())
-            .collect();
-        fastrand::shuffle(&mut probes);
-        Self { start_sens, drills: focus_drills(focus), probes, trials: Vec::new(), pending: Pending::default(), step: SmartStep::Trial }
+        Self::with_rng(start_sens, focus, &mut fastrand::Rng::new())
     }
 
-    pub fn total_trials(&self) -> usize {
-        PROBES + REFINEMENTS
+    /// A finder whose opening order comes from `rng`.
+    pub fn with_rng(start_sens: f32, focus: FinderFocus, rng: &mut fastrand::Rng) -> Self {
+        let mut opening = vec![PROBE_LOW.ln(), 0.0, PROBE_HIGH.ln()];
+        rng.shuffle(&mut opening);
+        Self {
+            start_sens,
+            drills: focus_drills(focus),
+            opening,
+            trials: Vec::new(),
+            pending: Pending::default(),
+            step: SmartStep::Trial,
+            model: None,
+            ranges: Vec::new(),
+        }
+    }
+
+    /// Relative log-sens of the trial in progress.
+    fn current_x(&self) -> f32 {
+        match (self.opening.last(), &self.model) {
+            (Some(&x), _) => x,
+            (None, Some(model)) => model.next,
+            (None, None) => 0.0,
+        }
     }
 
     /// Sensitivity for the trial in progress. Deterministic, so it's the same when the trial
     /// starts and when its result is recorded.
     pub fn current_sens(&self) -> f32 {
-        if let Some(&probe) = self.probes.last() {
-            return probe;
-        }
-        let refinement = self.trials.len().saturating_sub(PROBES).min(REFINEMENTS - 1);
-        let x = self.optimum_x() + REFINE_OFFSETS[refinement];
-        self.start_sens * x.clamp(PROBE_LOW.ln(), PROBE_HIGH.ln()).exp()
+        self.start_sens * self.current_x().exp()
     }
 
     /// The current trial's drills in play order. With several drills the order reverses on
@@ -205,9 +327,8 @@ impl SmartFinder {
         let part = self.pending.played;
         let drill = *self.segment_order().get(part)?;
         let title = format!(
-            "Finder trial {}/{} - part {}/{}: {}",
+            "Finder trial {} (up to {MAX_TRIALS}) - part {}/{}: {}",
             self.trials.len() + 1,
-            self.total_trials(),
             part + 1,
             self.drills.len(),
             drill.name(),
@@ -241,18 +362,43 @@ impl SmartFinder {
         }
     }
 
-    /// Stores the finished trial with its feel rating (1-5).
+    /// Stores the finished trial with its feel rating (1-5), refits the model and either picks
+    /// the next trial or stops.
     pub fn rate(&mut self, feel: u8) {
         if self.step != SmartStep::Rate {
             return;
         }
         let Pending { scores, throughputs, landings, biases, .. } = std::mem::take(&mut self.pending);
         let sens = self.current_sens();
-        self.probes.pop();
+        self.opening.pop();
         let bias = (biases.len() >= MIN_CLICKS).then(|| biases.iter().sum::<f32>() / biases.len() as f32);
         let landing = median(landings);
         self.trials.push(SmartTrial { sens, scores, throughputs, landing, bias, feel: feel.clamp(1, 5) });
-        self.step = if self.trials.len() >= self.total_trials() { SmartStep::Done } else { SmartStep::Trial };
+        self.refit();
+        self.step = if self.finished() { SmartStep::Done } else { SmartStep::Trial };
+    }
+
+    /// Refits the model to all trials so far (once the opening is complete).
+    fn refit(&mut self) {
+        if self.trials.len() < OPENING {
+            return;
+        }
+        let xs: Vec<f32> = self.trials.iter().map(|t| self.x(t.sens)).collect();
+        self.model = Model::fit(&xs, &self.objectives());
+        if let Some(model) = &self.model {
+            self.ranges.push(model.range);
+        }
+    }
+
+    /// Whether the search is over: `MAX_TRIALS` played, or at least `MIN_TRIALS` with a best
+    /// range that hasn't moved for the last 2 trials.
+    fn finished(&self) -> bool {
+        let settled = |pair: &[(f32, f32)]| {
+            let (a, b) = (pair[0], pair[1]);
+            (a.0 - b.0).abs() < SETTLED && (a.1 - b.1).abs() < SETTLED
+        };
+        let n = self.trials.len();
+        n >= MAX_TRIALS || (n >= MIN_TRIALS && self.ranges.len() >= 3 && self.ranges[self.ranges.len() - 3..].windows(2).all(settled))
     }
 
     /// Throws away a finished trial (e.g. a mis-click or distraction) so all its parts can be
@@ -266,6 +412,10 @@ impl SmartFinder {
 
     fn x(&self, sens: f32) -> f32 {
         (sens / self.start_sens).ln()
+    }
+
+    fn sens(&self, x: f32) -> f32 {
+        self.start_sens * x.exp()
     }
 
     /// Per-trial objective: the mean over drills of the result relative to that drill's mean
@@ -295,78 +445,77 @@ impl SmartFinder {
             .collect()
     }
 
-    /// Least-squares fit, once there are enough trials to determine all four terms.
-    pub fn fit(&self) -> Option<Fit> {
-        if self.trials.len() < 5 {
-            return None;
+    /// Objectives with each trial's share of the warm-up drift removed (as if every trial had
+    /// been played at the average point of the session).
+    pub fn corrected_objectives(&self) -> Vec<f32> {
+        let objectives = self.objectives();
+        match &self.model {
+            Some(model) => objectives.iter().zip(&model.drift_shares).map(|(y, share)| y - share).collect(),
+            None => objectives,
         }
-        let rows: Vec<[f32; 4]> = self
-            .trials
-            .iter()
-            .enumerate()
-            .map(|(i, t)| {
-                let x = self.x(t.sens);
-                [x * x, x, 1.0, i as f32]
-            })
-            .collect();
-        let [a, b, c, d] = least_squares(&rows, &self.objectives())?;
-        Some(Fit { a, b, c, d })
     }
 
-    /// Best relative log-sens for performance: the fitted peak if the curve has one inside the
-    /// probed range, otherwise the best single trial.
+    /// Relative log-sens with the best predicted performance; the best trial before there's a
+    /// model.
     fn optimum_x(&self) -> f32 {
-        let (lo, hi) = (PROBE_LOW.ln(), PROBE_HIGH.ln());
-        if let Some(fit) = self.fit()
-            && fit.a < -1e-4
-        {
-            return (-fit.b / (2.0 * fit.a)).clamp(lo, hi);
+        if let Some(model) = &self.model {
+            return model.peak;
         }
         let objectives = self.objectives();
-        self.trials
-            .iter()
-            .zip(&objectives)
-            .max_by(|a, b| a.1.total_cmp(b.1))
-            .map_or(0.0, |(t, _)| self.x(t.sens))
+        self.trials.iter().zip(&objectives).max_by(|a, b| a.1.total_cmp(b.1)).map_or(0.0, |(t, _)| self.x(t.sens))
     }
 
     /// Sensitivity with the best predicted performance.
     pub fn peak_sens(&self) -> f32 {
-        self.start_sens * self.optimum_x().exp()
+        self.sens(self.optimum_x())
     }
 
-    /// Typical scatter of a trial's objective around the fitted curve (residual standard
-    /// deviation). Differences smaller than this are indistinguishable from luck.
-    fn noise(&self) -> f32 {
-        let Some(fit) = self.fit() else { return 0.0 };
-        let objectives = self.objectives();
-        let rss: f32 = self
-            .trials
-            .iter()
-            .zip(&objectives)
-            .enumerate()
-            .map(|(i, (t, y))| (y - fit.predict(self.x(t.sens), i as f32)).powi(2))
-            .sum();
-        // Four fitted terms.
-        (rss / (self.trials.len() as f32 - 4.0).max(1.0)).sqrt()
-    }
-
-    /// Sensitivities whose predicted performance can't be told apart from the peak: within
-    /// `PLATEAU` of it, or within the trial noise when the data is noisier than that. Just the
-    /// best trial before there is a fit.
-    pub fn plateau(&self) -> (f32, f32) {
-        if let Some(range) = self.good_range(PLATEAU.max(self.noise())) {
-            return range;
+    /// Best range in relative log-sens; just the best trial before there's a model.
+    fn range_x(&self) -> (f32, f32) {
+        match &self.model {
+            Some(model) => model.range,
+            None => (self.optimum_x(), self.optimum_x()),
         }
-        let best = self.peak_sens();
-        (best, best)
     }
 
-    /// The plateau spans (almost) the whole probed range: within it, sensitivity made no
+    /// Sensitivities at least as likely as not to perform within `PLATEAU` of the best.
+    pub fn best_range(&self) -> (f32, f32) {
+        let (lo, hi) = self.range_x();
+        (self.sens(lo), self.sens(hi))
+    }
+
+    /// Posterior probability that the best sensitivity is inside [`Self::best_range`].
+    pub fn confidence(&self) -> Option<f32> {
+        self.model.as_ref().map(|model| model.confidence)
+    }
+
+    /// Fitted trial-to-trial noise of the objective (standard deviation).
+    pub fn noise(&self) -> Option<f32> {
+        self.model.as_ref().map(|model| model.noise)
+    }
+
+    /// Fitted warm-up drift of the objective per trial.
+    pub fn drift(&self) -> Option<f32> {
+        self.model.as_ref().map(|model| model.drift)
+    }
+
+    /// The best range spans (almost) the whole searched range: within it, sensitivity made no
     /// measurable difference.
     pub fn is_flat(&self) -> bool {
-        let (lo, hi) = self.plateau();
-        lo <= self.start_sens * PROBE_LOW * 1.02 && hi >= self.start_sens * PROBE_HIGH * 0.98
+        let (lo, hi) = self.range_x();
+        self.model.is_some() && lo <= PROBE_LOW.ln() + 0.02 && hi >= PROBE_HIGH.ln() - 0.02
+    }
+
+    /// Drift-corrected posterior across the searched range as (sens, mean, lower, upper), the
+    /// bounds of the 90% credible band.
+    pub fn band(&self) -> Vec<(f32, f32, f32, f32)> {
+        let Some(model) = &self.model else { return Vec::new() };
+        (0..model.grid.len())
+            .map(|i| {
+                let (mean, spread) = (model.mean[i], BAND_Z * model.sd[i]);
+                (self.sens(model.grid[i]), mean, mean - spread, mean + spread)
+            })
+            .collect()
     }
 
     /// Least-squares line `y = y0 + y1 * x` through the trials with a value, with the slope's t
@@ -408,17 +557,17 @@ impl SmartFinder {
 
     /// Sensitivity whose first flicks are predicted to land on target.
     pub fn landing_sens(&self) -> Option<f32> {
-        self.landing_x().map(|x| self.start_sens * x.exp())
+        self.landing_x().map(|x| self.sens(x))
     }
 
     /// Sensitivity whose clicks are predicted to land on the target centre along the flick.
     pub fn bias_sens(&self) -> Option<f32> {
-        self.bias_x().map(|x| self.start_sens * x.exp())
+        self.bias_x().map(|x| self.sens(x))
     }
 
     /// Sensitivity where your aim is on target (see [`Self::recommendation`]).
     pub fn precision_sens(&self) -> Option<f32> {
-        self.precision_x().map(|x| self.start_sens * x.exp())
+        self.precision_x().map(|x| self.sens(x))
     }
 
     /// Predicted first-flick landing ratio at the starting sensitivity.
@@ -431,43 +580,31 @@ impl SmartFinder {
         self.bias_fit().map(|line| line.intercept)
     }
 
-    /// Whether landing or click-bias data picked the recommendation inside the plateau.
+    /// Whether landing or click-bias data picked the recommendation inside the best range.
     pub fn uses_precision(&self) -> bool {
         self.precision_x().is_some()
     }
 
-    /// Inside the plateau, the sensitivity where your aim is clearly on target (first flicks
-    /// land on target, clicks land on the centre); otherwise the plateau sensitivity closest to
-    /// the one you started with. Changing sensitivity costs re-adaptation, so it's only worth it
-    /// when the data shows a real difference: if your current sensitivity is already in the
-    /// plateau, it is the recommendation.
+    /// Inside the best range, the sensitivity where your aim is clearly on target (first flicks
+    /// land on target, clicks land on the centre); otherwise the sensitivity you started with.
+    /// Changing sensitivity costs re-adaptation, so it's only worth it when the data shows a
+    /// real difference: if your current sensitivity is already in the best range, it is the
+    /// recommendation. When that target is outside the range, the closest sensitivity that is
+    /// probably (`CONFIDENT`) within `PLATEAU` of the best: the range's edge itself is a coin
+    /// flip.
     pub fn recommendation(&self) -> f32 {
-        let (lo, hi) = self.plateau();
+        let (lo, hi) = self.range_x();
         let target = self.precision_x().unwrap_or(0.0);
-        self.start_sens * target.clamp(self.x(lo), self.x(hi)).exp()
-    }
-
-    /// Fitted curve across the probed range as (sens, predicted objective), evaluated at the
-    /// average trial index so warm-up drift is factored out.
-    pub fn curve(&self, points: usize) -> Vec<(f32, f32)> {
-        let Some(fit) = self.fit() else { return Vec::new() };
-        let mid_trial = (self.trials.len().saturating_sub(1)) as f32 * 0.5;
-        let (lo, hi) = (PROBE_LOW.ln(), PROBE_HIGH.ln());
-        (0..points)
-            .map(|i| {
-                let x = lo + (hi - lo) * i as f32 / (points - 1).max(1) as f32;
-                (self.start_sens * x.exp(), fit.predict(x, mid_trial))
-            })
-            .collect()
-    }
-
-    /// Sensitivities whose predicted objective is within `tolerance` of the peak: the "anything
-    /// in here is fine" band.
-    fn good_range(&self, tolerance: f32) -> Option<(f32, f32)> {
-        let curve = self.curve(200);
-        let best = curve.iter().map(|p| p.1).fold(f32::MIN, f32::max);
-        let inside: Vec<f32> = curve.iter().filter(|p| p.1 >= best - tolerance).map(|p| p.0).collect();
-        Some((*inside.first()?, *inside.last()?))
+        if (lo..=hi).contains(&target) {
+            return self.sens(target);
+        }
+        let confident = self.model.as_ref().and_then(|model| {
+            (0..model.grid.len())
+                .filter(|&i| model.near[i] >= CONFIDENT)
+                .map(|i| model.grid[i])
+                .min_by(|a, b| (a - target).abs().total_cmp(&(b - target).abs()))
+        });
+        self.sens(confident.unwrap_or(target.clamp(lo, hi)))
     }
 }
 
@@ -522,37 +659,6 @@ fn median(mut values: Vec<f32>) -> Option<f32> {
     Some(if values.len().is_multiple_of(2) { (values[mid - 1] + values[mid]) * 0.5 } else { values[mid] })
 }
 
-/// Solves the normal equations for an n x 4 design matrix. `None` if the system is singular.
-fn least_squares(rows: &[[f32; 4]], y: &[f32]) -> Option<[f32; 4]> {
-    // Build [A^T A | A^T y] in f64 for stability.
-    let mut m = [[0.0f64; 5]; 4];
-    for (row, &target) in rows.iter().zip(y) {
-        for i in 0..4 {
-            for j in 0..4 {
-                m[i][j] += f64::from(row[i]) * f64::from(row[j]);
-            }
-            m[i][4] += f64::from(row[i]) * f64::from(target);
-        }
-    }
-    // Gaussian elimination with partial pivoting.
-    for col in 0..4 {
-        let pivot = (col..4).max_by(|&a, &b| m[a][col].abs().total_cmp(&m[b][col].abs()))?;
-        if m[pivot][col].abs() < 1e-9 {
-            return None;
-        }
-        m.swap(col, pivot);
-        for r in 0..4 {
-            if r != col {
-                let factor = m[r][col] / m[col][col];
-                for c in col..5 {
-                    m[r][c] -= factor * m[col][c];
-                }
-            }
-        }
-    }
-    Some(std::array::from_fn(|i| (m[i][4] / m[i][i]) as f32))
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -574,21 +680,55 @@ mod tests {
         finder.rate(feel);
     }
 
-    /// Plays a finder to completion against a synthetic player whose score peaks at `best` in
-    /// both drills (Tracking on a 9x larger scale) and who improves by `drift` per trial.
-    fn simulate(best: f32, drift: f32) -> SmartFinder {
-        let mut finder = SmartFinder::new(1.0, FinderFocus::Balanced);
-        while finder.step != SmartStep::Done {
-            let i = finder.trials.len() as f32;
-            let x = (finder.current_sens() / best).ln();
-            let score = 1000.0 * (1.0 - 0.8 * x * x) + drift * i;
-            play(&mut finder, &[score, 9.0 * score], &[], 3);
+    /// A synthetic player: relative skill `1 - curvature * (x - peak)^2` in ln-sens, plus
+    /// `drift` per trial and normal noise with standard deviation `noise`.
+    #[derive(Clone, Copy)]
+    struct Player {
+        peak: f32,
+        curvature: f32,
+        noise: f32,
+        drift: f32,
+    }
+
+    impl Player {
+        fn skill(&self, x: f32) -> f32 {
+            1.0 - self.curvature * (x - self.peak).powi(2)
         }
-        finder
+
+        /// Whether `x` performs within `PLATEAU` of the peak.
+        fn in_plateau(&self, x: f32) -> bool {
+            self.skill(x) >= 1.0 - PLATEAU
+        }
+
+        /// Plays a Balanced finder to completion (both drills on the same curve, Tracking on a
+        /// 9x larger scale); `seed` decides the opening order and the noise.
+        fn run(&self, seed: u64) -> SmartFinder {
+            let mut rng = fastrand::Rng::with_seed(seed);
+            let mut finder = SmartFinder::with_rng(1.0, FinderFocus::Balanced, &mut rng);
+            while finder.step != SmartStep::Done {
+                let x = finder.current_sens().ln();
+                let noise = self.noise * normal(&mut rng);
+                let score = 1000.0 * (self.skill(x) + self.drift * finder.trials.len() as f32 + noise);
+                play(&mut finder, &[score, 9.0 * score], &[], 3);
+            }
+            finder
+        }
+    }
+
+    /// Box-Muller.
+    fn normal(rng: &mut fastrand::Rng) -> f32 {
+        let (u, v) = (1.0 - rng.f32(), rng.f32());
+        (-2.0 * u.ln()).sqrt() * (std::f32::consts::TAU * v).cos()
+    }
+
+    /// Plays a finder to completion against a noiseless player peaking at `best` who improves
+    /// by `drift` (on a ~1000 scale) per trial.
+    fn simulate(best: f32, drift: f32) -> SmartFinder {
+        Player { peak: best.ln(), curvature: 0.8, noise: 0.0, drift: drift / 1000.0 }.run(1)
     }
 
     /// The relative log-sens of the 9 trials of [`finished_trials`], in play order: they cover
-    /// the probed range, shuffled so trial index and sensitivity aren't collinear.
+    /// the searched range, shuffled so trial index and sensitivity aren't collinear.
     fn trial_xs() -> impl Iterator<Item = f32> {
         let (lo, hi) = (PROBE_LOW.ln(), PROBE_HIGH.ln());
         [4, 0, 7, 2, 8, 1, 5, 3, 6].into_iter().map(move |i| lo + (hi - lo) * i as f32 / 8.0)
@@ -598,7 +738,8 @@ mod tests {
     fn finished_trials(focus: FinderFocus, mut trial: impl FnMut(usize, f32) -> SmartTrial) -> SmartFinder {
         let mut finder = SmartFinder::new(1.0, focus);
         finder.trials = trial_xs().enumerate().map(|(i, x)| trial(i, x)).collect();
-        finder.probes.clear();
+        finder.opening.clear();
+        finder.refit();
         finder.step = SmartStep::Done;
         finder
     }
@@ -630,16 +771,23 @@ mod tests {
     }
 
     #[test]
-    fn probes_cover_the_range_once_each() {
+    fn the_opening_covers_both_ends_and_the_start_once_each() {
         let mut finder = SmartFinder::new(0.5, FinderFocus::Balanced);
         let mut seen = Vec::new();
-        for _ in 0..PROBES {
+        for _ in 0..OPENING {
             seen.push(finder.current_sens());
+            assert!(finder.confidence().is_none());
             play(&mut finder, &[100.0, 100.0], &[], 3);
         }
         seen.sort_by(f32::total_cmp);
-        assert!((seen[0] - 0.3).abs() < 1e-4 && (seen[PROBES - 1] - 0.8).abs() < 1e-4);
-        assert_eq!(finder.trials.len(), PROBES);
+        assert!((seen[0] - 0.3).abs() < 1e-4 && seen[1] == 0.5 && (seen[2] - 0.8).abs() < 1e-4, "{seen:?}");
+        assert_eq!(finder.trials.len(), OPENING);
+        assert!(finder.confidence().is_some());
+        // The order is shuffled.
+        let orders: std::collections::HashSet<_> = (0..20)
+            .map(|seed| SmartFinder::with_rng(1.0, FinderFocus::Balanced, &mut fastrand::Rng::with_seed(seed)).opening.iter().map(|x| x.to_bits()).collect::<Vec<_>>())
+            .collect();
+        assert!(orders.len() > 1);
     }
 
     #[test]
@@ -649,7 +797,7 @@ mod tests {
         finder.begin_trial();
         let first = finder.segment_run(&settings).unwrap();
         assert_eq!(first.kind(), DrillKind::Microflick);
-        assert_eq!(first.title, "Finder trial 1/9 - part 1/2: Microflick");
+        assert_eq!(first.title, "Finder trial 1 (up to 12) - part 1/2: Microflick");
         let landings = vec![0.8, 1.3, 0.9, 1.0];
         let biases = vec![0.2; MIN_CLICKS];
         finder.record_segment(DrillKind::Microflick, Segment { score: 500.0, throughput: Some(4.5), landings, biases });
@@ -675,12 +823,13 @@ mod tests {
     fn the_focus_picks_the_drills() {
         let settings = Settings::default();
         let mut flicking = SmartFinder::new(1.0, FinderFocus::Flicking);
-        assert_eq!(flicking.segment_run(&settings).unwrap().title, "Finder trial 1/9 - part 1/2: Gridshot");
+        assert_eq!(flicking.segment_run(&settings).unwrap().title, "Finder trial 1 (up to 12) - part 1/2: Gridshot");
         play(&mut flicking, &[30_000.0, 9_000.0], &[], 3);
         assert_eq!(flicking.segment_order(), [DrillKind::Microflick, DrillKind::Gridshot]);
+        assert_eq!(flicking.segment_run(&settings).unwrap().title, "Finder trial 2 (up to 12) - part 1/2: Microflick");
         // Tracking only: one part per trial, rated right after it.
         let mut tracking = SmartFinder::new(1.0, FinderFocus::Tracking);
-        assert_eq!(tracking.segment_run(&settings).unwrap().title, "Finder trial 1/9 - part 1/1: Tracking");
+        assert_eq!(tracking.segment_run(&settings).unwrap().title, "Finder trial 1 (up to 12) - part 1/1: Tracking");
         tracking.record_segment(DrillKind::Tracking, scored(5000.0));
         assert_eq!(tracking.step, SmartStep::Rate);
         // A drill outside the focus is ignored.
@@ -692,26 +841,29 @@ mod tests {
     #[test]
     fn finds_the_peak_of_a_noiseless_player() {
         let finder = simulate(1.2, 0.0);
-        assert!(finder.fit().unwrap().a < 0.0);
-        assert!((finder.peak_sens() - 1.2).abs() < 0.02, "{}", finder.peak_sens());
-        assert_eq!(finder.trials.len(), PROBES + REFINEMENTS);
+        assert!((finder.peak_sens() - 1.2).abs() < 0.03, "{}", finder.peak_sens());
+        assert!((MIN_TRIALS..=MAX_TRIALS).contains(&finder.trials.len()));
+        let (lo, hi) = finder.best_range();
+        assert!(lo < 1.2 && hi > 1.2 && finder.confidence().unwrap() > 0.8, "{lo} {hi} {:?}", finder.confidence());
     }
 
     #[test]
     fn keeps_the_current_sens_when_it_is_already_near_best() {
         // Peak 10% above the start: the start still scores within 3% of it, so don't change.
         let finder = simulate(1.1, 0.0);
-        let (lo, hi) = finder.plateau();
+        let (lo, hi) = finder.best_range();
         assert!(lo < 1.0 && hi > 1.1, "{lo} {hi}");
         assert_eq!(finder.recommendation(), 1.0);
     }
 
     #[test]
     fn moves_only_as_far_as_the_best_range_when_the_start_is_clearly_worse() {
+        // The closest sens that's probably near the best: just inside the range's low edge.
         let finder = simulate(1.45, 0.0);
-        let (lo, hi) = finder.plateau();
+        let (lo, hi) = finder.best_range();
+        let recommended = finder.recommendation();
         assert!(lo > 1.0, "{lo} {hi}");
-        assert!((finder.recommendation() - lo).abs() < 1e-4, "{}", finder.recommendation());
+        assert!(recommended >= lo && recommended < lo * 1.06 && recommended < finder.peak_sens(), "{lo} {recommended}");
     }
 
     #[test]
@@ -735,6 +887,7 @@ mod tests {
         // Strong warm-up: +40 points per trial on a ~1000-point scale.
         let finder = simulate(0.9, 40.0);
         assert!((finder.peak_sens() - 0.9).abs() < 0.03, "{}", finder.peak_sens());
+        assert!((finder.drift().unwrap() - 0.04).abs() < 0.01, "{:?}", finder.drift());
     }
 
     #[test]
@@ -744,26 +897,28 @@ mod tests {
         let finder = finished(|x| {
             ([100.0 * (1.0 - 0.8 * (x + 0.2).powi(2)), 1000.0 * (1.0 - 0.8 * (x - 0.2).powi(2))], None)
         });
-        assert!(finder.fit().unwrap().a < 0.0);
         assert!(finder.peak_sens().ln().abs() < 0.03, "{}", finder.peak_sens());
     }
 
     #[test]
-    fn recommends_the_plateau_sens_where_flicks_land_on_target() {
-        // Landing on target at x = 0.15, inside the plateau.
+    fn recommends_the_in_range_sens_where_flicks_land_on_target() {
+        // Landing on target at x = 0.15, inside the best range.
         let finder = finished(|x| (flat_top(x), Some(1.0 + 0.5 * (x - 0.15))));
-        let (lo, hi) = finder.plateau();
+        let (lo, hi) = finder.best_range();
         assert!(lo < 0.8 && hi > 1.25, "{lo} {hi}");
-        assert!((finder.peak_sens() - 1.0).abs() < 0.01, "{}", finder.peak_sens());
+        assert!((finder.peak_sens() - 1.0).abs() < 0.02, "{}", finder.peak_sens());
         assert!((finder.recommendation().ln() - 0.15).abs() < 0.01, "{}", finder.recommendation());
         assert!((finder.landing_sens().unwrap().ln() - 0.15).abs() < 0.01);
         assert!((finder.landing_at_start().unwrap() - 0.925).abs() < 0.01);
         assert!(finder.uses_precision());
 
-        // Landing on target far above the plateau: the plateau's top edge is as close as it gets.
+        // Landing on target far above the best range: as far up as is still probably near the
+        // best.
         let finder = finished(|x| (flat_top(x), Some(1.0 + 0.5 * (x - 0.6))));
-        assert!((finder.recommendation() - finder.plateau().1).abs() < 1e-4);
-        assert!(finder.landing_sens().unwrap() > finder.recommendation());
+        let (lo, hi) = finder.best_range();
+        let recommended = finder.recommendation();
+        assert!(recommended > 1.2 && recommended <= hi, "{lo} {hi} {recommended}");
+        assert!(finder.landing_sens().unwrap() > hi);
     }
 
     #[test]
@@ -779,13 +934,13 @@ mod tests {
 
     #[test]
     fn feel_ratings_shift_the_recommendation() {
-        let mut finder = SmartFinder::new(1.0, FinderFocus::Balanced);
+        let mut finder = SmartFinder::with_rng(1.0, FinderFocus::Balanced, &mut fastrand::Rng::with_seed(3));
         while finder.step != SmartStep::Done {
             let sens = finder.current_sens();
             // Scores identical everywhere, but high sens feels much better.
             play(&mut finder, &[1000.0, 5000.0], &[], if sens > 1.2 { 5 } else { 2 });
         }
-        assert!(finder.recommendation() > 1.2);
+        assert!(finder.recommendation() > 1.2, "{}", finder.recommendation());
     }
 
     #[test]
@@ -806,6 +961,20 @@ mod tests {
         assert_eq!(finder.segment_run(&settings).unwrap().kind(), DrillKind::Tracking);
         finder.begin_trial();
         assert_eq!(finder.segment_run(&settings).unwrap().kind(), DrillKind::Microflick);
+    }
+
+    #[test]
+    fn redo_of_a_model_picked_trial_replays_the_same_sens() {
+        let mut finder = SmartFinder::with_rng(1.0, FinderFocus::Tracking, &mut fastrand::Rng::with_seed(2));
+        for _ in 0..OPENING {
+            let x = finder.current_sens().ln();
+            play(&mut finder, &[1000.0 * (1.0 - x * x)], &[], 3);
+        }
+        let sens = finder.current_sens();
+        finder.record_segment(DrillKind::Tracking, scored(10.0));
+        finder.redo();
+        assert_eq!(finder.current_sens(), sens);
+        assert_eq!(finder.trials.len(), OPENING);
     }
 
     #[test]
@@ -843,16 +1012,20 @@ mod tests {
             })
         };
         let throughput = play(true);
-        assert!((throughput.peak_sens().ln() - 0.2).abs() < 0.01, "{}", throughput.peak_sens());
-        assert!(throughput.noise() < 1e-3);
-        // On scores alone the playing style drowns the curve.
+        assert!((throughput.peak_sens().ln() - 0.2).abs() < 0.02, "{}", throughput.peak_sens());
+        assert!(throughput.noise().unwrap() < 0.025, "{:?}", throughput.noise());
+        let (lo, hi) = throughput.best_range();
+        // 0.8 (x - 0.2)^2 <= 0.03 for x in 0.2 -+ 0.19.
+        assert!((lo.ln() - 0.01).abs() < 0.06 && (hi.ln() - 0.39).abs() < 0.06, "{} {}", lo.ln(), hi.ln());
+        // On scores alone the playing style drowns the curve: the model sees mostly noise and
+        // is far less sure where the best is.
         let score = play(false);
-        assert!(score.noise() > 0.1, "{}", score.noise());
-        assert!((score.peak_sens().ln() - 0.2).abs() > 0.05, "{}", score.peak_sens());
+        assert!(score.noise().unwrap() >= 0.08, "{:?}", score.noise());
+        assert!(score.confidence().unwrap() < throughput.confidence().unwrap());
     }
 
     #[test]
-    fn click_bias_breaks_the_tie_inside_the_plateau() {
+    fn click_bias_breaks_the_tie_inside_the_best_range() {
         // No landing data; clicks land on the centre at x = 0.15 (past it above, short below).
         let biased = finished_trials(FinderFocus::Balanced, |_, x| SmartTrial { bias: Some(0.8 * (x - 0.15)), ..trial(x, &flat_top(x)) });
         assert!(biased.uses_precision());
@@ -878,13 +1051,98 @@ mod tests {
     }
 
     #[test]
-    fn solves_exact_linear_system() {
-        let rows = [[1.0, 0.0, 0.0, 0.0], [0.0, 1.0, 0.0, 0.0], [0.0, 0.0, 1.0, 0.0], [0.0, 0.0, 0.0, 1.0], [1.0, 1.0, 1.0, 1.0]];
-        let y = [1.0, 2.0, 3.0, 4.0, 10.0];
-        let solution = least_squares(&rows, &y).unwrap();
-        for (got, want) in solution.iter().zip([1.0, 2.0, 3.0, 4.0]) {
-            assert!((got - want).abs() < 1e-4);
+    fn expected_improvement_picks_informative_trials() {
+        // Opening: the high end clearly best, the low end clearly worst. The next trial goes
+        // above the start, toward the promising end, and never onto a tested sens.
+        let mut finder = SmartFinder::with_rng(1.0, FinderFocus::Tracking, &mut fastrand::Rng::with_seed(0));
+        let skill = |x: f32| 1.0 + 0.3 * x;
+        for _ in 0..OPENING {
+            let x = finder.current_sens().ln();
+            play(&mut finder, &[1000.0 * skill(x)], &[], 3);
         }
-        assert!(least_squares(&[[0.0; 4]; 5], &[1.0; 5]).is_none());
+        let next = finder.current_sens().ln();
+        assert!(next > 0.15, "{next}");
+        // Peak in the middle of the opening: the next trial refines next to it, not at the ends.
+        let mut finder = SmartFinder::with_rng(1.0, FinderFocus::Tracking, &mut fastrand::Rng::with_seed(0));
+        for _ in 0..OPENING {
+            let x = finder.current_sens().ln();
+            play(&mut finder, &[1000.0 * (1.0 - 0.8 * x * x)], &[], 3);
+        }
+        let next = finder.current_sens().ln();
+        assert!(next.abs() >= MIN_SPACING - 1e-6 && next.abs() < 0.3, "{next}");
+        // Over whole runs, every model-picked trial keeps its distance from the earlier ones.
+        for seed in 0..10 {
+            let finder = Player { peak: 0.1, curvature: 1.0, noise: 0.03, drift: 0.0 }.run(seed);
+            let xs: Vec<f32> = finder.trials.iter().map(|t| t.sens.ln()).collect();
+            for i in OPENING..xs.len() {
+                assert!(xs[..i].iter().all(|&x| (x - xs[i]).abs() >= MIN_SPACING - 1e-6), "seed {seed}: {xs:?}");
+            }
+        }
+    }
+
+    /// Plays `seeds` finders, against `player(seed)` each: the fraction that `pass`, and the mean
+    /// trial count.
+    fn over_seeds(seeds: u64, player: impl Fn(u64) -> Player, pass: impl Fn(&Player, &SmartFinder) -> bool) -> (f32, f32) {
+        let (mut passed, mut trials) = (0, 0);
+        for seed in 0..seeds {
+            let player = player(seed);
+            let finder = player.run(seed);
+            passed += usize::from(pass(&player, &finder));
+            trials += finder.trials.len();
+        }
+        (passed as f32 / seeds as f32, trials as f32 / seeds as f32)
+    }
+
+    /// The recommendation performs within `PLATEAU` of the player's true best.
+    fn in_plateau(player: &Player, finder: &SmartFinder) -> bool {
+        player.in_plateau(finder.recommendation().ln())
+    }
+
+    #[test]
+    fn converges_inside_the_true_plateau_of_noisy_players() {
+        // Peaks spread over the inner range (about half of them with the start outside the
+        // plateau), 3% trial noise, mild warm-up.
+        let player = |seed| {
+            let peak = -0.35 + 0.65 * fastrand::Rng::with_seed(1000 + seed).f32();
+            Player { peak, curvature: 1.0, noise: 0.03, drift: 0.005 }
+        };
+        let (rate, trials) = over_seeds(100, player, in_plateau);
+        println!("noisy players: {:.0}% inside the plateau, {trials:.1} trials on average", rate * 100.0);
+        assert!(rate >= 0.9, "{rate}");
+    }
+
+    #[test]
+    fn flat_noisy_players_keep_their_sens() {
+        // 5% trial noise, more than the 3% that counts as a difference.
+        let player = |_| Player { peak: 0.0, curvature: 0.0, noise: 0.05, drift: 0.0 };
+        let (rate, trials) = over_seeds(100, player, |_, finder| finder.recommendation() == 1.0);
+        println!("flat players: {:.0}% kept, {trials:.1} trials on average", rate * 100.0);
+        assert!(rate >= 0.9, "{rate}");
+    }
+
+    #[test]
+    fn strong_drift_does_not_bias_the_peak() {
+        // +4% per trial (a 12-trial session gains 44%) on top of 2% noise.
+        let mut errors = Vec::new();
+        for seed in 0..50 {
+            let player = Player { peak: 0.9f32.ln(), curvature: 1.0, noise: 0.02, drift: 0.04 };
+            errors.push(player.run(seed).peak_sens().ln() - player.peak);
+        }
+        let bias = errors.iter().sum::<f32>() / errors.len() as f32;
+        let worst = errors.iter().fold(0.0f32, |w, e| w.max(e.abs()));
+        println!("drift: mean peak error {bias:+.3}, worst {worst:.3} (ln-sens)");
+        assert!(bias.abs() < 0.03 && worst < 0.1, "{bias} {worst}");
+    }
+
+    #[test]
+    fn stops_early_on_easy_cases() {
+        // A clear peak and little noise: done before the old fixed schedule's 9 trials, whether
+        // the start is clearly worse (peak 28% above it) or inside the plateau (peak 5% above it).
+        for peak in [0.25, 0.05] {
+            let player = |_| Player { peak, curvature: 1.5, noise: 0.01, drift: 0.0 };
+            let (rate, trials) = over_seeds(50, player, in_plateau);
+            println!("easy players (peak {peak}): {:.0}% inside the plateau, {trials:.1} trials on average", rate * 100.0);
+            assert!(rate >= 0.95 && trials < 8.0, "{rate} {trials}");
+        }
     }
 }

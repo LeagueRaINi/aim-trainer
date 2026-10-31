@@ -1,11 +1,9 @@
-//! The replay file format: [`Replay`] data, the v3 encoding (and the v1/v2 decoders), saving,
-//! loading, pruning, and the background migration of old files to v3.
+//! The replay file format: [`Replay`] data, its encoding, saving, loading and pruning.
 
 use std::path::{Path, PathBuf};
-use std::{array, fs, io};
+use std::{array, fs};
 
 use bevy::prelude::*;
-use bevy::tasks::IoTaskPool;
 
 use crate::drill::DrillKind;
 
@@ -111,17 +109,17 @@ impl Replay {
 
     /// Format v3: the header, then the frames as a zlib-compressed [`encode_body`].
     fn encode(&self) -> Vec<u8> {
-        let mut out = self.encode_header(VERSION);
+        let mut out = self.encode_header();
         out.extend(miniz_oxide::deflate::compress_to_vec_zlib(&encode_body(&self.frames), 10));
         out
     }
 
-    /// Magic, version, drill, name, sens and duration: the same in every version but 1 (no name).
-    fn encode_header(&self, version: u8) -> Vec<u8> {
+    /// Magic, version, drill, name, sens and duration.
+    fn encode_header(&self) -> Vec<u8> {
         let name = truncate_utf8(&self.name, u8::MAX as usize);
         let mut out = Vec::with_capacity(16 + name.len());
         out.extend_from_slice(MAGIC);
-        out.push(version);
+        out.push(VERSION);
         out.push(DrillKind::ALL.iter().position(|s| *s == self.kind).unwrap_or(0) as u8);
         out.push(name.len() as u8);
         out.extend_from_slice(name.as_bytes());
@@ -135,30 +133,21 @@ impl Replay {
         if reader.take(4)? != MAGIC {
             return None;
         }
-        let version = reader.u8()?;
-        if !(1..=VERSION).contains(&version) {
+        if reader.u8()? != VERSION {
             return None;
         }
         let kind = *DrillKind::ALL.get(reader.u8()? as usize)?;
-        // Version 1 predates custom scenarios and has no name.
-        let name = if version >= 2 {
-            let len = reader.u8()? as usize;
-            String::from_utf8(reader.take(len)?.to_vec()).ok()?
-        } else {
-            kind.name().to_string()
-        };
+        let len = reader.u8()? as usize;
+        let name = String::from_utf8(reader.take(len)?.to_vec()).ok()?;
         let sens = reader.f32()?;
         let duration = reader.f32()?;
-        let frames = if version >= 3 {
-            let body = miniz_oxide::inflate::decompress_to_vec_zlib_with_limit(reader.0, MAX_BODY).ok()?;
-            decode_body(&body, bytes.len())?
-        } else {
-            decode_raw_frames(&mut reader, bytes.len())?
-        };
+        let body = miniz_oxide::inflate::decompress_to_vec_zlib_with_limit(reader.0, MAX_BODY).ok()?;
+        let frames = decode_body(&body, bytes.len())?;
         Some(Self { kind, name, sens, duration, frames })
     }
 
     /// Whether `other` is this replay up to the v3 quantization (and f32 rounding).
+    #[cfg(test)]
     fn matches(&self, other: &Self) -> bool {
         let close = |a: f32, b: f32, units: f64| {
             (f64::from(a) - f64::from(b)).abs() <= 1.0 / units + f64::from(a.abs() * f32::EPSILON)
@@ -191,23 +180,6 @@ impl Shot {
             _ => Shot::None,
         }
     }
-}
-
-/// Frames of versions 1 and 2: a u32 count, then per frame `t`, yaw and pitch as f32, the shot
-/// byte, a target count byte and each target's center and radius as f32.
-fn decode_raw_frames(reader: &mut Reader, input_len: usize) -> Option<Vec<ReplayFrame>> {
-    let count = reader.u32()? as usize;
-    // Each frame takes at least 14 bytes, so a bogus count can't reserve a huge buffer.
-    let mut frames = Vec::with_capacity(count.min(input_len / 14));
-    for _ in 0..count {
-        let (t, yaw, pitch) = (reader.f32()?, reader.f32()?, reader.f32()?);
-        let shot = Shot::from_byte(reader.u8()?);
-        let targets = (0..reader.u8()?)
-            .map(|_| Some((Vec3::new(reader.f32()?, reader.f32()?, reader.f32()?), reader.f32()?)))
-            .collect::<Option<Vec<_>>>()?;
-        frames.push(ReplayFrame { t, yaw, pitch, shot, targets });
-    }
-    Some(frames)
 }
 
 /// The v3 frames, before compression. Integers are LEB128 varints, signed ones zigzag-encoded.
@@ -460,9 +432,6 @@ impl<'a> Reader<'a> {
     fn u8(&mut self) -> Option<u8> {
         Some(self.take(1)?[0])
     }
-    fn u32(&mut self) -> Option<u32> {
-        Some(u32::from_le_bytes(self.take(4)?.try_into().ok()?))
-    }
     fn f32(&mut self) -> Option<f32> {
         Some(f32::from_le_bytes(self.take(4)?.try_into().ok()?))
     }
@@ -495,64 +464,6 @@ fn truncate_utf8(s: &str, max: usize) -> &str {
         end -= 1;
     }
     &s[..end]
-}
-
-// ---------------------------------------------------------------------------------------------
-// Migration
-// ---------------------------------------------------------------------------------------------
-
-/// Rewrites replays saved in older formats as v3, in the background.
-pub(super) fn migrate_replays() {
-    IoTaskPool::get()
-        .spawn(async {
-            let migrated = migrate_dir(Path::new(REPLAY_DIR));
-            if migrated > 0 {
-                info!("Rewrote {migrated} replays in the compact format");
-            }
-        })
-        .detach();
-}
-
-/// Rewrites every v1/v2 replay in `dir` as v3 and returns how many were rewritten. A file is
-/// only replaced (atomically, via a temporary file) once its new encoding decodes back to the
-/// same replay; on any failure it is left as it was.
-fn migrate_dir(dir: &Path) -> usize {
-    let Ok(entries) = fs::read_dir(dir) else { return 0 };
-    let mut migrated = 0;
-    // Listed up front, so the files written meanwhile don't show up.
-    let paths: Vec<PathBuf> = entries.filter_map(|entry| Some(entry.ok()?.path())).collect();
-    for path in paths {
-        let name = path.file_name().and_then(|name| name.to_str()).unwrap_or_default();
-        if name.ends_with(".replay.tmp") {
-            // Left over from an interrupted migration.
-            let _ = fs::remove_file(&path);
-        } else if name.ends_with(".replay") {
-            match migrate_file(&path) {
-                Ok(rewritten) => migrated += usize::from(rewritten),
-                Err(err) => warn!("Replay {} kept in its old format: {err}", path.display()),
-            }
-        }
-    }
-    migrated
-}
-
-/// Rewrites one replay as v3 if it's in an older format; returns whether it did.
-fn migrate_file(path: &Path) -> io::Result<bool> {
-    let old_bytes = fs::read(path)?;
-    if !old_bytes.starts_with(MAGIC) || old_bytes.get(4).is_none_or(|&version| version >= VERSION) {
-        return Ok(false);
-    }
-    let old = Replay::decode(&old_bytes).ok_or_else(|| io::Error::other("it could not be read"))?;
-    let new_bytes = old.encode();
-    if !Replay::decode(&new_bytes).is_some_and(|new| new.matches(&old)) {
-        return Err(io::Error::other("the new encoding did not match"));
-    }
-    let tmp = path.with_extension("replay.tmp");
-    let result = fs::write(&tmp, &new_bytes).and_then(|()| fs::rename(&tmp, path));
-    if result.is_err() {
-        let _ = fs::remove_file(&tmp);
-    }
-    result.map(|()| true)
 }
 
 #[cfg(test)]
@@ -612,25 +523,6 @@ pub(super) mod tests {
 
     const RAD_PER_COUNT: f32 = 0.4 * 0.07 * std::f32::consts::PI / 180.0;
 
-    /// The version 2 encoding, as older builds saved it.
-    fn encode_v2(replay: &Replay) -> Vec<u8> {
-        let mut out = replay.encode_header(2);
-        out.extend_from_slice(&(replay.frames.len() as u32).to_le_bytes());
-        for frame in &replay.frames {
-            for value in [frame.t, frame.yaw, frame.pitch] {
-                out.extend_from_slice(&value.to_le_bytes());
-            }
-            out.push(frame.shot as u8);
-            out.push(frame.targets.len() as u8);
-            for (center, radius) in &frame.targets {
-                for value in [center.x, center.y, center.z, *radius] {
-                    out.extend_from_slice(&value.to_le_bytes());
-                }
-            }
-        }
-        out
-    }
-
     #[test]
     fn encoding_round_trips_within_quantization() {
         let replay = sample_replay();
@@ -656,18 +548,15 @@ pub(super) mod tests {
         // Target sets change (spawns, kills, reorders, movement) exactly where they did.
         let target_counts = |r: &Replay| r.frames.iter().map(|f| f.targets.len()).collect::<Vec<_>>();
         assert_eq!(target_counts(&decoded), target_counts(&replay));
-        assert!(bytes.len() * 8 < encode_v2(&replay).len(), "{} bytes", bytes.len());
-    }
-
-    #[test]
-    fn decodes_version_2() {
-        let replay = synthetic_replay();
-        assert_eq!(Replay::decode(&encode_v2(&replay)), Some(replay));
+        // At least 8x smaller than the raw frames: t, yaw and pitch as f32, a shot and a target
+        // count byte, and each target's center and radius as f32.
+        let raw: usize = replay.frames.iter().map(|frame| 14 + 16 * frame.targets.len()).sum();
+        assert!(bytes.len() * 8 < raw, "{} bytes", bytes.len());
     }
 
     #[test]
     fn rejects_truncated_or_foreign_files() {
-        for bytes in [sample_replay().encode(), synthetic_replay().encode(), encode_v2(&sample_replay())] {
+        for bytes in [sample_replay().encode(), synthetic_replay().encode()] {
             for len in [5, 20, bytes.len() / 2, bytes.len() - 1] {
                 assert!(Replay::decode(&bytes[..len]).is_none(), "{len} of {} bytes", bytes.len());
             }
@@ -680,45 +569,17 @@ pub(super) mod tests {
         assert!(Replay::decode(b"nope").is_none());
     }
 
-    #[test]
-    fn migrates_old_replays_in_place() {
-        let dir = std::env::temp_dir().join(format!("aim_trainer_replay_migration_{}", std::process::id()));
-        let _ = fs::remove_dir_all(&dir);
-        fs::create_dir_all(&dir).unwrap();
-        let replay = synthetic_replay();
-        let (old, current, foreign) = (dir.join("1.replay"), dir.join("2.replay"), dir.join("3.replay"));
-        fs::write(&old, encode_v2(&replay)).unwrap();
-        fs::write(&current, sample_replay().encode()).unwrap();
-        fs::write(&foreign, b"nope").unwrap();
-        fs::write(dir.join("4.replay.tmp"), b"interrupted").unwrap();
-
-        assert_eq!(migrate_dir(&dir), 1);
-        let migrated = fs::read(&old).unwrap();
-        assert_eq!(migrated[4], VERSION);
-        assert!(migrated.len() * 8 < encode_v2(&replay).len());
-        assert!(Replay::decode(&migrated).unwrap().matches(&replay));
-        // Current and foreign files are left alone; the stale temporary file is gone.
-        assert_eq!(fs::read(&current).unwrap(), sample_replay().encode());
-        assert_eq!(fs::read(&foreign).unwrap(), b"nope");
-        assert_eq!(fs::read_dir(&dir).unwrap().count(), 3);
-        assert_eq!(migrate_dir(&dir), 0);
-        fs::remove_dir_all(&dir).unwrap();
-    }
-
     fn fixture(name: &str) -> Vec<u8> {
         fs::read(Path::new(env!("CARGO_MANIFEST_DIR")).join("fixtures").join(name)).unwrap()
     }
 
-    /// Pins the v3 bytes (header, body coding, compression) and the v1/v2 decoders.
+    /// Pins the v3 bytes: header, body coding and compression.
     #[test]
-    fn decodes_saved_fixtures() {
+    fn decodes_saved_fixture() {
         let replay = fixture_replay();
         let v3 = fixture("replay_v3.bin");
         assert_eq!(replay.encode(), v3);
         assert!(Replay::decode(&v3).unwrap().matches(&replay));
-        assert_eq!(Replay::decode(&fixture("replay_v2.bin")), Some(replay.clone()));
-        // v1 has no name: the built-in name stands in (the fixture's name is that already).
-        assert_eq!(Replay::decode(&fixture("replay_v1.bin")), Some(replay));
     }
 
     /// Replays store the kind as its index in `ALL`, so kinds are only ever appended.
@@ -730,7 +591,7 @@ pub(super) mod tests {
         );
     }
 
-    /// The replay the `fixtures/replay_v*.bin` files were saved from.
+    /// The replay `fixtures/replay_v3.bin` was saved from.
     fn fixture_replay() -> Replay {
         let frames = vec![
             ReplayFrame {

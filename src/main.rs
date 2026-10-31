@@ -1,3 +1,7 @@
+// Release builds are a windowed game: no console window next to it. Debug builds keep the
+// console for logs.
+#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
+
 mod adaptive_log;
 mod analysis;
 mod camera;
@@ -16,6 +20,7 @@ mod replay;
 mod routine;
 mod settings;
 mod sfx;
+#[cfg(test)] mod test_util;
 mod ui;
 
 use bevy::diagnostic::FrameTimeDiagnosticsPlugin;

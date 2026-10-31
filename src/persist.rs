@@ -168,6 +168,7 @@ mod tests {
     use serde::Deserialize;
 
     use super::*;
+    use crate::test_util::TempDir;
 
     #[derive(Debug, Default, PartialEq, Deserialize)]
     #[serde(default)]
@@ -181,16 +182,9 @@ mod tests {
         Known,
     }
 
-    fn temp_dir(name: &str) -> PathBuf {
-        let dir = std::env::temp_dir().join(format!("aim_trainer_test_{name}_{}", std::process::id()));
-        let _ = fs::remove_dir_all(&dir);
-        fs::create_dir_all(&dir).unwrap();
-        dir
-    }
-
     #[test]
     fn invalid_file_is_backed_up_and_defaults_used() {
-        let dir = temp_dir("persist_invalid");
+        let dir = TempDir::new("persist_invalid");
         let path = dir.join("settings.ron");
         fs::write(&path, "(kind: Some(Bogus))").unwrap();
         let (value, report): (Sample, _) = load_ron(&path);
@@ -207,17 +201,15 @@ mod tests {
         assert_eq!(value, Sample { sens: 1.5, kind: Some(Kind::Known) });
         assert!(report.problem.is_none());
         assert!(!dir.join("missing.ron.tmp").exists());
-        let _ = fs::remove_dir_all(&dir);
     }
 
     #[test]
     fn unreadable_file_disables_saving() {
         // A directory in place of the file can't be read as text (and isn't NotFound).
-        let dir = temp_dir("persist_unreadable");
+        let dir = TempDir::new("persist_unreadable");
         let path = dir.join("settings.ron");
         fs::create_dir_all(&path).unwrap();
         let (_, report): (Sample, _) = load_ron(&path);
         assert!(!report.can_save && report.problem.is_some());
-        let _ = fs::remove_dir_all(&dir);
     }
 }

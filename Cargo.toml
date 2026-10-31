@@ -1,6 +1,6 @@
 [package]
 name = "aim_trainer"
-version = "0.1.0"
+version = "1.0.0"
 edition = "2024"
 
 [dependencies]
@@ -27,3 +27,9 @@ opt-level = 1
 
 [profile.dev.package."*"]
 opt-level = 3
+
+# Shipped builds: whole-program optimisation, no debug symbols in the exe.
+[profile.release]
+lto = "thin"
+codegen-units = 1
+strip = true

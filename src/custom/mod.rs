@@ -365,16 +365,13 @@ mod tests {
 
     #[test]
     fn invalid_custom_file_is_backed_up() {
-        let dir = std::env::temp_dir().join(format!("aim_trainer_test_custom_{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&dir);
-        std::fs::create_dir_all(&dir).unwrap();
+        let dir = crate::test_util::TempDir::new("custom");
         let path = dir.join("custom.ron");
         std::fs::write(&path, "(scenarios: [(kind: Nope)])").unwrap();
         let (content, report): (CustomContent, _) = persist::load_ron(&path);
         assert_eq!(content, CustomContent::default());
         assert!(report.can_save && report.problem.is_some());
         assert!(dir.join("custom.ron.bak").exists());
-        let _ = std::fs::remove_dir_all(&dir);
     }
 
     /// The content `fixtures/custom.ron` and `fixtures/share_code.txt` were saved from: one

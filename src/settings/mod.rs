@@ -200,6 +200,7 @@ impl Default for DiscordSettings {
     }
 }
 
+
 #[derive(Resource, Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Settings {
@@ -273,6 +274,7 @@ mod tests {
     use std::fs;
 
     use super::*;
+    use crate::test_util::TempDir;
 
     #[test]
     fn sanitize_clamps_to_ui_limits() {
@@ -286,13 +288,6 @@ mod tests {
         assert_eq!(settings.finder_rounds, 1);
         assert_eq!(settings.video.msaa, 4);
         assert_eq!(settings.crosshair.outline_opacity, 0.0);
-    }
-
-    fn temp_dir(name: &str) -> std::path::PathBuf {
-        let dir = std::env::temp_dir().join(format!("aim_trainer_test_{name}_{}", std::process::id()));
-        let _ = fs::remove_dir_all(&dir);
-        fs::create_dir_all(&dir).unwrap();
-        dir
     }
 
     /// The settings `fixtures/settings.ron` was saved from.
@@ -338,7 +333,7 @@ mod tests {
     #[test]
     fn loads_saved_settings_fixture() {
         let fixture = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/fixtures/settings.ron"));
-        let dir = temp_dir("settings_fixture");
+        let dir = TempDir::new("settings_fixture");
         let path = dir.join("settings.ron");
         fs::write(&path, fixture).unwrap();
         let (mut loaded, report): (Settings, _) = load_ron(&path);
@@ -347,13 +342,5 @@ mod tests {
         assert_eq!(loaded, fixture_settings());
         let written = ron::ser::to_string_pretty(&fixture_settings(), ron::ser::PrettyConfig::default()).unwrap();
         assert_eq!(written.replace("\r\n", "\n"), fixture.replace("\r\n", "\n"));
-
-        // Files from builds with the arena still carry its key, and lack newer fields.
-        let legacy = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/fixtures/settings_legacy_arena.ron"));
-        fs::write(&path, legacy).unwrap();
-        let (loaded, report): (Settings, _) = load_ron(&path);
-        assert!(report.problem.is_none() && report.can_save);
-        assert_eq!(loaded, Settings { sens: 0.35, ..Settings::default() });
-        let _ = fs::remove_dir_all(&dir);
     }
 }

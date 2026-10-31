@@ -153,11 +153,7 @@ pub(crate) fn record_adaptive(
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    fn temp_path(name: &str) -> PathBuf {
-        let nanos = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
-        std::env::temp_dir().join(format!("aim_trainer_{name}_{}_{nanos}.csv", std::process::id()))
-    }
+    use crate::test_util::TempDir;
 
     fn entry(timestamp: u64, drill: &str, mode: QuestMode, theta75: f32) -> AdaptiveEntry {
         AdaptiveEntry {
@@ -171,7 +167,8 @@ mod tests {
 
     #[test]
     fn results_round_trip_through_the_file() {
-        let path = temp_path("adaptive_log");
+        let dir = TempDir::new("adaptive_log");
+        let path = dir.join("adaptive.csv");
         let mut log = AdaptiveLog::load(&path);
         assert!(log.entries.is_empty());
         let first = entry(100, "Microflick · adaptive · measure", QuestMode::Measure, 0.62);
@@ -196,7 +193,6 @@ mod tests {
         assert_eq!(loaded.previous(&second), Some(&first));
         assert_eq!(loaded.previous(&first), None);
         assert_eq!(loaded.previous(loaded.entry(300).unwrap()), None);
-        let _ = fs::remove_file(&path);
     }
 
     /// A finished adaptive run is logged with its history timestamp and becomes the task's
@@ -207,7 +203,8 @@ mod tests {
         use crate::history::Comparison;
         use crate::settings::Settings;
 
-        let path = temp_path("adaptive_record");
+        let dir = TempDir::new("adaptive_record");
+        let path = dir.join("adaptive.csv");
         let settings = Settings::default();
         let mut app = App::new();
         app.add_plugins(MinimalPlugins)
@@ -242,6 +239,5 @@ mod tests {
         let prior = app.world().resource::<AdaptiveRun>().priors["Microflick · adaptive"];
         assert!((prior - entry.estimate.theta75).abs() < 1e-3);
         assert_eq!(AdaptiveLog::load(&path).entries.len(), 1);
-        let _ = fs::remove_file(&path);
     }
 }

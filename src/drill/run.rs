@@ -332,8 +332,6 @@ pub(super) fn abort_run(
 
 #[cfg(test)]
 mod tests {
-    use std::path::PathBuf;
-
     use bevy::state::app::StatesPlugin;
 
     use super::*;
@@ -345,6 +343,7 @@ mod tests {
     use crate::replay::{self, Recorder, ReplayDir};
     use crate::routine::{self, Routine, RoutineStep};
     use crate::settings::FinderFocus;
+    use crate::test_util::TempDir;
     use crate::ui::screens::results;
 
     #[test]
@@ -400,24 +399,6 @@ mod tests {
         assert_eq!(RunPurpose::from_csv("Routine"), None);
     }
 
-    /// A temp directory removed again when dropped.
-    struct TempDir(PathBuf);
-
-    impl TempDir {
-        fn new(name: &str) -> Self {
-            let nanos = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
-            let dir = std::env::temp_dir().join(format!("aim_trainer_{name}_{}_{nanos}", std::process::id()));
-            std::fs::create_dir_all(&dir).unwrap();
-            Self(dir)
-        }
-    }
-
-    impl Drop for TempDir {
-        fn drop(&mut self) {
-            let _ = std::fs::remove_dir_all(&self.0);
-        }
-    }
-
     /// The run lifecycle and every reaction to a finished run, without rendering or the drills'
     /// target systems. History and replays go to `dir`.
     fn lifecycle_app(dir: &TempDir) -> App {
@@ -425,8 +406,8 @@ mod tests {
         app.add_plugins((MinimalPlugins, StatesPlugin))
             .insert_state(AppState::Playing)
             .insert_resource(Settings::default())
-            .insert_resource(History::load(&dir.0.join("results.csv")))
-            .insert_resource(ReplayDir(dir.0.join("replays")))
+            .insert_resource(History::load(&dir.join("results.csv")))
+            .insert_resource(ReplayDir(dir.join("replays")))
             .insert_resource(Recorder::default())
             .init_resource::<ButtonInput<KeyCode>>()
             .add_message::<WindowFocused>()
@@ -484,10 +465,10 @@ mod tests {
         let timestamp = last.timestamp;
         app.update();
         assert_eq!(state(&app), AppState::Results);
-        let csv = std::fs::read_to_string(dir.0.join("results.csv")).unwrap();
+        let csv = std::fs::read_to_string(dir.join("results.csv")).unwrap();
         assert_eq!(csv.lines().count(), 2, "header + one row");
         assert!(csv.lines().nth(1).unwrap().starts_with(&format!("{timestamp},Practice,Gridshot,")));
-        assert!(dir.0.join("replays").join(format!("{timestamp}.replay")).is_file());
+        assert!(dir.join("replays").join(format!("{timestamp}.replay")).is_file());
     }
 
     #[test]
@@ -506,9 +487,9 @@ mod tests {
         app.update();
         assert_eq!(state(&app), AppState::Playing);
         // Finder trials are logged, but never saved as replays.
-        let csv = std::fs::read_to_string(dir.0.join("results.csv")).unwrap();
+        let csv = std::fs::read_to_string(dir.join("results.csv")).unwrap();
         assert!(csv.lines().nth(1).unwrap().contains(",FinderTrial,"));
-        assert!(!dir.0.join("replays").exists());
+        assert!(!dir.join("replays").exists());
     }
 
     #[test]
@@ -545,7 +526,7 @@ mod tests {
         assert_eq!(state(&app), AppState::Routine);
         let routine = app.world().resource::<Routine>();
         assert_eq!((routine.next, routine.results.len()), (1, 1));
-        let csv = std::fs::read_to_string(dir.0.join("results.csv")).unwrap();
+        let csv = std::fs::read_to_string(dir.join("results.csv")).unwrap();
         assert!(csv.lines().nth(1).unwrap().contains(",Practice,"), "routine steps are logged as practice");
     }
 
@@ -565,7 +546,7 @@ mod tests {
             assert_eq!(finished_count(&app), 0, "{purpose:?}");
             app.update();
             assert_eq!(state(&app), back, "{purpose:?}");
-            assert!(!dir.0.join("results.csv").exists());
+            assert!(!dir.join("results.csv").exists());
         }
     }
 }

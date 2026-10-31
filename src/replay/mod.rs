@@ -23,7 +23,7 @@ impl Plugin for ReplayPlugin {
     fn build(&self, app: &mut App) {
         app.init_gizmo_group::<player::TracerGizmos>()
             .insert_resource(ReplayDir(PathBuf::from(format::REPLAY_DIR)))
-            .add_systems(Startup, (player::create_marker_assets, player::configure_tracer, format::migrate_replays))
+            .add_systems(Startup, (player::create_marker_assets, player::configure_tracer))
             .add_systems(OnEnter(AppState::Replay), player::spawn_replay_scene)
             .add_systems(OnExit(AppState::Replay), player::clear_look)
             .add_systems(Update, save_finished_replay.in_set(DrillSet::Outcome))

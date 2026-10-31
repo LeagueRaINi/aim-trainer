@@ -1,9 +1,14 @@
 //! Drills: the run lifecycle (ready gate, countdown, timer), scoring, HUD and recording.
-//! Per-drill target behaviour lives in [`drills`].
+//! Each built-in drill is described by a [`DrillDef`](def::DrillDef) in [`kinds`]; per-drill
+//! target behaviour lives in [`drills`].
 
 mod config;
+pub mod def;
 mod drills;
 pub mod flick_probe;
+mod kind;
+pub mod kinds;
+pub mod stats;
 
 use std::borrow::Cow;
 
@@ -13,11 +18,12 @@ use bevy::{
     prelude::*,
     window::WindowFocused,
 };
-use serde::{Deserialize, Serialize};
 
 pub use config::{DrillConfig, DrillSpec, VARIANT_SEPARATOR};
 pub use drills::{TargetAssets, spawn_cover};
 use flick_probe::FlickProbe;
+pub use kind::DrillKind;
+pub use stats::RunStats;
 
 use crate::{
     AppState,
@@ -79,59 +85,6 @@ impl Plugin for DrillPlugin {
                     .chain()
                     .run_if(in_state(AppState::Playing)),
             );
-    }
-}
-
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
-pub enum DrillKind {
-    #[default]
-    Gridshot,
-    Microflick,
-    Tracking,
-    HeadLevel,
-    Peek,
-    Reaction,
-    Peripheral,
-}
-
-impl DrillKind {
-    /// Order matters: replays store the index. Only ever append.
-    pub const ALL: [DrillKind; 7] = [
-        DrillKind::Gridshot,
-        DrillKind::Microflick,
-        DrillKind::Tracking,
-        DrillKind::HeadLevel,
-        DrillKind::Peek,
-        DrillKind::Reaction,
-        DrillKind::Peripheral,
-    ];
-
-    pub fn from_name(name: &str) -> Option<Self> {
-        Self::ALL.into_iter().find(|s| s.name() == name)
-    }
-
-    pub fn name(self) -> &'static str {
-        match self {
-            DrillKind::Gridshot => "Gridshot",
-            DrillKind::Microflick => "Microflick",
-            DrillKind::Tracking => "Tracking",
-            DrillKind::HeadLevel => "Head level",
-            DrillKind::Peek => "Peeks",
-            DrillKind::Reaction => "Reaction",
-            DrillKind::Peripheral => "Peripheral",
-        }
-    }
-
-    pub fn blurb(self) -> &'static str {
-        match self {
-            DrillKind::Gridshot => "3 dots on a 3x3 grid. Speed + accuracy.",
-            DrillKind::Microflick => "One small dot at a time. Flick precision.",
-            DrillKind::Tracking => "Keep the crosshair on a strafing dot.",
-            DrillKind::HeadLevel => "Head-sized dots, always at head height.",
-            DrillKind::Peek => "Hold an angle: enemies swing out of cover.",
-            DrillKind::Reaction => "Click the instant the dot lights up.",
-            DrillKind::Peripheral => "Brief dots far off-center. Spot + flick.",
-        }
     }
 }
 
@@ -283,83 +236,6 @@ impl Run {
             best_ttk: self.best_ttk,
             on_target: self.on_target,
             landings: self.landings.clone(),
-        }
-    }
-}
-
-#[derive(Clone, Debug)]
-pub struct RunStats {
-    /// Kind of drill, which decides scoring.
-    pub kind: DrillKind,
-    /// Drill name: the built-in name or a custom scenario's name. History is grouped by it.
-    pub drill: String,
-    pub sens: f32,
-    pub cm_per_360: f32,
-    /// Counted seconds: live time after the warm-in.
-    pub duration: f32,
-    pub hits: u32,
-    pub shots: u32,
-    pub expired: u32,
-    pub ttk_total: f32,
-    pub best_ttk: f32,
-    pub on_target: f32,
-    /// First-flick landing ratios (1 = landed on target); Microflick only.
-    pub landings: Vec<f32>,
-}
-
-impl RunStats {
-    /// Hits over everything that could have been a hit: shots fired plus targets that expired.
-    pub fn accuracy(&self) -> f32 {
-        let attempts = self.shots + self.expired;
-        if attempts == 0 { 0.0 } else { self.hits as f32 / attempts as f32 }
-    }
-
-    /// Average time to kill: from appearance (or the previous kill, in Gridshot).
-    pub fn avg_kill_ms(&self) -> f32 {
-        if self.hits == 0 { 0.0 } else { self.ttk_total / self.hits as f32 * 1000.0 }
-    }
-
-    pub fn on_target_ratio(&self) -> f32 {
-        self.on_target / self.duration
-    }
-
-    /// Single number used to compare runs, independent of drill length.
-    /// Flick drills: accuracy-weighted kills per minute (x100). Tracking: time on target in 0.01%
-    /// steps. Reaction: 100 000 / average reaction ms, weighted by accuracy.
-    pub fn score(&self) -> f32 {
-        match self.kind {
-            DrillKind::Tracking => (self.on_target_ratio() * 10_000.0).round(),
-            DrillKind::Reaction if self.hits == 0 => 0.0,
-            DrillKind::Reaction => (100_000.0 / self.avg_kill_ms() * self.accuracy()).round(),
-            _ => (self.hits as f32 * 100.0 * self.accuracy() * 60.0 / self.duration).round(),
-        }
-    }
-
-    /// The secondary stats shown next to the score, as (caption, value).
-    pub fn key_stats(&self) -> Vec<(&'static str, String)> {
-        let best_ms = if self.hits == 0 { 0.0 } else { self.best_ttk * 1000.0 };
-        match self.kind {
-            DrillKind::Tracking => vec![("On target", format!("{:.1}%", self.on_target_ratio() * 100.0))],
-            DrillKind::Reaction => vec![
-                ("Avg reaction", format!("{:.0} ms", self.avg_kill_ms())),
-                ("Best", format!("{best_ms:.0} ms")),
-                ("Hits", self.hits.to_string()),
-                ("Early / late", (self.shots + self.expired - self.hits).to_string()),
-                ("Accuracy", format!("{:.1}%", self.accuracy() * 100.0)),
-            ],
-            _ => {
-                let mut stats = vec![
-                    ("Hits", format!("{} / {}", self.hits, self.shots)),
-                    ("Accuracy", format!("{:.1}%", self.accuracy() * 100.0)),
-                    ("Avg kill", format!("{:.0} ms", self.avg_kill_ms())),
-                    ("Best kill", format!("{best_ms:.0} ms")),
-                    ("Kills / s", format!("{:.2}", self.hits as f32 / self.duration)),
-                ];
-                if self.expired > 0 {
-                    stats.insert(1, ("Expired", self.expired.to_string()));
-                }
-                stats
-            }
         }
     }
 }
@@ -607,11 +483,7 @@ fn update_hud(
             HudField::Detail if !run.counting() => {
                 Cow::Owned(format!("Warm-in {:.1}s (not scored)", run.scoring_from - run.elapsed))
             }
-            HudField::Detail => Cow::Owned(match run.kind() {
-                DrillKind::Tracking => format!("On target {:.1}%", stats.on_target_ratio() * 100.0),
-                DrillKind::Reaction => format!("Hits {}   Avg {:.0} ms", stats.hits, stats.avg_kill_ms()),
-                _ => format!("Hits {}   Acc {:.0}%", stats.hits, stats.accuracy() * 100.0),
-            }),
+            HudField::Detail => Cow::Owned(run.kind().def().score.hud_detail(&stats)),
             HudField::Info => Cow::Owned(format!("{fps:.0} fps   Esc to quit")),
             HudField::ReadyBlurb => Cow::Borrowed(run.kind().blurb()),
             HudField::Countdown => match run.phase {
@@ -632,23 +504,6 @@ fn update_hud(
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    fn stats(kind: DrillKind, hits: u32, shots: u32, expired: u32, duration: f32) -> RunStats {
-        RunStats {
-            kind,
-            drill: kind.name().to_string(),
-            sens: 0.4,
-            cm_per_360: 40.8,
-            duration,
-            hits,
-            shots,
-            expired,
-            ttk_total: hits as f32 * 0.25,
-            best_ttk: 0.2,
-            on_target: 0.0,
-            landings: Vec::new(),
-        }
-    }
 
     #[test]
     fn warm_in_is_not_scored() {
@@ -677,42 +532,5 @@ mod tests {
         assert!((stats.duration - 10.0).abs() < 1e-5);
         assert_eq!(stats.score(), 600.0);
         assert!((stats.avg_kill_ms() - 400.0).abs() < 1e-3);
-    }
-
-    #[test]
-    fn flick_score_does_not_depend_on_drill_length() {
-        // Same pace and accuracy: a 20 s finder trial must score like a 60 s practice run.
-        let short = stats(DrillKind::Gridshot, 40, 50, 0, 20.0);
-        let long = stats(DrillKind::Gridshot, 120, 150, 0, 60.0);
-        assert_eq!(short.score(), long.score());
-    }
-
-    #[test]
-    fn expired_targets_count_as_misses() {
-        let clean = stats(DrillKind::Microflick, 50, 50, 0, 60.0);
-        let decayed = stats(DrillKind::Microflick, 50, 50, 10, 60.0);
-        assert!((decayed.accuracy() - 50.0 / 60.0).abs() < 1e-6);
-        assert!(decayed.score() < clean.score());
-    }
-
-    #[test]
-    fn reaction_score_rewards_faster_and_more_accurate() {
-        let mut fast = stats(DrillKind::Reaction, 20, 20, 0, 30.0);
-        fast.ttk_total = 20.0 * 0.2;
-        let mut slow = fast.clone();
-        slow.ttk_total = 20.0 * 0.3;
-        let mut sloppy = fast.clone();
-        sloppy.shots = 25; // five early clicks
-        assert_eq!(fast.score(), 500.0);
-        assert!(slow.score() < fast.score());
-        assert!(sloppy.score() < fast.score());
-        assert_eq!(stats(DrillKind::Reaction, 0, 3, 0, 30.0).score(), 0.0);
-    }
-
-    #[test]
-    fn names_round_trip_for_the_csv() {
-        for kind in DrillKind::ALL {
-            assert_eq!(DrillKind::from_name(kind.name()), Some(kind));
-        }
     }
 }

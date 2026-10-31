@@ -16,7 +16,7 @@ use bevy::{
 use crate::{
     AppState,
     camera::{Look, apply_look},
-    drill::{DrillKind, TargetAssets, spawn_cover},
+    drill::{DrillKind, TargetAssets, def::Environment, spawn_cover},
     tracer,
     ui::{
         theme::{DIVIDER, TEXT_ACCENT, TEXT_BAD, TEXT_GOOD, TEXT_STRONG},
@@ -914,7 +914,7 @@ fn marker_range(shown_until: f32, now: f32) -> (f32, bool) {
 }
 
 fn spawn_replay_hud(mut commands: Commands, playback: Res<Playback>, assets: Res<TargetAssets>) {
-    if playback.replay.kind == DrillKind::Peek {
+    if playback.replay.kind.def().environment == Environment::Cover {
         spawn_cover(&mut commands, &assets, AppState::Replay);
     }
     commands

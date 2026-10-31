@@ -12,7 +12,7 @@ use crate::ui::{charts::*, theme::*, widgets::*};
 use crate::{
     AppState,
     analysis::{
-        self, Analysis, Cell, FLICK_KINDS, MIN_FLICKS, MIN_SAMPLES, RECENT_REPLAYS, SECTORS, TRAINING_SECS,
+        self, Analysis, Cell, MIN_FLICKS, MIN_SAMPLES, RECENT_REPLAYS, SECTORS, TRAINING_SECS,
         band_label,
     },
     custom::CustomContent,
@@ -49,7 +49,7 @@ pub fn rebuild_insights(mut commands: Commands, tab: Res<MenuTab>, bodies: Query
             continue;
         }
         commands.entity(body).despawn_related::<Children>();
-        let analysis = analysis::analyze(&Replay::recent(&FLICK_KINDS, RECENT_REPLAYS));
+        let analysis = analysis::analyze(&Replay::recent(&analysis::flick_kinds(), RECENT_REPLAYS));
         if analysis.enough_data() {
             spawn_insights(&mut commands, body, &analysis);
         } else {

@@ -12,8 +12,11 @@ use bevy::{
 use super::{MenuTab, main_column, page, side_column};
 use crate::{
     AppState,
+    drill::{
+        DrillKind, DrillSpec, Run, RunPurpose, begin_run,
+        def::{Category, DecayRule},
+    },
     routine::{ROUTINES, Routine, start_routine},
-    drill::{DrillSpec, Run, RunPurpose, DrillKind, begin_run},
     settings::{SettingField, Settings},
     ui::{bindings::*, theme::*, widgets::*},
 };
@@ -35,33 +38,32 @@ fn practice_run(kind: DrillKind, settings: &Settings) -> Run {
     )
 }
 
+/// The built-in drills grouped into one card per category.
+fn drill_cards() -> Vec<impl Scene> {
+    Category::ALL
+        .into_iter()
+        .map(|category| {
+            let buttons: Vec<_> =
+                DrillKind::ALL.into_iter().filter(|kind| kind.def().category == category).map(play_button).collect();
+            card(category.title(), buttons)
+        })
+        .collect()
+}
+
+/// Explains the global decay setting and names the drills it applies to.
+fn decay_note() -> String {
+    let kinds: Vec<&str> =
+        DrillKind::ALL.into_iter().filter(|kind| kind.def().decay == DecayRule::Global).map(DrillKind::name).collect();
+    format!("Decay: targets shrink and count as a miss if not hit in time ({}). 0 = off.", kinds.join(", "))
+}
 
 pub(super) fn play_page(settings: &Settings) -> impl Scene {
+    let cards = drill_cards();
     bsn! {
         @page(MenuTab::Play)
         Children [
             @main_column()
-            Children [
-                @card("Aim", bsn_list! {
-                    @play_button(DrillKind::Gridshot)
-                    --
-                    @play_button(DrillKind::Microflick)
-                    --
-                    @play_button(DrillKind::Tracking)
-                })
-                --
-                @card("Valorant / CS2", bsn_list! {
-                    @play_button(DrillKind::HeadLevel)
-                    --
-                    @play_button(DrillKind::Peek)
-                })
-                --
-                @card("Eye training", bsn_list! {
-                    @play_button(DrillKind::Reaction)
-                    --
-                    @play_button(DrillKind::Peripheral)
-                })
-            ]
+            Children [ {cards} ]
             --
             @side_column()
             Children [
@@ -80,7 +82,7 @@ pub(super) fn play_page(settings: &Settings) -> impl Scene {
                     --
                     @number_field(SettingField::TargetLifetime, settings)
                     --
-                    @label_dim("Decay: targets shrink and count as a miss if not hit in time (Gridshot, Microflick, Head level). 0 = off.")
+                    @label_dim(decay_note())
                     --
                     @label("Target color")
                     --

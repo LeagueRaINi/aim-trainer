@@ -16,6 +16,11 @@ use crate::{
 };
 
 pub(super) fn finder_page(settings: &Settings) -> impl Scene {
+    let classic_drills: Vec<_> = DrillKind::ALL
+        .into_iter()
+        .filter(|kind| kind.def().classic_finder)
+        .map(|kind| choice(kind.name(), Choice::FinderDrill(kind)))
+        .collect();
     bsn! {
         @page(MenuTab::Finder)
         Children [
@@ -36,15 +41,7 @@ pub(super) fn finder_page(settings: &Settings) -> impl Scene {
                         @choice("Tracking", Choice::FinderFocus(FinderFocus::Tracking))
                     })
                     --
-                    @setting_row("Classic drill", bsn_list! {
-                        @choice("Gridshot", Choice::FinderDrill(DrillKind::Gridshot))
-                        --
-                        @choice("Microflick", Choice::FinderDrill(DrillKind::Microflick))
-                        --
-                        @choice("Tracking", Choice::FinderDrill(DrillKind::Tracking))
-                        --
-                        @choice("Head level", Choice::FinderDrill(DrillKind::HeadLevel))
-                    })
+                    @setting_row("Classic drill", classic_drills)
                     --
                     @number_field(SettingField::FinderTrialSecs, settings)
                     --

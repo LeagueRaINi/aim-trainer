@@ -4,7 +4,8 @@
 use bevy::prelude::*;
 
 use super::{
-    DrillConfig, Run, DrillKind,
+    DrillConfig, DrillKind, Run,
+    def::{Environment, TtkFrom},
     flick_probe::{FlickProbe, angles, screen_offset},
 };
 use crate::{AppState, camera::PlayerCamera, replay::Recorder, settings::Settings, sfx::HitSounds};
@@ -149,7 +150,7 @@ pub fn spawn_cover(commands: &mut Commands, assets: &TargetAssets, state: AppSta
 /// Scene setup when entering a drill, before the player starts it.
 pub(super) fn spawn_static(mut commands: Commands, assets: Res<TargetAssets>, run: Res<Run>) {
     commands.insert_resource(NextSpawn::default());
-    if run.kind() == DrillKind::Peek {
+    if run.kind().def().environment == Environment::Cover {
         spawn_cover(&mut commands, &assets, AppState::Playing);
     }
 }
@@ -184,15 +185,7 @@ fn ray_box(origin: Vec3, dir: Vec3, min: Vec3, max: Vec3) -> Option<f32> {
 }
 
 fn base_radius(config: &DrillConfig) -> f32 {
-    let radius = match config.kind {
-        DrillKind::Gridshot => 0.45,
-        DrillKind::Microflick | DrillKind::Peripheral => 0.2,
-        DrillKind::Tracking => 0.45,
-        DrillKind::HeadLevel => 0.14,
-        DrillKind::Peek => 0.2,
-        DrillKind::Reaction => 0.5,
-    };
-    radius * config.size
+    config.kind.def().base_radius * config.size
 }
 
 fn lifetime(config: &DrillConfig) -> Option<f32> {
@@ -378,15 +371,15 @@ pub(super) fn shoot(
     camera: Single<&Transform, With<PlayerCamera>>,
     targets: Query<(Entity, &Target, &Transform, Option<&GridSlot>)>,
 ) {
-    let kind = run.kind();
-    if matches!(kind, DrillKind::Tracking | DrillKind::Reaction) || !run.live() || !mouse.just_pressed(MouseButton::Left) {
+    let def = run.kind().def();
+    if !def.click_kills || !run.live() || !mouse.just_pressed(MouseButton::Left) {
         return;
     }
     run.shot();
 
     let origin = camera.translation;
     let aim = camera.forward().as_vec3();
-    let blocked_at = if kind == DrillKind::Peek {
+    let blocked_at = if def.environment == Environment::Cover {
         ray_box(origin, aim, COVER_MIN, COVER_MAX).unwrap_or(f32::MAX)
     } else {
         f32::MAX
@@ -404,7 +397,7 @@ pub(super) fn shoot(
 
     let now = run.elapsed;
     // Gridshot dots wait while you shoot the others, so time them from the previous kill.
-    let ttk = if kind == DrillKind::Gridshot { now - run.last_kill } else { now - target.born };
+    let ttk = if def.ttk_from == TtkFrom::PreviousKill { now - run.last_kill } else { now - target.born };
     run.kill(ttk);
     if let Some(probe) = run.probe.take() {
         run.land(probe.landing(angles(aim)));
@@ -575,7 +568,7 @@ pub(super) fn probe_flicks(
     camera: Single<&Transform, With<PlayerCamera>>,
     spawned: Query<&Transform, Added<Target>>,
 ) {
-    if run.kind() != DrillKind::Microflick {
+    if !run.kind().def().first_flick_probe {
         return;
     }
     let aim = angles(camera.forward().as_vec3());

@@ -9,9 +9,9 @@ use bevy::{
 use crate::ui::{charts::*, theme::*, widgets::*};
 use crate::{
     AppState,
+    drill::{DrillKind, stats::HistoryStat},
     history::{History, HistoryEntry, RECENT_RUNS, format_date, overall_change, recent_change},
     replay::{Replay, watch},
-    drill::DrillKind,
 };
 
 /// Most recent runs drawn in the chart.
@@ -31,7 +31,7 @@ pub struct HistoryView(String);
 
 impl Default for HistoryView {
     fn default() -> Self {
-        Self(DrillKind::Gridshot.name().to_string())
+        Self(DrillKind::default().name().to_string())
     }
 }
 
@@ -211,12 +211,8 @@ fn spawn_chart(commands: &mut Commands, parent: Entity, runs: &[&HistoryEntry]) 
 }
 
 fn spawn_run_list(commands: &mut Commands, parent: Entity, runs: &[&HistoryEntry]) {
-    let kind = runs.last().map_or(DrillKind::Gridshot, |run| run.kind);
-    let detail_headers: &[&str] = match kind {
-        DrillKind::Tracking => &["On target"],
-        DrillKind::Reaction => &["Accuracy", "Avg ms"],
-        _ => &["Accuracy", "ms / kill"],
-    };
+    let kind = runs.last().map_or(DrillKind::default(), |run| run.kind);
+    let columns = kind.def().score.history_columns();
     const NUMBER_W: f32 = 56.0;
     const DATE_W: f32 = 120.0;
     const VALUE_W: f32 = 96.0;
@@ -225,7 +221,8 @@ fn spawn_run_list(commands: &mut Commands, parent: Entity, runs: &[&HistoryEntry
         .spawn_scene(bsn! { @overline("Recent runs") Node { margin: UiRect::bottom(px(SPACE_XS)) } })
         .insert(ChildOf(parent));
     let mut header = vec![cell("#", NUMBER_W, tokens::TEXT_DIM), cell("Date", DATE_W, tokens::TEXT_DIM)];
-    header.extend(["Score"].iter().chain(detail_headers).chain(&["Sens", "cm/360"]).map(|h| cell(*h, VALUE_W, tokens::TEXT_DIM)));
+    let headers = columns.iter().map(|(header, _)| header);
+    header.extend(["Score"].iter().chain(headers).chain(&["Sens", "cm/360"]).map(|h| cell(*h, VALUE_W, tokens::TEXT_DIM)));
     commands.spawn_scene(table_row(header, false)).insert(ChildOf(parent));
 
     let best = runs.iter().map(|r| r.score).fold(f32::MIN, f32::max);
@@ -236,12 +233,13 @@ fn spawn_run_list(commands: &mut Commands, parent: Entity, runs: &[&HistoryEntry
             cell(format_date(run.timestamp), DATE_W, tokens::TEXT_MAIN),
             cell(format!("{}", run.score), VALUE_W, if run.score >= best { GOLD } else { TEXT_STRONG }),
         ];
-        match kind {
-            DrillKind::Tracking => cells.push(cell(format!("{:.1}%", run.on_target_pct), VALUE_W, tokens::TEXT_MAIN)),
-            _ => {
-                cells.push(cell(format!("{:.1}%", run.accuracy * 100.0), VALUE_W, tokens::TEXT_MAIN));
-                cells.push(cell(format!("{:.0}", run.avg_kill_ms), VALUE_W, tokens::TEXT_MAIN));
-            }
+        for &(_, stat) in columns {
+            let value = match stat {
+                HistoryStat::OnTarget => format!("{:.1}%", run.on_target_pct),
+                HistoryStat::Accuracy => format!("{:.1}%", run.accuracy * 100.0),
+                HistoryStat::KillMs => format!("{:.0}", run.avg_kill_ms),
+            };
+            cells.push(cell(value, VALUE_W, tokens::TEXT_MAIN));
         }
         cells.push(cell(format!("{:.3}", run.sens), VALUE_W, tokens::TEXT_MAIN));
         cells.push(cell(format!("{:.1}", run.cm_per_360), VALUE_W, tokens::TEXT_MAIN));

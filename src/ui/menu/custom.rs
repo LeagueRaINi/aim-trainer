@@ -245,6 +245,7 @@ impl CustomField {
 // ---------------------------------------------------------------------------------------------
 
 pub fn custom_lists_column() -> impl Scene {
+    let new_buttons: Vec<_> = DrillKind::ALL.into_iter().map(new_scenario_button).collect();
     bsn! {
         @column()
         Node { width: px(470), row_gap: px(SPACE_L), flex_shrink: 0.0 }
@@ -257,21 +258,7 @@ pub fn custom_lists_column() -> impl Scene {
                 --
                 @wrap_row()
                 Node { column_gap: px(SPACE_XS), row_gap: px(SPACE_XS) }
-                Children [
-                    @new_scenario_button(DrillKind::Gridshot)
-                    --
-                    @new_scenario_button(DrillKind::Microflick)
-                    --
-                    @new_scenario_button(DrillKind::Tracking)
-                    --
-                    @new_scenario_button(DrillKind::HeadLevel)
-                    --
-                    @new_scenario_button(DrillKind::Peek)
-                    --
-                    @new_scenario_button(DrillKind::Reaction)
-                    --
-                    @new_scenario_button(DrillKind::Peripheral)
-                ]
+                Children [ {new_buttons} ]
             })
             --
             @card("My playlists", bsn_list! {

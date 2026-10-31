@@ -135,7 +135,7 @@ impl HitSound {
 pub struct TargetSettings {
     pub color: [u8; 3],
     /// Seconds before a target expires and counts as a miss; 0 disables decay.
-    /// Applies to Gridshot, Microflick and Head level.
+    /// Applies to built-in drills whose decay rule is `Global` (see `drill::def::DecayRule`).
     pub lifetime: f32,
 }
 

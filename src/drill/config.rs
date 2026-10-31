@@ -3,7 +3,7 @@
 
 use serde::{Deserialize, Serialize};
 
-use super::DrillKind;
+use super::{DrillKind, def::DecayRule};
 use crate::settings::Settings;
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -62,23 +62,19 @@ impl Default for DrillConfig {
 }
 
 impl DrillConfig {
+    /// The common defaults, adjusted by the kind's [`DrillDef::tune_defaults`](super::def::DrillDef).
     pub fn defaults(kind: DrillKind) -> Self {
-        let (yaw_range, pitch_range, min_flick, lifetime) = match kind {
-            DrillKind::HeadLevel => (35.0, 0.0, 6.0, 0.0),
-            DrillKind::Peripheral => (45.0, 12.0, 18.0, 1.1),
-            _ => (30.0, 12.0, 8.0, 0.0),
-        };
-        Self {
+        let mut config = Self {
             kind,
             size: 1.0,
-            lifetime,
+            lifetime: 0.0,
             grid_cols: 3,
             grid_rows: 3,
             grid_spacing: 7.0,
             grid_active: 3,
-            yaw_range,
-            pitch_range,
-            min_flick,
+            yaw_range: 30.0,
+            pitch_range: 12.0,
+            min_flick: 8.0,
             max_flick: 0.0,
             flick_direction: None,
             flick_spread: 22.5,
@@ -95,7 +91,9 @@ impl DrillConfig {
             hold_max: 0.8,
             delay_min: 0.9,
             delay_max: 2.6,
-        }
+        };
+        (kind.def().tune_defaults)(&mut config);
+        config
     }
 
     /// A built-in drill: defaults plus the global target size and (where it applies) decay.
@@ -103,17 +101,14 @@ impl DrillConfig {
     pub fn builtin(kind: DrillKind, settings: &Settings) -> Self {
         let mut config = Self::defaults(kind);
         config.size = settings.target_scale;
-        if config.supports_decay() && kind != DrillKind::Peripheral {
+        if kind.def().decay == DecayRule::Global {
             config.lifetime = settings.targets.lifetime;
         }
         config
     }
 
     pub fn supports_decay(&self) -> bool {
-        matches!(
-            self.kind,
-            DrillKind::Gridshot | DrillKind::Microflick | DrillKind::HeadLevel | DrillKind::Peripheral
-        )
+        self.kind.def().decay != DecayRule::None
     }
 
     /// Whether Microflick targets follow the direction/distance constraints instead of

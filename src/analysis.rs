@@ -1,7 +1,7 @@
 //! Flick weak spots: which flick directions and distances cost you the most, measured from your
 //! recent replays, and the Microflick settings that train them.
 //!
-//! **Flicks.** In replays of flick drills ([`FLICK_KINDS`]), every target that appears during the
+//! **Flicks.** In replays of flick drills ([`flick_kinds`]), every target that appears during the
 //! run and is then killed is one flick, and so is one that expires in a one-target-at-a-time
 //! drill. A flick starts when its target appears, or at the previous kill if that was later
 //! (Gridshot dots wait while you shoot the others), and ends at the kill or expiry. Targets that
@@ -42,13 +42,16 @@ use crate::{
     replay::{Replay, ReplayFrame, Shot},
     drill::{
         DrillConfig, DrillKind,
+        def::TtkFrom,
         flick_probe::{END_SPEED, FlickProbe, MIN_DISTANCE, START_SPEED, angles, screen_angle, wrap},
     },
     tracer,
 };
 
-/// Drills whose replays are made of flicks.
-pub const FLICK_KINDS: [DrillKind; 4] = [DrillKind::Microflick, DrillKind::Gridshot, DrillKind::HeadLevel, DrillKind::Peripheral];
+/// Drills whose replays are made of flicks ([`DrillDef::flick_analysis`](crate::drill::def::DrillDef::flick_analysis)).
+pub fn flick_kinds() -> Vec<DrillKind> {
+    DrillKind::ALL.into_iter().filter(|kind| kind.def().flick_analysis).collect()
+}
 /// How many of the newest flick-drill replays are analysed.
 pub const RECENT_REPLAYS: usize = 30;
 /// Flicks a group needs before it is scored.
@@ -151,7 +154,7 @@ fn same_target(a: Vec3, b: Vec3) -> bool {
 pub fn extract_flicks(replay: &Replay) -> Vec<Flick> {
     let kind = replay.kind;
     let frames = &replay.frames;
-    let (true, Some(first)) = (FLICK_KINDS.contains(&kind), frames.first()) else { return Vec::new() };
+    let (true, Some(first)) = (kind.def().flick_analysis, frames.first()) else { return Vec::new() };
     let mut alive: Vec<Alive> = first.targets.iter().map(|&(center, radius)| Alive { center, radius, born: 0 }).collect();
     let mut last_kill = 0;
     // A hit whose target only disappears in a later frame (shouldn't happen: the kill is applied
@@ -179,7 +182,7 @@ pub fn extract_flicks(replay: &Replay) -> Vec<Flick> {
         for (j, target) in gone.iter().enumerate() {
             let hit = killed == Some(j);
             // Gridshot dots wait for you while others are up; one expiring isn't a flick you made.
-            if !hit && kind == DrillKind::Gridshot {
+            if !hit && kind.def().ttk_from == TtkFrom::PreviousKill {
                 continue;
             }
             let start = if hit { target.born.max(last_kill) } else { target.born };
@@ -274,7 +277,7 @@ struct KillModel(Vec<(DrillKind, f32, f32)>);
 impl KillModel {
     fn fit(flicks: &[Flick]) -> Self {
         let mut models = Vec::new();
-        for kind in FLICK_KINDS {
+        for kind in flick_kinds() {
             let kills: Vec<(f32, f32)> =
                 flicks.iter().filter(|f| f.kind == kind).filter_map(|f| Some((f.difficulty(), f.ttk?))).collect();
             if kills.is_empty() {

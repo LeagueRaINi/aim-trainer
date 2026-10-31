@@ -12,7 +12,7 @@ use bevy::{
     ui_widgets::Activate,
 };
 
-use super::{custom, finder::start_finder, insights, theme::*, widgets::*};
+use super::{bindings::*, custom, finder::start_finder, insights, theme::*, widgets::*};
 use crate::{
     AppState,
     crosshair::CrosshairPreview,
@@ -506,10 +506,6 @@ fn crosshair_page(settings: &Settings) -> impl Scene {
             ]
         ]
     }
-}
-
-fn on_off_row(text: &'static str, on: Choice, off: Choice) -> impl Scene {
-    setting_row(text, bsn_list! { @choice("On", on) -- @choice("Off", off) })
 }
 
 fn video_page(settings: &Settings) -> impl Scene {

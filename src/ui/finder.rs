@@ -13,6 +13,7 @@ use bevy::{
 };
 
 use super::{
+    charts::*,
     screens::{go_to_menu, screen_title},
     theme::*,
     widgets::*,

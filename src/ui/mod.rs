@@ -9,6 +9,8 @@ mod routine;
 mod screens;
 pub mod theme;
 pub mod widgets;
+mod bindings;
+mod charts;
 
 use bevy::prelude::*;
 
@@ -35,8 +37,8 @@ impl Plugin for UiPlugin {
             .add_systems(
                 Update,
                 (
-                    widgets::sync_fields.run_if(resource_changed::<Settings>),
-                    widgets::highlight_choices,
+                    bindings::sync_fields.run_if(resource_changed::<Settings>),
+                    bindings::highlight_choices,
                     menu::show_tab,
                     menu::update_sens_info,
                     history::rebuild_history,

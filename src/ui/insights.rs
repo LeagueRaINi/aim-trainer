@@ -7,7 +7,7 @@ use bevy::{
     ui_widgets::Activate,
 };
 
-use super::{menu::MenuTab, theme::*, widgets::*};
+use super::{charts::*, menu::MenuTab, theme::*, widgets::*};
 use crate::{
     AppState,
     analysis::{

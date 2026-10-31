@@ -7,6 +7,7 @@ mod finder;
 mod history;
 mod icon;
 mod level;
+mod persist;
 mod presence;
 mod replay;
 mod routine;
@@ -36,7 +37,7 @@ pub enum AppState {
 }
 
 fn main() {
-    let settings = settings::Settings::load();
+    let (settings, settings_load) = settings::Settings::load();
     let mut app = App::new();
     app.add_plugins((
             // Pipelined rendering overlaps a frame's render with the next simulation step,
@@ -53,7 +54,7 @@ fn main() {
         .insert_resource(ui::theme::ui_theme())
         .init_state::<AppState>()
         .add_plugins((
-            settings::SettingsPlugin(settings),
+            persist::PersistPlugin { value: settings, report: settings_load },
             history::HistoryPlugin,
             custom::CustomPlugin,
             level::LevelPlugin,

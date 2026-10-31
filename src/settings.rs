@@ -3,177 +3,21 @@
 //! Sensitivity is modelled the same way Source/Valorant-style games do it:
 //! every raw mouse count rotates the view by `sens * yaw` degrees.
 
-use std::{
-    fs, io,
-    marker::PhantomData,
-    path::{Path, PathBuf},
-    sync::Mutex,
-    time::Duration,
+use std::path::Path;
+
+use bevy::prelude::*;
+use serde::{Deserialize, Serialize};
+
+use crate::{
+    persist::{LoadReport, Persisted, load_ron},
+    scenario::Scenario,
 };
 
-use bevy::{prelude::*, window::WindowCloseRequested};
-use serde::{Deserialize, Serialize, de::DeserializeOwned};
-
-use crate::scenario::Scenario;
-
 const SETTINGS_PATH: &str = "aim_trainer_settings.ron";
-/// Settings are written this long after the last change, so dragging a value doesn't hammer the disk.
-const SAVE_DEBOUNCE: Duration = Duration::from_millis(500);
 const CM_PER_INCH: f32 = 2.54;
-
-/// How loading the settings went. `Settings::load` runs before the app (and its logging) exists,
-/// so the outcome is parked here until the plugin can report it.
-static SETTINGS_LOAD: Mutex<Option<LoadReport>> = Mutex::new(None);
-
-/// Holds settings loaded before the app is built, since the window is created from them.
-pub struct SettingsPlugin(pub Settings);
-
-impl Plugin for SettingsPlugin {
-    fn build(&self, app: &mut App) {
-        let report = SETTINGS_LOAD.lock().ok().and_then(|mut r| r.take()).unwrap_or_default();
-        app.insert_resource(self.0.clone())
-            .insert_resource(SaveState::<Settings>::new(report))
-            .add_systems(Startup, report_load_problem::<Settings>)
-            .add_systems(Update, autosave::<Settings>)
-            .add_systems(Last, save_on_exit::<Settings>);
-    }
-}
-
-// ---------------------------------------------------------------------------------------------
-// Persistence shared by settings and custom content: load with backup, atomic debounced saves.
-// ---------------------------------------------------------------------------------------------
-
-/// A resource saved to a RON file.
-pub(crate) trait Persisted: Resource + Serialize {
-    const PATH: &'static str;
-}
 
 impl Persisted for Settings {
     const PATH: &'static str = SETTINGS_PATH;
-}
-
-/// Problems found while loading a file.
-#[derive(Debug)]
-pub(crate) struct LoadReport {
-    /// Message to log once logging is up.
-    pub problem: Option<String>,
-    /// False when the file exists but couldn't be read (or backed up): overwriting it with
-    /// defaults would destroy the user's data.
-    pub can_save: bool,
-}
-
-impl Default for LoadReport {
-    fn default() -> Self {
-        Self { problem: None, can_save: true }
-    }
-}
-
-fn with_suffix(path: &Path, suffix: &str) -> PathBuf {
-    let mut name = path.as_os_str().to_owned();
-    name.push(suffix);
-    name.into()
-}
-
-/// Reads a RON file, falling back to defaults. An unparsable file is copied to `<path>.bak`
-/// first, since the next save replaces it.
-pub(crate) fn load_ron<T: DeserializeOwned + Default>(path: &Path) -> (T, LoadReport) {
-    let shown = path.display();
-    let text = match fs::read_to_string(path) {
-        Ok(text) => text,
-        Err(err) if err.kind() == io::ErrorKind::NotFound => return (T::default(), LoadReport::default()),
-        Err(err) => {
-            let problem = format!("Couldn't read {shown}: {err}. Using defaults; changes won't be saved this session.");
-            return (T::default(), LoadReport { problem: Some(problem), can_save: false });
-        }
-    };
-    match ron::from_str(&text) {
-        Ok(value) => (value, LoadReport::default()),
-        Err(err) => {
-            let backup = with_suffix(path, ".bak");
-            let report = match fs::copy(path, &backup) {
-                Ok(_) => LoadReport {
-                    problem: Some(format!("Ignoring invalid {shown}: {err}. The old file was copied to {}.", backup.display())),
-                    can_save: true,
-                },
-                Err(copy_err) => LoadReport {
-                    problem: Some(format!(
-                        "Ignoring invalid {shown}: {err}. Backing it up failed ({copy_err}), so it won't be overwritten this session."
-                    )),
-                    can_save: false,
-                },
-            };
-            (T::default(), report)
-        }
-    }
-}
-
-/// Writes via a temporary file and a rename, so a crash mid-write never leaves a truncated file.
-pub(crate) fn write_atomic(path: &Path, text: &str) -> io::Result<()> {
-    let tmp = with_suffix(path, ".tmp");
-    fs::write(&tmp, text)?;
-    fs::rename(&tmp, path)
-}
-
-fn save<T: Persisted>(value: &T) {
-    let text = match ron::ser::to_string_pretty(value, ron::ser::PrettyConfig::default()) {
-        Ok(text) => text,
-        Err(err) => return error!("Failed to serialize {}: {err}", T::PATH),
-    };
-    if let Err(err) = write_atomic(Path::new(T::PATH), &text) {
-        error!("Failed to write {}: {err}", T::PATH);
-    }
-}
-
-/// Debounced-save bookkeeping for one persisted resource.
-#[derive(Resource)]
-pub(crate) struct SaveState<T> {
-    /// When the value last changed, if it hasn't been saved since.
-    pending: Option<Duration>,
-    report: LoadReport,
-    marker: PhantomData<fn() -> T>,
-}
-
-impl<T> SaveState<T> {
-    pub(crate) fn new(report: LoadReport) -> Self {
-        Self { pending: None, report, marker: PhantomData }
-    }
-}
-
-pub(crate) fn report_load_problem<T: Persisted>(mut state: ResMut<SaveState<T>>) {
-    if let Some(problem) = state.report.problem.take() {
-        error!("{problem}");
-    }
-}
-
-pub(crate) fn autosave<T: Persisted>(value: Res<T>, time: Res<Time<Real>>, mut state: ResMut<SaveState<T>>) {
-    let now = time.elapsed();
-    if value.is_changed() && !value.is_added() && state.report.can_save {
-        state.pending = Some(now);
-    }
-    if state.pending.is_some_and(|changed_at| now - changed_at >= SAVE_DEBOUNCE) {
-        state.pending = None;
-        save(&*value);
-    }
-}
-
-/// Writes a pending change right away when the app is quitting or the window is closing, instead
-/// of losing it to the debounce.
-pub(crate) fn save_on_exit<T: Persisted>(
-    value: Res<T>,
-    mut state: ResMut<SaveState<T>>,
-    mut exits: MessageReader<AppExit>,
-    mut closes: MessageReader<WindowCloseRequested>,
-) {
-    let quitting = exits.read().count() > 0;
-    let closing = closes.read().count() > 0;
-    if !(quitting || closing) || !state.report.can_save {
-        return;
-    }
-    // A change made this very frame hasn't reached `autosave`'s bookkeeping yet.
-    if state.pending.is_some() || (value.is_changed() && !value.is_added()) {
-        state.pending = None;
-        save(&*value);
-    }
 }
 
 /// A game whose yaw/FOV we can mimic so in-game sensitivity numbers transfer 1:1.
@@ -484,14 +328,11 @@ impl Settings {
     }
 
     /// Reads the settings file. Must run before the app exists (the window is created from the
-    /// settings); problems are logged once `SettingsPlugin` is running.
-    pub fn load() -> Self {
+    /// settings); the report's problems are logged once the app is running.
+    pub(crate) fn load() -> (Self, LoadReport) {
         let (mut settings, report): (Self, _) = load_ron(Path::new(SETTINGS_PATH));
         settings.sanitize();
-        if let Ok(mut slot) = SETTINGS_LOAD.lock() {
-            *slot = Some(report);
-        }
-        settings
+        (settings, report)
     }
 
     /// Clamps values (e.g. from a hand-edited file) to the same hard limits the settings UI uses.
@@ -527,6 +368,8 @@ impl Settings {
 
 #[cfg(test)]
 mod tests {
+    use std::fs;
+
     use super::*;
 
     #[test]
@@ -570,44 +413,11 @@ mod tests {
         assert_eq!(settings.crosshair.outline_opacity, 0.0);
     }
 
-    fn temp_dir(name: &str) -> PathBuf {
+    fn temp_dir(name: &str) -> std::path::PathBuf {
         let dir = std::env::temp_dir().join(format!("aim_trainer_test_{name}_{}", std::process::id()));
         let _ = fs::remove_dir_all(&dir);
         fs::create_dir_all(&dir).unwrap();
         dir
-    }
-
-    #[test]
-    fn invalid_file_is_backed_up_and_defaults_used() {
-        let dir = temp_dir("settings_invalid");
-        let path = dir.join("settings.ron");
-        fs::write(&path, "(finder_drill: Bogus)").unwrap();
-        let (settings, report): (Settings, _) = load_ron(&path);
-        assert_eq!(settings, Settings::default());
-        assert!(report.can_save && report.problem.is_some());
-        assert_eq!(fs::read_to_string(dir.join("settings.ron.bak")).unwrap(), "(finder_drill: Bogus)");
-
-        // Missing files are fine; valid ones load; saves replace the file atomically.
-        let missing = dir.join("missing.ron");
-        let (_, report): (Settings, _) = load_ron(&missing);
-        assert!(report.can_save && report.problem.is_none());
-        write_atomic(&missing, "(sens: 1.5)").unwrap();
-        let (settings, report): (Settings, _) = load_ron(&missing);
-        assert_eq!(settings.sens, 1.5);
-        assert!(report.problem.is_none());
-        assert!(!dir.join("missing.ron.tmp").exists());
-        let _ = fs::remove_dir_all(&dir);
-    }
-
-    #[test]
-    fn unreadable_file_disables_saving() {
-        // A directory in place of the file can't be read as text (and isn't NotFound).
-        let dir = temp_dir("settings_unreadable");
-        let path = dir.join("settings.ron");
-        fs::create_dir_all(&path).unwrap();
-        let (_, report): (Settings, _) = load_ron(&path);
-        assert!(!report.can_save && report.problem.is_some());
-        let _ = fs::remove_dir_all(&dir);
     }
 
     /// The settings `fixtures/settings.ron` was saved from.

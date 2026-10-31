@@ -9,9 +9,10 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     history::csv_safe,
+    persist::{self, PersistPlugin, Persisted},
     routine::{Routine, RoutineStep},
     scenario::{DrillConfig, DrillSpec, Scenario, VARIANT_SEPARATOR},
-    settings::{self, Persisted, SaveState, Settings},
+    settings::Settings,
 };
 
 const CUSTOM_PATH: &str = "aim_trainer_custom.ron";
@@ -24,13 +25,9 @@ pub struct CustomPlugin;
 
 impl Plugin for CustomPlugin {
     fn build(&self, app: &mut App) {
-        let (mut content, report): (CustomContent, _) = settings::load_ron(Path::new(CUSTOM_PATH));
+        let (mut content, report): (CustomContent, _) = persist::load_ron(Path::new(CUSTOM_PATH));
         content.repair();
-        app.insert_resource(content)
-            .insert_resource(SaveState::<CustomContent>::new(report))
-            .add_systems(Startup, settings::report_load_problem::<CustomContent>)
-            .add_systems(Update, settings::autosave::<CustomContent>)
-            .add_systems(Last, settings::save_on_exit::<CustomContent>);
+        app.add_plugins(PersistPlugin { value: content, report });
     }
 }
 
@@ -527,7 +524,7 @@ mod tests {
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("custom.ron");
         std::fs::write(&path, "(scenarios: [(kind: Nope)])").unwrap();
-        let (content, report): (CustomContent, _) = settings::load_ron(&path);
+        let (content, report): (CustomContent, _) = persist::load_ron(&path);
         assert_eq!(content, CustomContent::default());
         assert!(report.can_save && report.problem.is_some());
         assert!(dir.join("custom.ron.bak").exists());

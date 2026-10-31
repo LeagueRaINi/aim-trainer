@@ -1,0 +1,313 @@
+//! Behaviour every drill shares: target assets, spawning through the drill's
+//! [`DrillDef`](super::def::DrillDef) hooks, click shooting, decay and delayed spawns.
+//! Per-drill behaviour lives in [`super::kinds`].
+
+use bevy::{ecs::system::EntityCommands, prelude::*};
+
+use super::{
+    DrillConfig, Run,
+    def::{Environment, TtkFrom},
+    geometry::ray_hit,
+    kinds::peek,
+};
+use crate::{AppState, camera::PlayerCamera, replay::Recorder, settings::Settings, sfx::HitSounds};
+
+/// Fraction of its size a decaying target has left when it expires.
+const DECAY_MIN_SCALE: f32 = 0.35;
+
+/// Shared target mesh and materials, also used by the replay player.
+#[derive(Resource)]
+pub struct TargetAssets {
+    pub mesh: Handle<Mesh>,
+    pub idle: Handle<StandardMaterial>,
+    /// Tracking: the target under the crosshair.
+    pub(crate) hot: Handle<StandardMaterial>,
+    /// Reaction: a cue that hasn't lit up yet.
+    pub(crate) wait: Handle<StandardMaterial>,
+    pub(crate) cover_mesh: Handle<Mesh>,
+    pub(crate) cover_material: Handle<StandardMaterial>,
+}
+
+#[derive(Component)]
+pub(crate) struct Target {
+    pub(crate) base_radius: f32,
+    /// Run time the target appeared (or lit up, for reaction cues).
+    pub(crate) born: f32,
+    /// Decaying targets shrink and expire after this many seconds.
+    pub(crate) lifetime: Option<f32>,
+}
+
+/// A target that is present but not something to react to yet (an unlit reaction cue). Replays
+/// don't record it.
+#[derive(Component)]
+pub(crate) struct Dormant;
+
+/// The layout slot a target occupies (Gridshot cells); handed to the drill's `respawn` hook when
+/// the target is cleared.
+#[derive(Component)]
+pub(crate) struct Slot(pub(crate) usize);
+
+/// When the next target of a one-at-a-time drill (peeks, peripheral) appears.
+#[derive(Resource, Default)]
+pub(crate) struct NextSpawn(pub(crate) Option<f32>);
+
+/// A click killed a target; `aim` is the view direction at the shot.
+#[derive(Message)]
+pub(crate) struct TargetKilled {
+    pub(crate) aim: Vec3,
+}
+
+/// A decaying target ran out of time.
+#[derive(Message)]
+pub(crate) struct TargetExpired;
+
+/// What a drill's spawn hooks get to work with.
+pub struct SpawnCtx<'a, 'w, 's> {
+    pub(crate) commands: &'a mut Commands<'w, 's>,
+    pub(crate) assets: &'a TargetAssets,
+    pub(crate) config: &'a DrillConfig,
+    /// Run time; new targets are born now.
+    pub(crate) now: f32,
+    /// The view direction (straight ahead for the initial targets).
+    pub(crate) aim: Vec3,
+    /// Slots taken by live targets (see [`Slot`]).
+    pub(crate) occupied: &'a mut Vec<usize>,
+    pub(crate) next: &'a mut NextSpawn,
+}
+
+impl SpawnCtx<'_, '_, '_> {
+    /// Target radius for this config.
+    pub(crate) fn radius(&self) -> f32 {
+        self.config.kind.def().base_radius * self.config.size
+    }
+
+    /// Lifetime of decaying targets, if this config decays.
+    pub(crate) fn lifetime(&self) -> Option<f32> {
+        (self.config.supports_decay() && self.config.lifetime > 0.0).then_some(self.config.lifetime)
+    }
+
+    /// Spawns a target born now at `position`, despawned when leaving the drill.
+    pub(crate) fn spawn_target(&mut self, position: Vec3, lifetime: Option<f32>) -> EntityCommands<'_> {
+        let radius = self.radius();
+        self.commands.spawn((
+            DespawnOnExit(AppState::Playing),
+            Target { base_radius: radius, born: self.now, lifetime },
+            Mesh3d(self.assets.mesh.clone()),
+            MeshMaterial3d(self.assets.idle.clone()),
+            Transform::from_translation(position).with_scale(Vec3::splat(radius)),
+        ))
+    }
+}
+
+fn unlit(color: Color) -> StandardMaterial {
+    StandardMaterial { base_color: color, unlit: true, ..default() }
+}
+
+fn target_color(settings: &Settings) -> Color {
+    let [r, g, b] = settings.targets.color;
+    Color::srgb_u8(r, g, b)
+}
+
+/// The tracking "on target" color: the target color washed towards white.
+fn hot_color(settings: &Settings) -> Color {
+    target_color(settings).mix(&Color::WHITE, 0.55)
+}
+
+pub(super) fn create_target_assets(
+    mut commands: Commands,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut materials: ResMut<Assets<StandardMaterial>>,
+    settings: Res<Settings>,
+) {
+    commands.insert_resource(TargetAssets {
+        mesh: meshes.add(Sphere::new(1.0)),
+        idle: materials.add(unlit(target_color(&settings))),
+        hot: materials.add(unlit(hot_color(&settings))),
+        wait: materials.add(unlit(Color::srgb(0.35, 0.37, 0.42))),
+        cover_mesh: meshes.add(Cuboid::from_size(peek::COVER_MAX - peek::COVER_MIN)),
+        cover_material: materials.add(StandardMaterial {
+            base_color: Color::srgb(0.24, 0.26, 0.31),
+            perceptual_roughness: 0.9,
+            ..default()
+        }),
+    });
+}
+
+pub(super) fn sync_target_colors(
+    settings: Res<Settings>,
+    assets: Res<TargetAssets>,
+    mut materials: ResMut<Assets<StandardMaterial>>,
+) {
+    for (handle, color) in [(&assets.idle, target_color(&settings)), (&assets.hot, hot_color(&settings))] {
+        if let Some(mut material) = materials.get_mut(handle)
+            && material.base_color != color
+        {
+            material.base_color = color;
+        }
+    }
+}
+
+/// Spawns a drill's static scenery; used by drills and by their replays.
+pub fn spawn_environment(commands: &mut Commands, assets: &TargetAssets, environment: Environment, state: AppState) {
+    match environment {
+        Environment::Open => {}
+        Environment::Cover => peek::spawn_cover(commands, assets, state),
+    }
+}
+
+/// How far along the ray a shot is stopped by the scenery (`f32::MAX` if it isn't).
+fn blocked_at(environment: Environment, origin: Vec3, aim: Vec3) -> f32 {
+    match environment {
+        Environment::Open => f32::MAX,
+        Environment::Cover => peek::cover_hit(origin, aim).unwrap_or(f32::MAX),
+    }
+}
+
+/// Scene setup when entering a drill, before the player starts it.
+pub(super) fn spawn_static(mut commands: Commands, assets: Res<TargetAssets>, run: Res<Run>) {
+    commands.insert_resource(NextSpawn::default());
+    spawn_environment(&mut commands, &assets, run.kind().def().environment, AppState::Playing);
+}
+
+/// Initial targets, spawned when the countdown starts.
+pub(super) fn spawn_initial(commands: &mut Commands, assets: &TargetAssets, next: &mut NextSpawn, run: &Run) {
+    let mut occupied = Vec::new();
+    let mut ctx = SpawnCtx {
+        commands,
+        assets,
+        config: &run.drill.config,
+        now: 0.0,
+        // Initial targets are placed relative to straight ahead.
+        aim: Vec3::NEG_Z,
+        occupied: &mut occupied,
+        next,
+    };
+    (run.kind().def().spawn_initial)(&mut ctx);
+}
+
+#[allow(clippy::too_many_arguments)]
+pub(super) fn shoot(
+    mut commands: Commands,
+    mouse: Res<ButtonInput<MouseButton>>,
+    mut run: ResMut<Run>,
+    assets: Res<TargetAssets>,
+    sounds: Res<HitSounds>,
+    settings: Res<Settings>,
+    mut recorder: ResMut<Recorder>,
+    mut next: ResMut<NextSpawn>,
+    mut killed: MessageWriter<TargetKilled>,
+    camera: Single<&Transform, With<PlayerCamera>>,
+    targets: Query<(Entity, &Target, &Transform, Option<&Slot>)>,
+) {
+    let def = run.kind().def();
+    if !def.click_kills || !run.live() || !mouse.just_pressed(MouseButton::Left) {
+        return;
+    }
+    run.shot();
+
+    let origin = camera.translation;
+    let aim = camera.forward().as_vec3();
+    let blocked_at = blocked_at(def.environment, origin, aim);
+    let Some((entity, target, _, slot)) = targets
+        .iter()
+        .filter_map(|hit| ray_hit(origin, aim, hit.2.translation, hit.2.scale.x).map(|t| (t, hit)))
+        .filter(|(t, _)| *t < blocked_at)
+        .min_by(|a, b| a.0.total_cmp(&b.0))
+        .map(|(_, hit)| hit)
+    else {
+        recorder.mark_shot(false);
+        return;
+    };
+
+    let now = run.elapsed;
+    // Gridshot dots wait while you shoot the others, so time them from the previous kill.
+    let ttk = if def.ttk_from == TtkFrom::PreviousKill { now - run.last_kill } else { now - target.born };
+    run.kill(ttk);
+    killed.write(TargetKilled { aim });
+    recorder.mark_shot(true);
+    commands.entity(entity).despawn();
+    sounds.play(&mut commands, &settings.audio);
+
+    let mut occupied: Vec<usize> = targets.iter().filter_map(|t| t.3.map(|s| s.0)).collect();
+    let mut ctx = SpawnCtx {
+        commands: &mut commands,
+        assets: &assets,
+        config: &run.drill.config,
+        now,
+        aim,
+        occupied: &mut occupied,
+        next: &mut next,
+    };
+    (def.respawn)(&mut ctx, slot.map(|s| s.0));
+}
+
+/// Shrinks decaying targets and expires them (counted as a miss) when their time runs out.
+#[allow(clippy::type_complexity, clippy::too_many_arguments)]
+pub(super) fn decay(
+    mut commands: Commands,
+    mut run: ResMut<Run>,
+    assets: Res<TargetAssets>,
+    mut next: ResMut<NextSpawn>,
+    mut expired_messages: MessageWriter<TargetExpired>,
+    camera: Single<&Transform, (With<PlayerCamera>, Without<Target>)>,
+    mut targets: Query<(Entity, &Target, &mut Transform, Option<&Slot>)>,
+) {
+    if !run.live() {
+        return;
+    }
+    let now = run.elapsed;
+    let aim = camera.forward().as_vec3();
+    let mut occupied: Vec<usize> = targets.iter().filter_map(|t| t.3.map(|s| s.0)).collect();
+    let mut expired = Vec::new();
+    for (entity, target, mut transform, slot) in &mut targets {
+        let Some(lifetime) = target.lifetime else { continue };
+        let age = (now - target.born) / lifetime;
+        if age >= 1.0 {
+            expired.push((entity, slot.map(|s| s.0)));
+        } else {
+            transform.scale = Vec3::splat(target.base_radius * (1.0 - (1.0 - DECAY_MIN_SCALE) * age));
+        }
+    }
+    let respawn = run.kind().def().respawn;
+    for (entity, slot) in expired {
+        run.expire();
+        expired_messages.write(TargetExpired);
+        commands.entity(entity).despawn();
+        let mut ctx = SpawnCtx {
+            commands: &mut commands,
+            assets: &assets,
+            config: &run.drill.config,
+            now,
+            aim,
+            occupied: &mut occupied,
+            next: &mut next,
+        };
+        respawn(&mut ctx, slot);
+    }
+}
+
+/// Spawns the next target of one-at-a-time drills once its delay has passed.
+pub(super) fn spawn_pending(
+    mut commands: Commands,
+    run: Res<Run>,
+    assets: Res<TargetAssets>,
+    mut next: ResMut<NextSpawn>,
+    camera: Single<&Transform, With<PlayerCamera>>,
+) {
+    let now = run.elapsed;
+    if !run.live() || next.0.is_none_or(|at| now < at) {
+        return;
+    }
+    next.0 = None;
+    let mut occupied = Vec::new();
+    let mut ctx = SpawnCtx {
+        commands: &mut commands,
+        assets: &assets,
+        config: &run.drill.config,
+        now,
+        aim: camera.forward().as_vec3(),
+        occupied: &mut occupied,
+        next: &mut next,
+    };
+    (run.kind().def().spawn_next)(&mut ctx);
+}

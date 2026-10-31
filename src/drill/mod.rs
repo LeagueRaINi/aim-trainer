@@ -1,15 +1,16 @@
 //! Drills: the run lifecycle (ready gate, countdown, timer), scoring, HUD and recording.
-//! Each built-in drill is described by a [`DrillDef`](def::DrillDef) in [`kinds`]; per-drill
-//! target behaviour lives in [`drills`].
+//! Each built-in drill is described by a [`DrillDef`](def::DrillDef) in [`kinds`], which also
+//! holds its own systems; [`targets`] has the behaviour all drills share.
 
 mod config;
 pub mod def;
-mod drills;
 pub mod flick_probe;
+mod geometry;
 mod kind;
-pub mod params;
 pub mod kinds;
+pub mod params;
 pub mod stats;
+mod targets;
 
 use std::borrow::Cow;
 
@@ -21,10 +22,10 @@ use bevy::{
 };
 
 pub use config::{DrillConfig, DrillSpec, SECS_RANGE, VARIANT_SEPARATOR};
-pub use drills::{TargetAssets, spawn_cover};
-use flick_probe::FlickProbe;
 pub use kind::DrillKind;
 pub use stats::RunStats;
+pub use targets::{TargetAssets, spawn_environment};
+use targets::{Dormant, NextSpawn, Target, TargetExpired, TargetKilled};
 
 use crate::{
     AppState,
@@ -46,11 +47,39 @@ const READY_ARM_SECS: f32 = 0.6;
 
 pub struct DrillPlugin;
 
+/// The stages of a drill frame, in order. Drills add their systems to the stage they belong
+/// in; systems of different drills in one stage touch disjoint components. Commands are
+/// applied between stages (e.g. `Measure` sees targets spawned in `Input`/`Expire`).
+#[derive(SystemSet, Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum DrillSet {
+    /// Escape/alt-tab abort, then the ready gate and countdown (spawns the initial targets).
+    Start,
+    /// Clicks.
+    Input,
+    /// Targets running out of time.
+    Expire,
+    /// Measurements of the player's aim (the first-flick probe).
+    Measure,
+    /// Delayed spawns.
+    Spawn,
+    /// Target movement.
+    Move,
+    /// Continuous scoring (time on target).
+    Score,
+    /// Replay sampling.
+    Record,
+    /// The run timer and finishing the run, then the HUD.
+    Finish,
+}
+
 impl Plugin for DrillPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(Startup, drills::create_target_assets)
-            .add_systems(Update, drills::sync_target_colors.run_if(resource_changed::<Settings>))
-            .add_systems(OnEnter(AppState::Playing), (spawn_hud, drills::spawn_static, |mut commands: Commands| {
+        use DrillSet::*;
+        app.add_message::<TargetKilled>()
+            .add_message::<TargetExpired>()
+            .add_systems(Startup, targets::create_target_assets)
+            .add_systems(Update, targets::sync_target_colors.run_if(resource_changed::<Settings>))
+            .add_systems(OnEnter(AppState::Playing), (spawn_hud, targets::spawn_static, |mut commands: Commands| {
                 commands.insert_resource(Recorder::default())
             }))
             // Mouse look turns at the run's sensitivity (read every frame: a finder trial's next
@@ -61,31 +90,26 @@ impl Plugin for DrillPlugin {
                     .before(mouse_look)
                     .run_if(in_state(AppState::Playing)),
             )
+            .configure_sets(
+                Update,
+                (Start, Input, Expire, Measure, Spawn, Move, Score, Record, Finish)
+                    .chain()
+                    .run_if(in_state(AppState::Playing)),
+            )
+            .configure_sets(Update, (Input, Expire, Measure, Spawn, Move, Score).after(apply_look))
             .add_systems(
                 Update,
                 (
                     // First, so an abort on the run's final frame wins over finishing it.
-                    abort_run,
-                    ready_gate,
-                    (
-                        drills::shoot,
-                        drills::reaction,
-                        drills::decay,
-                        drills::probe_flicks,
-                        drills::spawn_pending,
-                        drills::move_peeks,
-                        drills::move_strafers,
-                        drills::track,
-                    )
-                        .chain()
-                        .after(apply_look),
-                    record_frame,
-                    tick_run,
-                    update_hud,
-                )
-                    .chain()
-                    .run_if(in_state(AppState::Playing)),
+                    (abort_run, ready_gate).chain().in_set(Start),
+                    targets::shoot.in_set(Input),
+                    targets::decay.in_set(Expire),
+                    targets::spawn_pending.in_set(Spawn),
+                    record_frame.in_set(Record),
+                    (tick_run, update_hud).chain().in_set(Finish),
+                ),
             );
+        kinds::register(app);
     }
 }
 
@@ -129,10 +153,8 @@ pub struct Run {
     best_ttk: f32,
     last_kill: f32,
     on_target: f32,
-    /// First-flick landing ratios (Microflick), see [`FlickProbe`].
+    /// First-flick landing ratios (Microflick), see [`flick_probe::FlickProbe`].
     landings: Vec<f32>,
-    /// Measures the current Microflick target's first flick.
-    probe: Option<FlickProbe>,
     /// Set by Escape/alt-tab; nothing else happens to the run while the state changes.
     aborted: bool,
 }
@@ -160,7 +182,6 @@ impl Run {
             last_kill: 0.0,
             on_target: 0.0,
             landings: Vec::new(),
-            probe: None,
             aborted: false,
         }
     }
@@ -285,6 +306,7 @@ fn ready_gate(
     keys: Res<ButtonInput<KeyCode>>,
     mut run: ResMut<Run>,
     assets: Res<TargetAssets>,
+    mut next: ResMut<NextSpawn>,
 ) {
     if run.aborted {
         return;
@@ -296,7 +318,7 @@ fn ready_gate(
             run.ready_for += time.delta_secs();
             if run.ready_for >= READY_ARM_SECS && (mouse.just_pressed(MouseButton::Left) || keys.just_pressed(KeyCode::Space)) {
                 run.phase = Phase::Countdown;
-                drills::spawn_initial(&mut commands, &assets, &run);
+                targets::spawn_initial(&mut commands, &assets, &mut next, &run);
             }
         }
         Phase::Countdown => {
@@ -313,14 +335,10 @@ fn record_frame(
     run: Res<Run>,
     look: Res<Look>,
     mut recorder: ResMut<Recorder>,
-    targets: Query<(&Transform, Option<&drills::ReactionCue>), With<drills::Target>>,
+    targets: Query<&Transform, (With<Target>, Without<Dormant>)>,
 ) {
     if run.live() {
-        // A reaction cue that hasn't lit up yet isn't a target the player should react to.
-        let targets = targets
-            .iter()
-            .filter(|(_, cue)| cue.is_none_or(|cue| cue.is_lit()))
-            .map(|(transform, _)| (transform.translation, transform.scale.x));
+        let targets = targets.iter().map(|transform| (transform.translation, transform.scale.x));
         recorder.sample(run.elapsed, look.angles(), targets);
     }
 }

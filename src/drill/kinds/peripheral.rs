@@ -1,10 +1,14 @@
 //! Peripheral: brief dots far off-center that have to be spotted before the flick.
 
+use bevy::prelude::*;
+
 use crate::drill::{
     DrillConfig,
     def::{Category, DecayRule, DrillDef, Environment, TtkFrom},
+    geometry::{away_from, direction, random_range, random_sign},
     params::ParamId,
     stats::ScoreModel,
+    targets::SpawnCtx,
 };
 
 pub const DEF: DrillDef = DrillDef {
@@ -22,9 +26,52 @@ pub const DEF: DrillDef = DrillDef {
     flick_analysis: true,
     params: &[ParamId::YawRange, ParamId::PitchRange, ParamId::MinFlick],
     tune_defaults: tune,
+    spawn_initial,
+    respawn,
+    spawn_next,
 };
 
 /// Far off-center targets that expire quickly.
 fn tune(config: &mut DrillConfig) {
     (config.yaw_range, config.min_flick, config.lifetime) = (45.0, 18.0, 1.1);
+}
+
+fn spawn_initial(ctx: &mut SpawnCtx) {
+    ctx.next.0 = Some(0.4);
+}
+
+/// The next dot appears after a short pause.
+fn respawn(ctx: &mut SpawnCtx, _: Option<usize>) {
+    ctx.next.0 = Some(ctx.now + random_range(0.25, 0.6));
+}
+
+fn spawn_next(ctx: &mut SpawnCtx) {
+    let (position, lifetime) = (peripheral_position(ctx.aim, ctx.config), ctx.lifetime());
+    ctx.spawn_target(position, lifetime);
+}
+
+/// At least `min_flick` degrees to the side, so the eyes have to catch it first.
+fn peripheral_position(aim: Vec3, config: &DrillConfig) -> Vec3 {
+    let near = config.min_flick.min(config.yaw_range);
+    away_from(aim, near * 0.8, || {
+        direction(
+            (random_sign() * random_range(near, config.yaw_range)).to_radians(),
+            random_range(-config.pitch_range, config.pitch_range).to_radians(),
+        )
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::drill::DrillKind;
+
+    #[test]
+    fn peripheral_targets_appear_off_center() {
+        let config = DrillConfig::defaults(DrillKind::Peripheral);
+        for _ in 0..50 {
+            let dir = peripheral_position(Vec3::NEG_Z, &config).normalize();
+            assert!(dir.angle_between(Vec3::NEG_Z).to_degrees() >= config.min_flick - 1e-3);
+        }
+    }
 }

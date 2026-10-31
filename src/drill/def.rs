@@ -2,7 +2,7 @@
 //! menus, the custom editor, history, analysis, replays) asks the definition instead of
 //! matching on the kind.
 
-use super::{DrillConfig, params::ParamId, stats::ScoreModel};
+use super::{DrillConfig, params::ParamId, stats::ScoreModel, targets::SpawnCtx};
 
 /// One built-in drill. Each kind module in [`super::kinds`] defines its `DEF`.
 pub struct DrillDef {
@@ -36,6 +36,12 @@ pub struct DrillDef {
     pub params: &'static [ParamId],
     /// Adjusts [`DrillConfig::defaults`] for this kind.
     pub tune_defaults: fn(&mut DrillConfig),
+    /// Spawns the first targets when the countdown starts (or schedules them via `ctx.next`).
+    pub spawn_initial: fn(&mut SpawnCtx<'_, '_, '_>),
+    /// Replaces a target that was killed by a click or expired; gets the cleared target's slot.
+    pub respawn: fn(&mut SpawnCtx<'_, '_, '_>, Option<usize>),
+    /// Spawns the next target once the time set in `ctx.next` has come (one-at-a-time drills).
+    pub spawn_next: fn(&mut SpawnCtx<'_, '_, '_>),
 }
 
 /// The play-page cards, in display order.
@@ -88,3 +94,9 @@ pub enum Environment {
 
 /// `tune_defaults` for drills that use the common defaults as they are.
 pub fn no_tuning(_: &mut DrillConfig) {}
+
+/// `respawn` for drills that keep their targets (or replace them in their own systems).
+pub fn no_respawn(_: &mut SpawnCtx<'_, '_, '_>, _: Option<usize>) {}
+
+/// `spawn_next` for drills that don't schedule delayed spawns.
+pub fn no_spawn_next(_: &mut SpawnCtx<'_, '_, '_>) {}

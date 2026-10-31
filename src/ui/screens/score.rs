@@ -8,11 +8,10 @@ use bevy::{
 
 use crate::{
     AppState,
-    finder::Finder,
+    finder::{classic::Finder, smart::SmartFinder},
     history::Comparison,
     routine::Routine,
     drill::RunStats,
-    smart_finder::SmartFinder,
     ui::{theme::*, widgets::*},
 };
 

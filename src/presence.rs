@@ -23,12 +23,11 @@ use discord_rich_presence::{
 
 use crate::{
     AppState,
-    finder::Finder,
+    finder::{classic::Finder, smart::SmartFinder},
     routine::Routine,
     drill::{Run, RunPurpose},
     history::LastRun,
     settings::Settings,
-    smart_finder::SmartFinder,
 };
 
 /// The "Aim Trainer" Discord application; its name is what profiles show. Application IDs are

@@ -305,12 +305,11 @@ mod tests {
     use super::*;
     use crate::{
         drill::DrillSet,
-        finder::Finder,
+        finder::{self, classic::Finder, smart::SmartFinder},
         history::{self, History, LastRun},
         replay::{self, Recorder, ReplayDir},
         routine::{self, Routine, RoutineStep},
         settings::FinderFocus,
-        smart_finder::{self, SmartFinder},
         ui::screens::results,
     };
 
@@ -400,7 +399,7 @@ mod tests {
                     history::record_finished.in_set(DrillSet::Log),
                     (
                         replay::save_finished_replay,
-                        smart_finder::finder_trial_finished,
+                        finder::finder_trial_finished,
                         routine::routine_step_finished,
                         results::show_results,
                     )

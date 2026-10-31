@@ -15,7 +15,6 @@ mod replay;
 mod routine;
 mod settings;
 mod sfx;
-mod smart_finder;
 mod ui;
 
 use bevy::{
@@ -65,7 +64,7 @@ fn main() {
             sfx::SfxPlugin,
             drill::DrillPlugin,
             replay::ReplayPlugin,
-            smart_finder::FinderPlugin,
+            finder::FinderPlugin,
             routine::RoutinePlugin,
             presence::PresencePlugin,
             ui::UiPlugin,

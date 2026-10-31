@@ -20,10 +20,12 @@ use crate::ui::{
 };
 use crate::{
     AppState,
-    finder::{Finder, FinderStep},
+    finder::{
+        classic::{Finder, FinderStep},
+        smart::{PLATEAU, SmartFinder, SmartStep, WARM_IN},
+    },
     drill::{DrillSpec, Run, RunPurpose, begin_run},
     settings::{FinderMethod, Settings},
-    smart_finder::{PLATEAU, SmartFinder, SmartStep, WARM_IN},
 };
 
 /// Starts the finder with the method chosen in settings.
@@ -287,7 +289,7 @@ fn spawn_smart(mut commands: Commands, finder: Res<SmartFinder>, settings: Res<S
     let context = format!("Smart sens finder  ·  Trial {} / {total}", done + 1);
     let mut entity = match finder.step {
         SmartStep::Trial => {
-            let phase = if done < crate::smart_finder::PROBES {
+            let phase = if done < crate::finder::smart::PROBES {
                 "Probing 5 sensitivities from 0.6x to 1.6x yours, in random order."
             } else {
                 "Refining around the predicted best sensitivity."

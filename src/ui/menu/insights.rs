@@ -84,7 +84,7 @@ fn spawn_insights(commands: &mut Commands, body: Entity, analysis: &Analysis) {
     let wheel = section(commands, left, "Kill time by direction");
     spawn_wheel(commands, wheel, analysis);
     let caption = format!(
-        "vs your average for the distance. {} flicks from {} runs. Red = weaker, green = stronger, grey = under {MIN_SAMPLES} flicks.",
+        "vs your average for the distance; b/s: throughput of your first clicks. {} flicks from {} runs. Red = weaker, green = stronger, grey = under {MIN_SAMPLES} flicks.",
         analysis.flicks, analysis.replays
     );
     text(commands, wheel, caption, 11.0, tokens::TEXT_DIM, Node::default());
@@ -106,7 +106,7 @@ fn weakness_color(score: f32) -> Color {
 }
 
 /// The 8 directions around the crosshair, each colored by its weakness score and showing its kill
-/// time versus your average.
+/// time versus your average and its throughput.
 fn spawn_wheel(commands: &mut Commands, parent: Entity, analysis: &Analysis) {
     let grid = commands
         .spawn((ChildOf(parent), Node { flex_direction: FlexDirection::Column, row_gap: px(TILE_GAP), ..default() }))
@@ -132,13 +132,15 @@ fn spawn_wheel(commands: &mut Commands, parent: Entity, analysis: &Analysis) {
                 continue;
             };
             let stats = &analysis.sectors[sector];
-            let (background, value, note) = match stats.score {
-                Some(score) => (
-                    weakness_color(score),
-                    stats.ttk_vs(&analysis.overall).map_or("-".into(), |ms| format!("{ms:+.0} ms")),
-                    format!("{} flicks", stats.n),
-                ),
-                None => (Color::srgb(0.17, 0.18, 0.2), "-".into(), format!("{} flicks", stats.n)),
+            let note = match stats.throughput {
+                Some(tp) => format!("{} · {tp:.1} b/s", stats.n),
+                None => format!("{} flicks", stats.n),
+            };
+            let (background, value) = match stats.score {
+                Some(score) => {
+                    (weakness_color(score), stats.ttk_vs(&analysis.overall).map_or("-".into(), |ms| format!("{ms:+.0} ms")))
+                }
+                None => (Color::srgb(0.17, 0.18, 0.2), "-".into()),
             };
             let tile = commands.spawn((ChildOf(line), tile, BackgroundColor(background))).id();
             text(commands, tile, SECTORS[sector].to_uppercase(), 10.0, TEXT_STRONG, Node::default());
@@ -188,12 +190,12 @@ fn spawn_findings(commands: &mut Commands, parent: Entity, analysis: &Analysis) 
 /// One row per distance band.
 fn spawn_band_table(commands: &mut Commands, parent: Entity, analysis: &Analysis) {
     const LABEL_W: f32 = 80.0;
-    const VALUE_W: f32 = 66.0;
+    const VALUE_W: f32 = 60.0;
     let table = section(commands, parent, "By distance");
     let rows = commands
         .spawn((ChildOf(table), Node { flex_direction: FlexDirection::Column, row_gap: px(2), ..default() }))
         .id();
-    let headers = ["Flicks", "Landing", "Off-line", "Bow", "Corr.", "Kill", "vs avg", "Miss"];
+    let headers = ["Flicks", "Landing", "Off-line", "Bow", "Corr.", "Kill", "vs avg", "Miss", "TPe"];
     let mut header = vec![cell("Distance", LABEL_W, tokens::TEXT_DIM)];
     header.extend(headers.iter().map(|h| cell(*h, VALUE_W, tokens::TEXT_DIM)));
     commands.spawn_scene(table_row(header, false)).insert(ChildOf(rows));
@@ -217,11 +219,12 @@ fn spawn_band_table(commands: &mut Commands, parent: Entity, analysis: &Analysis
             cell(stats.corrections.map_or("-".into(), |c| format!("{c:.1}")), VALUE_W, main.clone()),
             cell(stats.ttk.map_or("-".into(), |t| format!("{:.0} ms", t * 1000.0)), VALUE_W, main.clone()),
             cell(versus.map_or("-".into(), |ms| format!("{ms:+.0} ms")), VALUE_W, versus_color),
-            cell(percent(stats.error_rate), VALUE_W, main),
+            cell(percent(stats.error_rate), VALUE_W, main.clone()),
+            cell(stats.throughput.map_or("-".into(), |tp| format!("{tp:.1}")), VALUE_W, main),
         ];
         commands.spawn_scene(table_row(cells, band % 2 == 0)).insert(ChildOf(rows));
     }
-    let legend = "Landing: how far your first flick travels (100% = on target). Off-line: its sideways error. Bow: path curve. Corr.: corrective moves per kill. Kill: median time to kill.";
+    let legend = "Landing: how far your first flick travels (100% = on target). Off-line: its sideways error. Bow: path curve. Corr.: corrective moves per kill. Kill: median time to kill. TPe: effective throughput of your first clicks, bits/s.";
     text(commands, table, legend.into(), 11.0, tokens::TEXT_DIM, Node::default());
 }
 

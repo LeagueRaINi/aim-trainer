@@ -17,7 +17,10 @@
 //! - bow: straightness of the flick's main movement ([`bow::segment_bows`]): its largest
 //!   distance from the straight line between its ends, relative to that line's length;
 //! - corrections: further submovements after the first one, up to the kill;
-//! - time to kill (TTK), missed shots, and whether the target expired.
+//! - time to kill (TTK), missed shots, and whether the target expired;
+//! - the first click (hit or miss) relative to the target centre, for the group's effective
+//!   throughput ([`throughput`]); a shot aimed at another target (nearest the crosshair) isn't
+//!   this flick's.
 //!
 //! **Expected TTK.** Kill time grows with distance and shrinks with target size, so each kill is
 //! compared with what *you* need for it: per drill kind, a least-squares Fitts fit
@@ -25,16 +28,20 @@
 //! percentile first). Directions and distance bands are then fair to compare.
 //!
 //! **Weakness score** of a group of flicks (a direction, a distance band, or both). For each
-//! metric, the gap `d` between the group and all of your flicks, in units of your own spread of
+//! metric, the gap between the group and all of your flicks, in units of your own spread of
 //! that metric (1.4826 x median absolute deviation, or the standard deviation for counts and
-//! rates), clamped to +-3, positive = worse:
+//! rates). Small groups are noisy, so each gap is shrunk toward 0 (empirical Bayes): with `n`
+//! values in the group, `d = n / (n + k) * gap`, clamped to +-3, positive = worse, where
+//! `k = sigma2_within / tau2_between` is estimated per metric and per kind of grouping (by
+//! direction, by distance, by both) with the method of moments over all groups of that kind,
+//! within [`MIN_PSEUDO`, `MAX_PSEUDO`]: the more your groups really differ, the less they're
+//! pulled together. Then
 //!
-//! `score = n / (n + 10) * (0.5 * d_time + 0.5 * mean(d_landing, d_off_axis, d_bow, d_corrections, d_errors))`
+//! `score = 0.5 * d_time + 0.5 * mean(d_landing, d_off_axis, d_bow, d_corrections, d_errors)`
 //!
 //! with medians of TTK / expected TTK, |landing - 1|, |off-axis| and bow, the mean corrections per
 //! kill, and errors = (missed shots + expiries) per attempt. Only groups of at least
-//! [`MIN_SAMPLES`] flicks are scored; `n / (n + 10)` shrinks small groups toward 0 so a few
-//! unlucky flicks can't top the list. Groups scoring over [`MIN_SCORE`] become findings.
+//! [`MIN_SAMPLES`] flicks are scored. Groups scoring over [`MIN_SCORE`] become findings.
 
 use bevy::math::{EulerRot, Quat, Vec2, Vec3};
 
@@ -43,7 +50,7 @@ use crate::{
     metrics::{
         bow,
         flick_probe::{END_SPEED, FlickProbe, START_SPEED, angles, screen_angle, wrap},
-        throughput::{self, BANDS},
+        throughput::{self, BANDS, Click},
     },
     replay::{Replay, ReplayFrame, Shot},
 };
@@ -60,8 +67,10 @@ pub const MIN_SAMPLES: usize = 8;
 pub const MIN_FLICKS: usize = 40;
 /// Length of a generated training scenario, seconds.
 pub const TRAINING_SECS: f32 = 60.0;
-/// Pseudo-count of the small-group shrinkage, see the module docs.
-const SHRINK: f32 = 10.0;
+/// Bounds of the shrinkage pseudo-count `k`, see the module docs: some pull toward your average
+/// always, and none so strong that no group can ever stand out.
+const MIN_PSEUDO: f32 = 2.0;
+const MAX_PSEUDO: f32 = 200.0;
 /// Lowest weakness score reported as a finding.
 const MIN_SCORE: f32 = 0.15;
 const MAX_FINDINGS: usize = 3;
@@ -116,6 +125,8 @@ pub struct Flick {
     pub ttk: Option<f32>,
     /// Missed shots during the flick.
     pub misses: u32,
+    /// The flick's first click (hit or miss), if it had one.
+    pub click: Option<Click>,
 }
 
 impl Flick {
@@ -227,19 +238,42 @@ fn measure(kind: DrillKind, frames: &[ReplayFrame], start: usize, target: &Alive
     if killed && first.is_none() {
         first = Some((probe.landing(end_aim), probe.off_axis(end_aim)));
     }
-    let width = 2.0 * (target.radius / target.center.length().max(1e-3)).atan().to_degrees();
+    let distance = target.center.length().max(1e-3);
+    let angular = |radius: f32| (radius / distance).atan().to_degrees();
     Some(Flick {
         kind,
         angle: screen_angle(offset),
         distance: offset.length(),
-        width,
+        width: 2.0 * angular(target.radius),
         landing: first.map(|f| f.0),
         off_axis: first.map(|f| f.1),
         bow: main_bow(&points),
         corrections,
         ttk: killed.then_some(end_t - points[0].0),
         misses: frames[1..].iter().filter(|f| f.shot == Shot::Miss).count() as u32,
+        click: first_click(frames, target).map(|(k, radius)| Click {
+            start: from,
+            target: to,
+            radius: angular(radius),
+            size: angular(target.radius),
+            aim: points[k].1,
+            time: points[k].0 - points[0].0,
+            hit: frames[k].shot == Shot::Hit,
+            first: true,
+        }),
     })
+}
+
+/// The frame of the flick's first shot (shots in its first frame came before the target
+/// appeared, or were the previous kill) and the target's radius just before it (a kill removes
+/// the target in the frame of the shot). `None` if that shot was aimed at another target (the
+/// one nearest the crosshair), as in the live recording.
+fn first_click(frames: &[ReplayFrame], target: &Alive) -> Option<(usize, f32)> {
+    let k = (1..frames.len()).find(|&k| frames[k].shot != Shot::None)?;
+    let aim = Quat::from_euler(EulerRot::YXZ, frames[k].yaw, frames[k].pitch, 0.0) * Vec3::NEG_Z;
+    let &(center, radius) =
+        frames[k - 1].targets.iter().min_by(|a, b| aim.angle_between(a.0).total_cmp(&aim.angle_between(b.0)))?;
+    same_target(center, target.center).then_some((k, radius))
 }
 
 /// Bow of the longest movement on the path.
@@ -328,6 +362,8 @@ struct Sample {
     errors: f32,
     /// Shots plus an expiry: every chance to hit.
     attempts: f32,
+    /// The flick's first click.
+    click: Option<Click>,
 }
 
 impl Sample {
@@ -349,6 +385,7 @@ impl Sample {
             ttk_excess: flick.ttk.zip(expected).map(|(t, e)| t - e),
             errors: (flick.misses + expired) as f32,
             attempts: (flick.misses + 1) as f32,
+            click: flick.click,
         }
     }
 }
@@ -380,6 +417,15 @@ impl Metric {
             Metric::Bow => sample.bow,
             Metric::Corrections => sample.corrections,
             Metric::Errors => None,
+        }
+    }
+
+    /// The per-flick value of every metric (errors per attempt for the error rate), for the
+    /// shrinkage estimate.
+    fn per_flick(self, sample: &Sample) -> Option<f32> {
+        match self {
+            Metric::Errors => Some(sample.errors / sample.attempts),
+            _ => self.value(sample),
         }
     }
 
@@ -440,6 +486,67 @@ impl Reference {
     }
 }
 
+/// Shrinkage pseudo-counts `k` per metric, by [`Metric::index`].
+type PseudoCounts = [f32; 6];
+
+/// Method-of-moments `k = sigma2_within / tau2_between` of one metric over a partition of the
+/// flicks into groups (one-way random effects ANOVA: `tau2 = (MS_between - MS_within) / n0`),
+/// clamped to [`MIN_PSEUDO`, `MAX_PSEUDO`]. Groups need 2 values to count.
+fn pseudo_count(groups: &[Vec<f32>]) -> f32 {
+    let groups: Vec<&Vec<f32>> = groups.iter().filter(|g| g.len() >= 2).collect();
+    if groups.len() < 2 {
+        return MAX_PSEUDO;
+    }
+    let sizes: Vec<f32> = groups.iter().map(|g| g.len() as f32).collect();
+    let (n, count) = (sizes.iter().sum::<f32>(), groups.len() as f32);
+    let means: Vec<f32> = groups.iter().map(|g| mean(g)).collect();
+    let grand = sizes.iter().zip(&means).map(|(n, m)| n * m).sum::<f32>() / n;
+    let within =
+        groups.iter().zip(&means).map(|(g, m)| g.iter().map(|v| (v - m).powi(2)).sum::<f32>()).sum::<f32>() / (n - count);
+    let between = sizes.iter().zip(&means).map(|(n, m)| n * (m - grand).powi(2)).sum::<f32>() / (count - 1.0);
+    let n0 = (n - sizes.iter().map(|s| s * s).sum::<f32>() / n) / (count - 1.0);
+    let tau2 = (between - within) / n0;
+    if tau2 <= 0.0 { MAX_PSEUDO } else { (within / tau2).clamp(MIN_PSEUDO, MAX_PSEUDO) }
+}
+
+/// The pseudo-counts for each way of grouping flicks: by direction, by distance, by both.
+struct Shrinkage {
+    sectors: PseudoCounts,
+    bands: PseudoCounts,
+    cells: PseudoCounts,
+}
+
+impl Shrinkage {
+    fn new(samples: &[Sample]) -> Self {
+        let estimate = |groups: usize, key: &dyn Fn(&Sample) -> usize| {
+            METRICS.map(|metric| {
+                let mut values = vec![Vec::new(); groups];
+                for sample in samples {
+                    if let Some(value) = metric.per_flick(sample) {
+                        values[key(sample)].push(value);
+                    }
+                }
+                pseudo_count(&values)
+            })
+        };
+        Self {
+            sectors: estimate(SECTORS.len(), &|s| s.sector),
+            bands: estimate(BANDS.len(), &|s| s.band),
+            cells: estimate(SECTORS.len() * BANDS.len(), &|s| s.sector * BANDS.len() + s.band),
+        }
+    }
+
+    /// The pseudo-counts of the grouping `cell` belongs to; none for all flicks.
+    fn of(&self, cell: Cell) -> PseudoCounts {
+        match (cell.sector, cell.band) {
+            (Some(_), Some(_)) => self.cells,
+            (Some(_), None) => self.sectors,
+            (None, Some(_)) => self.bands,
+            (None, None) => [0.0; 6],
+        }
+    }
+}
+
 /// Statistics of a group of flicks.
 #[derive(Clone, Debug, Default)]
 pub struct CellStats {
@@ -458,27 +565,34 @@ pub struct CellStats {
     pub ttk_excess: Option<f32>,
     /// Missed shots plus expiries per attempt.
     pub error_rate: Option<f32>,
+    /// Effective throughput of the first clicks, bits/s (see [`throughput`]).
+    pub throughput: Option<f32>,
     /// Weakness score (module docs); `None` below [`MIN_SAMPLES`] flicks.
     pub score: Option<f32>,
-    /// Per-metric gaps to the reference, in spreads (positive = worse), by [`Metric::index`].
+    /// Per-metric shrunk gaps to the reference, in spreads (positive = worse), by
+    /// [`Metric::index`].
     gaps: [Option<f32>; 6],
 }
 
 impl CellStats {
-    fn new(samples: &[&Sample], reference: &Reference) -> Self {
+    /// The group's statistics, its gaps shrunk with pseudo-counts `k` (module docs).
+    fn new(samples: &[&Sample], reference: &Reference, k: &PseudoCounts) -> Self {
         let mut landings: Vec<f32> = samples.iter().filter_map(|s| s.landing).collect();
         let mut ttks: Vec<f32> = samples.iter().filter_map(|s| s.ttk).collect();
         let mut excess: Vec<f32> = samples.iter().filter_map(|s| s.ttk_excess).collect();
+        let clicks: Vec<Click> = samples.iter().filter_map(|s| s.click).collect();
         let centers = METRICS.map(|m| m.center(samples));
         let gaps = METRICS.map(|m| {
             let i = m.index();
-            Some(((centers[i]? - reference.center[i]?) / reference.spread[i]).clamp(-MAX_GAP, MAX_GAP))
+            let count = samples.iter().filter(|s| m.per_flick(s).is_some()).count() as f32;
+            let weight = count / (count + k[i]);
+            Some((weight * (centers[i]? - reference.center[i]?) / reference.spread[i]).clamp(-MAX_GAP, MAX_GAP))
         });
         let n = samples.len();
         let score = gaps[Metric::Time.index()].filter(|_| n >= MIN_SAMPLES).map(|time| {
             let errors: Vec<f32> = gaps[1..].iter().flatten().copied().collect();
             let errors = if errors.is_empty() { 0.0 } else { mean(&errors) };
-            n as f32 / (n as f32 + SHRINK) * (0.5 * time + 0.5 * errors)
+            0.5 * time + 0.5 * errors
         });
         Self {
             n,
@@ -489,6 +603,7 @@ impl CellStats {
             ttk: median(&mut ttks),
             ttk_excess: median(&mut excess),
             error_rate: centers[Metric::Errors.index()],
+            throughput: throughput::throughput(&clicks),
             score,
             gaps,
         }
@@ -603,9 +718,10 @@ pub fn analyze_flicks(flicks: &[Flick], replays: usize) -> Analysis {
     let samples: Vec<Sample> = flicks.iter().map(|f| Sample::new(f, &model)).collect();
     let all: Vec<&Sample> = samples.iter().collect();
     let reference = Reference::new(&all);
+    let shrinkage = Shrinkage::new(&samples);
     let group = |cell: Cell| {
         let members: Vec<&Sample> = samples.iter().filter(|s| cell.contains(s)).collect();
-        CellStats::new(&members, &reference)
+        CellStats::new(&members, &reference, &shrinkage.of(cell))
     };
     let overall = group(Cell::default());
     let sectors: Vec<CellStats> = (0..SECTORS.len()).map(|s| group(Cell { sector: Some(s), band: None })).collect();
@@ -731,7 +847,8 @@ fn compare(samples: &[Sample], reference: &Reference, name_a: &str, name_b: &str
     if a.len() < MIN_SAMPLES || b.len() < MIN_SAMPLES {
         return None;
     }
-    let (a, b) = (CellStats::new(&a, reference), CellStats::new(&b, reference));
+    // Two halves of all flicks: large enough not to need shrinking.
+    let (a, b) = (CellStats::new(&a, reference, &[0.0; 6]), CellStats::new(&b, reference, &[0.0; 6]));
     let mut facts = Vec::new();
     if let Some(ms) = a.ttk_excess.zip(b.ttk_excess).map(|(x, y)| (x - y) * 1000.0).filter(|ms| ms.abs() >= 15.0) {
         let (slower, faster) = if ms > 0.0 { (name_a, name_b) } else { (name_b, name_a) };
@@ -765,6 +882,7 @@ fn percentile(values: &mut [f32], q: f32) -> f32 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::metrics::flick_probe::screen_offset;
 
     const DT: f32 = 1.0 / 240.0;
 
@@ -856,6 +974,12 @@ mod tests {
         assert!((kill.landing.unwrap() - 1.0).abs() < 0.02, "{:?}", kill.landing);
         assert!(kill.bow.unwrap() < 0.02);
         assert_eq!(kill.corrections, 0);
+        // Its first click was the miss right at the start: 20 degrees short, along the flick.
+        let click = kill.click.unwrap();
+        assert!(!click.hit && (click.time - DT).abs() < 1e-5);
+        let offset = click.task_offset().unwrap();
+        assert!((offset.x + 20.0).abs() < 0.05 && offset.y.abs() < 0.05, "{offset}");
+        assert!((click.radius - (0.2f32 / 10.0).atan().to_degrees()).abs() < 1e-3);
 
         let expired = &flicks[1];
         assert_eq!(expired.ttk, None);
@@ -885,6 +1009,10 @@ mod tests {
         // Up on screen is counter-clockwise of a rightward flick.
         assert!((flick.off_axis.unwrap() - 0.1).abs() < 0.02, "{:?}", flick.off_axis);
         assert_eq!(flick.corrections, 1);
+        // The kill was the first click, on the centre.
+        let click = flick.click.unwrap();
+        assert!(click.hit && (click.time - flick.ttk.unwrap()).abs() < 1e-5);
+        assert!(click.task_offset().unwrap().length() < 0.05);
     }
 
     #[test]
@@ -906,8 +1034,8 @@ mod tests {
     }
 
     /// Synthetic flicks: `n` per sector over all bands, with Fitts-like kill times plus noise;
-    /// `weak` sectors are 35% slower, undershoot and need corrections.
-    fn synthetic(per_sector: &[usize], weak: usize) -> Vec<Flick> {
+    /// `weak` sectors are 35% slower, undershoot, need corrections and click less precisely.
+    fn synthetic(per_sector: &[usize], weak: &[usize]) -> Vec<Flick> {
         let mut rng = fastrand::Rng::with_seed(7);
         let mut flicks = Vec::new();
         for (sector, &n) in per_sector.iter().enumerate() {
@@ -915,12 +1043,15 @@ mod tests {
                 let distance = [5.0, 11.0, 20.0, 30.0, 45.0][i % 5] + rng.f32() * 2.0;
                 let width = 2.3;
                 let difficulty = (distance / width + 1.0f32).log2();
-                let slow = if sector == weak { 1.35 } else { 1.0 };
+                let weak_spot = weak.contains(&sector);
+                let slow = if weak_spot { 1.35 } else { 1.0 };
                 let ttk = (0.2 + 0.08 * difficulty) * slow * (0.9 + 0.2 * rng.f32());
-                let weak_spot = sector == weak;
+                let angle = sector as f32 * 45.0 + rng.f32() * 30.0 - 15.0;
+                let target = screen_offset(angle, distance);
+                let error = (rng.f32() - 0.5) * width * if weak_spot { 1.5 } else { 1.0 };
                 flicks.push(Flick {
                     kind: DrillKind::Microflick,
-                    angle: sector as f32 * 45.0 + rng.f32() * 30.0 - 15.0,
+                    angle,
                     distance,
                     width,
                     landing: Some(if weak_spot { 0.85 } else { 0.97 } + rng.f32() * 0.06 - 0.03),
@@ -929,6 +1060,16 @@ mod tests {
                     corrections: if weak_spot { 2 } else { rng.u32(0..2) },
                     ttk: Some(ttk),
                     misses: (rng.f32() < 0.1) as u32,
+                    click: Some(Click {
+                        start: Vec2::ZERO,
+                        target,
+                        radius: width * 0.5,
+                        size: width * 0.5,
+                        aim: target + screen_offset(angle, error),
+                        time: ttk,
+                        hit: error.abs() <= width * 0.5,
+                        first: true,
+                    }),
                 });
             }
         }
@@ -937,7 +1078,8 @@ mod tests {
 
     #[test]
     fn the_weakest_sector_ranks_first() {
-        let analysis = analyze_flicks(&synthetic(&[30; 8], 5), 10);
+        // 8 flicks per sector and distance band, enough for each sector's throughput.
+        let analysis = analyze_flicks(&synthetic(&[40; 8], &[5]), 10);
         assert!(analysis.enough_data());
         let top = &analysis.findings[0];
         assert_eq!(top.cell.sector, Some(5), "{:?}", analysis.findings);
@@ -946,6 +1088,10 @@ mod tests {
         let weakest = (0..8).max_by(|&a, &b| scores[a].total_cmp(&scores[b])).unwrap();
         assert_eq!(weakest, 5, "{scores:?}");
         assert!(analysis.sectors[5].ttk_vs(&analysis.overall).unwrap() > 40.0);
+        // Slower and less precise: the lowest throughput.
+        let throughputs: Vec<f32> = analysis.sectors.iter().map(|s| s.throughput.unwrap()).collect();
+        let lowest = (0..8).min_by(|&a, &b| throughputs[a].total_cmp(&throughputs[b])).unwrap();
+        assert_eq!(lowest, 5, "{throughputs:?}");
         // Findings never repeat a group inside another one.
         for (i, a) in analysis.findings.iter().enumerate() {
             for b in &analysis.findings[i + 1..] {
@@ -960,14 +1106,50 @@ mod tests {
         // The weak sector has only 5 flicks: too few to score or report.
         let mut counts = [30; 8];
         counts[5] = MIN_SAMPLES - 3;
-        let analysis = analyze_flicks(&synthetic(&counts, 5), 10);
+        let analysis = analyze_flicks(&synthetic(&counts, &[5]), 10);
         assert_eq!(analysis.sectors[5].score, None);
         assert_eq!(analysis.sectors[5].n, MIN_SAMPLES - 3);
         assert!(analysis.findings.iter().all(|f| f.cell.sector != Some(5)), "{:?}", analysis.findings);
         // And too few flicks overall show nothing.
-        let few = analyze_flicks(&synthetic(&[4; 8], 5), 1);
+        let few = analyze_flicks(&synthetic(&[4; 8], &[5]), 1);
         assert!(!few.enough_data());
         assert!(few.tendencies.is_empty());
+    }
+
+    #[test]
+    fn pseudo_counts_follow_the_real_differences_between_groups() {
+        // Within-group spread 0.1; group means 0..7 apart: almost no shrinkage needed.
+        let distinct: Vec<Vec<f32>> = (0..8).map(|g| (0..30).map(|i| g as f32 + (i % 5) as f32 * 0.05).collect()).collect();
+        assert_eq!(pseudo_count(&distinct), MIN_PSEUDO);
+        // Identical groups: anything that sets one apart is noise, so shrink all the way.
+        let same: Vec<Vec<f32>> = (0..8).map(|_| (0..30).map(|i| (i % 5) as f32).collect()).collect();
+        assert_eq!(pseudo_count(&same), MAX_PSEUDO);
+        // Means 0 / 1 alternating, within-group variance 1 (values +-1 around the mean):
+        // tau2 = MS_between - MS_within over n0 = 10.
+        let mixed: Vec<Vec<f32>> =
+            (0..6).map(|g| (0..10).map(|i| (g % 2) as f32 + if i % 2 == 0 { 1.0 } else { -1.0 }).collect()).collect();
+        let within = 60.0 / 54.0;
+        let tau2 = (10.0 * 6.0 * 0.25 / 5.0 - within) / 10.0;
+        assert!((pseudo_count(&mixed) - within / tau2).abs() < 1e-3, "{}", pseudo_count(&mixed));
+        // Fewer than two usable groups: nothing to estimate from.
+        assert_eq!(pseudo_count(&[vec![1.0, 2.0], vec![5.0]]), MAX_PSEUDO);
+    }
+
+    #[test]
+    fn shrinkage_pulls_small_groups_harder() {
+        // Two equally weak directions, one with 60 flicks and one with 10: the evidence for the
+        // small one is weaker, so it's pulled further toward your average.
+        let mut counts = [30; 8];
+        counts[2] = 60;
+        counts[5] = 10;
+        let analysis = analyze_flicks(&synthetic(&counts, &[2, 5]), 10);
+        let (big, small) = (&analysis.sectors[2], &analysis.sectors[5]);
+        let (big_ms, small_ms) = (big.ttk_vs(&analysis.overall).unwrap(), small.ttk_vs(&analysis.overall).unwrap());
+        assert!((small_ms / big_ms - 1.0).abs() < 0.35, "raw gaps {big_ms} vs {small_ms}");
+        let (big_time, small_time) = (big.gaps[Metric::Time.index()].unwrap(), small.gaps[Metric::Time.index()].unwrap());
+        assert!(small_time / small_ms < 0.9 * big_time / big_ms, "shrunk {big_time} vs {small_time}");
+        assert!(small.score.unwrap() < big.score.unwrap());
+        assert_eq!(analysis.findings[0].cell.sector, Some(2), "{:?}", analysis.findings);
     }
 
     #[test]

@@ -4,7 +4,6 @@
 
 mod config;
 pub mod def;
-pub mod flick_probe;
 mod geometry;
 mod kind;
 pub mod kinds;

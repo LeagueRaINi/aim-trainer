@@ -14,7 +14,7 @@
 //! - landing: how far the first submovement travels along the target direction, as a fraction of
 //!   the distance ([`FlickProbe`]; < 1 undershoot, > 1 overshoot), measured where it ends (or at
 //!   the kill, if that comes first); off-axis: its sideways error, as a fraction of the distance;
-//! - bow: straightness of the flick's main movement ([`tracer::segment_bows`]): its largest
+//! - bow: straightness of the flick's main movement ([`bow::segment_bows`]): its largest
 //!   distance from the straight line between its ends, relative to that line's length;
 //! - corrections: further submovements after the first one, up to the kill;
 //! - time to kill (TTK), missed shots, and whether the target expired.
@@ -39,13 +39,12 @@
 use bevy::math::{EulerRot, Quat, Vec2, Vec3};
 
 use crate::{
-    replay::{Replay, ReplayFrame, Shot},
-    drill::{
-        DrillConfig, DrillKind,
-        def::TtkFrom,
+    drill::{DrillConfig, DrillKind, def::TtkFrom},
+    metrics::{
+        bow,
         flick_probe::{END_SPEED, FlickProbe, MIN_DISTANCE, START_SPEED, angles, screen_angle, wrap},
     },
-    tracer,
+    replay::{Replay, ReplayFrame, Shot},
 };
 
 /// Drills whose replays are made of flicks ([`DrillDef::flick_analysis`](crate::drill::def::DrillDef::flick_analysis)).
@@ -246,7 +245,7 @@ fn measure(kind: DrillKind, frames: &[ReplayFrame], start: usize, target: &Alive
 
 /// Bow of the longest movement on the path.
 fn main_bow(points: &[(f32, Vec2)]) -> Option<f32> {
-    let bows = tracer::segment_bows(points);
+    let bows = bow::segment_bows(points);
     let mut best: Option<(f32, f32)> = None;
     let mut i = 0;
     while i < bows.len() {

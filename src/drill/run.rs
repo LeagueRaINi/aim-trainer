@@ -86,7 +86,7 @@ pub struct Run {
     best_ttk: f32,
     pub(super) last_kill: f32,
     on_target: f32,
-    /// First-flick landing ratios (Microflick), see [`FlickProbe`](super::flick_probe::FlickProbe).
+    /// First-flick landing ratios (Microflick), see [`FlickProbe`](crate::metrics::flick_probe::FlickProbe).
     landings: Vec<f32>,
     /// Set by Escape/alt-tab; nothing else happens to the run while the state changes.
     aborted: bool,

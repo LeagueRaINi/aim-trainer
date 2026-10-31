@@ -1,35 +1,18 @@
-//! Run replays: compact recordings of view angles, targets and shots, saved per practice run,
-//! and a first-person player with pause, seek and slow motion.
+//! The replay file format: [`Replay`] data, the v3 encoding (and the v1/v2 decoders), saving,
+//! loading, pruning, and the background migration of old files to v3.
 
 use std::{
     array, fs, io,
     path::{Path, PathBuf},
 };
 
-use bevy::{
-    diagnostic::{DiagnosticsStore, FrameTimeDiagnosticsPlugin},
-    feathers::{constants::fonts, theme::ThemeBackgroundColor, tokens},
-    prelude::*,
-    tasks::IoTaskPool,
-};
+use bevy::{prelude::*, tasks::IoTaskPool};
 
-use crate::{
-    AppState,
-    camera::{Look, apply_look},
-    drill::{DrillKind, DrillSet, RunPurpose, TargetAssets, spawn_environment},
-    history::RunRecorded,
-    tracer,
-    ui::{
-        theme::{DIVIDER, TEXT_ACCENT, TEXT_BAD, TEXT_GOOD, TEXT_STRONG},
-        widgets::{hud_anchor, hud_bar, styled, vertical_divider},
-    },
-};
+use crate::drill::DrillKind;
 
-const REPLAY_DIR: &str = "replays";
+pub(super) const REPLAY_DIR: &str = "replays";
 /// Older replays beyond this many are deleted when a new one is saved.
 const KEEP_REPLAYS: usize = 100;
-/// Recording rate. Shots are always recorded on the exact frame they happen.
-const SAMPLE_INTERVAL: f32 = 1.0 / 240.0;
 const MAGIC: &[u8; 4] = b"AIMR";
 const VERSION: u8 = 3;
 /// v3 stores view angles in microradians...
@@ -42,49 +25,6 @@ const QUANTIZED_LIMIT: f64 = (1u64 << 40) as f64;
 const MAX_TARGETS: usize = u8::MAX as usize;
 /// Largest decompressed v3 body accepted, so a corrupt file can't exhaust memory.
 const MAX_BODY: usize = 256 << 20;
-const SPEEDS: [f32; 5] = [0.1, 0.25, 0.5, 1.0, 2.0];
-/// How long (replay time) a shot marker stays visible.
-const MARKER_SECS: f32 = 0.6;
-/// Shot markers are drawn this far along the aim ray, i.e. on the target plane.
-const MARKER_DISTANCE: f32 = 10.0;
-/// How much of the recent aim path (replay time) the tracer shows.
-const TRACER_SECS: f32 = 0.6;
-
-pub struct ReplayPlugin;
-
-impl Plugin for ReplayPlugin {
-    fn build(&self, app: &mut App) {
-        app.init_gizmo_group::<TracerGizmos>()
-            .insert_resource(ReplayDir(PathBuf::from(REPLAY_DIR)))
-            .add_systems(Startup, (create_marker_assets, configure_tracer, migrate_replays))
-            .add_systems(OnEnter(AppState::Replay), spawn_replay_hud)
-            .add_systems(OnExit(AppState::Replay), clear_look)
-            .add_systems(Update, save_finished_replay.in_set(DrillSet::Outcome))
-            .add_systems(
-                Update,
-                (playback_controls, advance_playback, update_replay_hud, draw_tracer)
-                    .chain()
-                    .before(apply_look)
-                    .run_if(in_state(AppState::Replay)),
-            );
-    }
-}
-
-/// Where finished runs' replays are saved.
-#[derive(Resource)]
-pub struct ReplayDir(pub PathBuf);
-
-/// Saves the replay of every run logged as practice, named by its history timestamp.
-pub(crate) fn save_finished_replay(mut recorded: MessageReader<RunRecorded>, mut recorder: ResMut<Recorder>, dir: Res<ReplayDir>) {
-    for recorded in recorded.read().filter(|r| r.run.purpose.logged_as() == RunPurpose::Practice) {
-        let stats = &recorded.run.stats;
-        recorder.finish(stats.kind, &stats.drill, stats.sens, stats.duration).save(&dir.0, recorded.timestamp);
-    }
-}
-
-// ---------------------------------------------------------------------------------------------
-// Data
-// ---------------------------------------------------------------------------------------------
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum Shot {
@@ -562,7 +502,7 @@ fn truncate_utf8(s: &str, max: usize) -> &str {
 // ---------------------------------------------------------------------------------------------
 
 /// Rewrites replays saved in older formats as v3, in the background.
-fn migrate_replays() {
+pub(super) fn migrate_replays() {
     IoTaskPool::get()
         .spawn(async {
             let migrated = migrate_dir(Path::new(REPLAY_DIR));
@@ -615,443 +555,12 @@ fn migrate_file(path: &Path) -> io::Result<bool> {
     result.map(|()| true)
 }
 
-// ---------------------------------------------------------------------------------------------
-// Recording
-// ---------------------------------------------------------------------------------------------
-
-/// Collects frames while a drill is live. Owned by the drill systems.
-#[derive(Resource, Default)]
-pub struct Recorder {
-    frames: Vec<ReplayFrame>,
-    pending_shot: Shot,
-}
-
-impl Recorder {
-    pub fn mark_shot(&mut self, hit: bool) {
-        self.pending_shot = if hit { Shot::Hit } else { Shot::Miss };
-    }
-
-    /// Records a frame if enough time has passed since the last one, or a shot happened.
-    pub fn sample(&mut self, t: f32, (yaw, pitch): (f32, f32), targets: impl Iterator<Item = (Vec3, f32)>) {
-        let due = self.frames.last().is_none_or(|last| t - last.t >= SAMPLE_INTERVAL);
-        if !due && self.pending_shot == Shot::None {
-            return;
-        }
-        let shot = std::mem::take(&mut self.pending_shot);
-        self.frames.push(ReplayFrame { t, yaw, pitch, shot, targets: targets.collect() });
-    }
-
-    pub fn finish(&mut self, kind: DrillKind, name: &str, sens: f32, duration: f32) -> Replay {
-        Replay { kind, name: name.to_string(), sens, duration, frames: std::mem::take(&mut self.frames) }
-    }
-}
-
-// ---------------------------------------------------------------------------------------------
-// Playback
-// ---------------------------------------------------------------------------------------------
-
-#[derive(Resource)]
-pub struct Playback {
-    replay: Replay,
-    time: f32,
-    speed_index: usize,
-    paused: bool,
-    /// Screen to go back to when the replay is closed.
-    return_to: AppState,
-    /// Replay time up to which shot markers have been spawned.
-    shown_until: f32,
-    /// Whether the aim tracer is drawn (toggled with T).
-    tracer: bool,
-}
-
-/// Opens the replay player.
-pub fn watch(commands: &mut Commands, next_state: &mut NextState<AppState>, replay: Replay, return_to: AppState) {
-    commands.insert_resource(Playback {
-        replay,
-        time: 0.0,
-        speed_index: 3,
-        paused: false,
-        return_to,
-        // So a shot at t = 0 is shown too.
-        shown_until: -MARKER_SECS,
-        tracer: true,
-    });
-    next_state.set(AppState::Replay);
-}
-
-impl Playback {
-    fn end(&self) -> f32 {
-        self.replay.frames.last().map_or(0.0, |f| f.t)
-    }
-
-    /// Index of the last frame at or before `time`.
-    fn frame_at(&self, time: f32) -> usize {
-        self.replay.frames.partition_point(|f| f.t <= time).saturating_sub(1)
-    }
-
-    /// View angles at `time`, interpolated between recorded frames.
-    fn angles_at(&self, time: f32) -> (f32, f32) {
-        let frames = &self.replay.frames;
-        let i = self.frame_at(time);
-        let a = &frames[i];
-        let Some(b) = frames.get(i + 1) else { return (a.yaw, a.pitch) };
-        let s = ((time - a.t) / (b.t - a.t).max(f32::EPSILON)).clamp(0.0, 1.0);
-        (a.yaw + (b.yaw - a.yaw) * s, a.pitch + (b.pitch - a.pitch) * s)
-    }
-
-    fn shots_until(&self, time: f32) -> (usize, usize) {
-        let frames = &self.replay.frames[..self.replay.frames.partition_point(|f| f.t <= time)];
-        let hits = frames.iter().filter(|f| f.shot == Shot::Hit).count();
-        let misses = frames.iter().filter(|f| f.shot == Shot::Miss).count();
-        (hits, misses)
-    }
-}
-
-#[derive(Resource)]
-struct MarkerAssets {
-    mesh: Handle<Mesh>,
-    hit: Handle<StandardMaterial>,
-    miss: Handle<StandardMaterial>,
-}
-
-#[derive(Component)]
-struct ReplayTarget;
-
-#[derive(Component)]
-struct ShotMarker {
-    /// Replay time of the shot.
-    t: f32,
-}
-
-/// Text slots of the replay HUD, filled by `update_replay_hud`.
-#[derive(Component, Clone, Copy, Default)]
-enum ReplayField {
-    #[default]
-    Title,
-    Time,
-    Speed,
-    Hits,
-    Misses,
-    Fps,
-}
-
-#[derive(Component, Clone, Copy, Default)]
-struct TimelineFill;
-
-fn create_marker_assets(
-    mut commands: Commands,
-    mut meshes: ResMut<Assets<Mesh>>,
-    mut materials: ResMut<Assets<StandardMaterial>>,
-) {
-    let unlit = |color: Color| StandardMaterial { base_color: color, unlit: true, ..default() };
-    commands.insert_resource(MarkerAssets {
-        mesh: meshes.add(Sphere::new(0.06)),
-        hit: materials.add(unlit(Color::srgb(0.2, 1.0, 0.4))),
-        miss: materials.add(unlit(Color::srgb(1.0, 0.25, 0.25))),
-    });
-}
-
-fn clear_look(mut look: ResMut<Look>, mut commands: Commands) {
-    look.set(0.0, 0.0);
-    commands.remove_resource::<Playback>();
-}
-
-fn playback_controls(
-    keys: Res<ButtonInput<KeyCode>>,
-    mut playback: ResMut<Playback>,
-    mut next_state: ResMut<NextState<AppState>>,
-) {
-    if keys.just_pressed(KeyCode::Escape) {
-        next_state.set(playback.return_to);
-        return;
-    }
-    let end = playback.end();
-    if keys.just_pressed(KeyCode::Space) {
-        // Restart when pressing play at the very end.
-        if playback.paused && playback.time >= end {
-            playback.time = 0.0;
-        }
-        playback.paused = !playback.paused;
-    }
-    if keys.just_pressed(KeyCode::KeyR) {
-        playback.time = 0.0;
-        playback.paused = false;
-    }
-    if keys.just_pressed(KeyCode::ArrowLeft) {
-        playback.time = (playback.time - 5.0).max(0.0);
-    }
-    if keys.just_pressed(KeyCode::ArrowRight) {
-        playback.time = (playback.time + 5.0).min(end);
-    }
-    // Frame stepping while paused, for checking flicks in detail.
-    if playback.paused && keys.just_pressed(KeyCode::Comma) {
-        playback.time = (playback.time - 1.0 / 60.0).max(0.0);
-    }
-    if playback.paused && keys.just_pressed(KeyCode::Period) {
-        playback.time = (playback.time + 1.0 / 60.0).min(end);
-    }
-    if keys.just_pressed(KeyCode::ArrowUp) {
-        playback.speed_index = (playback.speed_index + 1).min(SPEEDS.len() - 1);
-    }
-    if keys.just_pressed(KeyCode::ArrowDown) {
-        playback.speed_index = playback.speed_index.saturating_sub(1);
-    }
-    if keys.just_pressed(KeyCode::KeyT) {
-        playback.tracer = !playback.tracer;
-    }
-}
-
-/// Draws the crosshair's path over the last `TRACER_SECS`, colored by how straight each
-/// movement was (see [`tracer`]), on the target plane and on top of the targets.
-fn draw_tracer(playback: Res<Playback>, mut gizmos: Gizmos<TracerGizmos>) {
-    if !playback.tracer {
-        return;
-    }
-    let now = playback.time;
-    let frames = &playback.replay.frames;
-    let first = frames.partition_point(|f| f.t <= now - TRACER_SECS);
-    let last = playback.frame_at(now);
-    let mut points: Vec<(f32, Vec2)> = frames[first.min(last)..=last]
-        .iter()
-        .map(|f| (f.t, Vec2::new(f.yaw, f.pitch)))
-        .collect();
-    // End exactly at the crosshair, between recorded frames.
-    let (yaw, pitch) = playback.angles_at(now);
-    if points.last().is_some_and(|p| p.0 < now) {
-        points.push((now, Vec2::new(yaw, pitch)));
-    }
-    let in_degrees: Vec<(f32, Vec2)> = points.iter().map(|&(t, a)| (t, Vec2::new(a.x.to_degrees(), a.y.to_degrees()))).collect();
-    let on_plane = |a: Vec2| Quat::from_euler(EulerRot::YXZ, a.x, a.y, 0.0) * Vec3::NEG_Z * MARKER_DISTANCE;
-    for (pair, bow) in points.windows(2).zip(tracer::segment_bows(&in_degrees)) {
-        // Older parts of the trail fade out.
-        let fade = 1.0 - ((now - pair[1].0) / TRACER_SECS).clamp(0.0, 1.0);
-        let color = tracer::bow_color(bow);
-        let color = color.with_alpha(color.alpha() * fade);
-        gizmos.line(on_plane(pair[0].1), on_plane(pair[1].1), color);
-    }
-}
-
-/// Tracer lines: thicker than default gizmos and drawn over the targets.
-#[derive(Default, Reflect, GizmoConfigGroup)]
-struct TracerGizmos;
-
-fn configure_tracer(mut store: ResMut<GizmoConfigStore>) {
-    let (config, _) = store.config_mut::<TracerGizmos>();
-    config.line.width = 3.0;
-    config.depth_bias = -1.0;
-}
-
-#[allow(clippy::too_many_arguments)]
-fn advance_playback(
-    time: Res<Time>,
-    mut playback: ResMut<Playback>,
-    mut look: ResMut<Look>,
-    target_assets: Res<TargetAssets>,
-    marker_assets: Res<MarkerAssets>,
-    mut commands: Commands,
-    mut targets: Query<(&mut Transform, &mut Visibility), With<ReplayTarget>>,
-    markers: Query<(Entity, &ShotMarker)>,
-) {
-    if playback.replay.frames.is_empty() {
-        return;
-    }
-    let shown_until = playback.shown_until;
-    if !playback.paused {
-        let end = playback.end();
-        playback.time = (playback.time + time.delta_secs() * SPEEDS[playback.speed_index]).min(end);
-        if playback.time >= end {
-            playback.paused = true;
-        }
-    }
-    let now = playback.time;
-    let (yaw, pitch) = playback.angles_at(now);
-    look.set(yaw, pitch);
-
-    // Targets: reuse a pool of entities, one per target in the current frame.
-    let frame = &playback.replay.frames[playback.frame_at(now)];
-    let mut pool = targets.iter_mut();
-    for &(center, radius) in &frame.targets {
-        let transform = Transform::from_translation(center).with_scale(Vec3::splat(radius));
-        match pool.next() {
-            Some((mut existing, mut visibility)) => {
-                *existing = transform;
-                *visibility = Visibility::Inherited;
-            }
-            None => {
-                commands.spawn((
-                    DespawnOnExit(AppState::Replay),
-                    ReplayTarget,
-                    Mesh3d(target_assets.mesh.clone()),
-                    MeshMaterial3d(target_assets.idle.clone()),
-                    transform,
-                ));
-            }
-        }
-    }
-    for (_, mut visibility) in pool {
-        *visibility = Visibility::Hidden;
-    }
-
-    // Shot markers: show shots from the last MARKER_SECS of replay time. Seeks and frame steps
-    // happen in `playback_controls` before this runs, so compare against what was shown last.
-    let (from, reset) = marker_range(shown_until, now);
-    for (entity, marker) in &markers {
-        if reset || marker.t > now || now - marker.t > MARKER_SECS {
-            commands.entity(entity).despawn();
-        }
-    }
-    let frames = &playback.replay.frames;
-    let start = frames.partition_point(|f| f.t <= from);
-    let stop = frames.partition_point(|f| f.t <= now);
-    for frame in &frames[start..stop] {
-        let material = match frame.shot {
-            Shot::None => continue,
-            Shot::Hit => marker_assets.hit.clone(),
-            Shot::Miss => marker_assets.miss.clone(),
-        };
-        let aim = Quat::from_euler(EulerRot::YXZ, frame.yaw, frame.pitch, 0.0) * Vec3::NEG_Z;
-        commands.spawn((
-            DespawnOnExit(AppState::Replay),
-            ShotMarker { t: frame.t },
-            Mesh3d(marker_assets.mesh.clone()),
-            MeshMaterial3d(material),
-            Transform::from_translation(aim * MARKER_DISTANCE),
-        ));
-    }
-    playback.shown_until = now;
-}
-
-/// Shots in `(from, now]` get new markers. Moving forward a little (playing or frame stepping)
-/// adds only the shots since the last update; jumping back or far ahead rebuilds the whole
-/// window, so `reset` asks for existing markers to be cleared first.
-fn marker_range(shown_until: f32, now: f32) -> (f32, bool) {
-    if now < shown_until || now - shown_until > MARKER_SECS {
-        (now - MARKER_SECS, true)
-    } else {
-        (shown_until, false)
-    }
-}
-
-fn spawn_replay_hud(mut commands: Commands, playback: Res<Playback>, assets: Res<TargetAssets>) {
-    spawn_environment(&mut commands, &assets, playback.replay.kind.def().environment, AppState::Replay);
-    commands
-        .spawn_scene(bsn! {
-            @hud_anchor(px(14))
-            Children [
-                @hud_bar()
-                Children [
-                    Node { padding: UiRect::axes(px(8), px(2)), border_radius: BorderRadius::all(px(4)) }
-                    ThemeBackgroundColor(tokens::BUTTON_PRIMARY_BG)
-                    Children [ @styled("REPLAY", fonts::BOLD, 12.0, TEXT_STRONG) ]
-                    --
-                    @styled("", fonts::BOLD, 15.0, tokens::TEXT_MAIN)
-                    ReplayField::Title
-                    --
-                    @vertical_divider()
-                    --
-                    @styled("", fonts::BOLD, 22.0, TEXT_STRONG)
-                    ReplayField::Time
-                    --
-                    @styled("", fonts::BOLD, 15.0, TEXT_ACCENT)
-                    ReplayField::Speed
-                    --
-                    @vertical_divider()
-                    --
-                    @styled("", fonts::REGULAR, 16.0, TEXT_GOOD)
-                    ReplayField::Hits
-                    --
-                    @styled("", fonts::REGULAR, 16.0, TEXT_BAD)
-                    ReplayField::Misses
-                    --
-                    @vertical_divider()
-                    --
-                    @styled("", fonts::REGULAR, 12.0, tokens::TEXT_DIM)
-                    ReplayField::Fps
-                ]
-            ]
-        })
-        .insert(DespawnOnExit(AppState::Replay));
-    commands
-        .spawn_scene(bsn! {
-            Node {
-                position_type: PositionType::Absolute,
-                bottom: px(18),
-                left: percent(10),
-                width: percent(80),
-                flex_direction: FlexDirection::Column,
-                align_items: AlignItems::Center,
-                row_gap: px(10),
-            }
-            Children [
-                @hud_bar()
-                Node { padding: UiRect::axes(px(14), px(5)) }
-                Children [
-                    @styled(
-                        "Space play/pause    Left/Right -/+5 s    , . frame step    Up/Down speed    T tracer    R restart    Esc back",
-                        fonts::REGULAR,
-                        12.0,
-                        tokens::TEXT_MAIN
-                    )
-                ]
-                --
-                Node { width: percent(100), height: px(6), border_radius: BorderRadius::all(px(3)) }
-                ThemeBackgroundColor(DIVIDER)
-                Children [
-                    Node { width: percent(0), height: percent(100), border_radius: BorderRadius::all(px(3)) }
-                    ThemeBackgroundColor(tokens::BUTTON_PRIMARY_BG)
-                    TimelineFill
-                ]
-            ]
-        })
-        .insert(DespawnOnExit(AppState::Replay));
-}
-
-fn update_replay_hud(
-    playback: Res<Playback>,
-    diagnostics: Res<DiagnosticsStore>,
-    mut fields: Query<(&ReplayField, &mut Text)>,
-    mut fill: Single<&mut Node, With<TimelineFill>>,
-) {
-    let end = playback.end().max(f32::EPSILON);
-    let (hits, misses) = playback.shots_until(playback.time);
-    let fps = diagnostics
-        .get(&FrameTimeDiagnosticsPlugin::FPS)
-        .and_then(|fps| fps.smoothed())
-        .unwrap_or(0.0);
-    for (field, mut text) in &mut fields {
-        let wanted = match field {
-            ReplayField::Title => format!("{}  ·  sens {:.3}", playback.replay.name, playback.replay.sens),
-            ReplayField::Time => format!("{:.1} / {:.1} s", playback.time, end),
-            ReplayField::Speed => {
-                format!("{}x{}", SPEEDS[playback.speed_index], if playback.paused { "  PAUSED" } else { "" })
-            }
-            ReplayField::Hits => format!("{hits} hits"),
-            ReplayField::Misses => format!("{misses} misses"),
-            ReplayField::Fps => format!("{fps:.0} fps"),
-        };
-        if text.0 != wanted {
-            text.0 = wanted;
-        }
-    }
-    fill.width = percent(playback.time / end * 100.0);
-}
-
 #[cfg(test)]
-mod tests {
+pub(super) mod tests {
     use super::*;
+    use crate::replay::Recorder;
 
-    #[test]
-    fn shot_markers_follow_steps_and_seeks() {
-        // Start: a shot at t = 0 is inside the first window.
-        assert_eq!(marker_range(-MARKER_SECS, 0.0), (-MARKER_SECS, false));
-        // A frame step forward adds just the shots since the last update.
-        assert_eq!(marker_range(1.0, 1.004), (1.0, false));
-        // Seeking far ahead or stepping back rebuilds the whole window.
-        assert_eq!(marker_range(1.0, 6.0), (6.0 - MARKER_SECS, true));
-        assert_eq!(marker_range(1.0, 0.996), (0.996 - MARKER_SECS, true));
-    }
-
-    fn sample_replay() -> Replay {
+    pub(crate) fn sample_replay() -> Replay {
         let mut recorder = Recorder::default();
         recorder.sample(0.0, (0.1, -0.2), [(Vec3::new(1.0, 2.0, -10.0), 0.45)].into_iter());
         recorder.sample(0.001, (0.2, -0.1), std::iter::empty()); // too soon: skipped
@@ -1059,15 +568,6 @@ mod tests {
         recorder.sample(0.002, (0.3, 0.0), std::iter::empty()); // shot: always kept
         recorder.sample(0.01, (0.4, 0.1), std::iter::empty());
         recorder.finish(DrillKind::Tracking, "My tracking", 0.4, 60.0)
-    }
-
-    #[test]
-    fn recorder_throttles_but_keeps_shot_frames() {
-        let replay = sample_replay();
-        let times: Vec<f32> = replay.frames.iter().map(|f| f.t).collect();
-        assert_eq!(times, [0.0, 0.002, 0.01]);
-        assert_eq!(replay.frames[1].shot, Shot::Hit);
-        assert_eq!(replay.frames[2].shot, Shot::None);
     }
 
     /// A drill-like replay: irregular ~170 fps frames, mouse movement in whole counts, shots
@@ -1202,23 +702,6 @@ mod tests {
         assert_eq!(fs::read_dir(&dir).unwrap().count(), 3);
         assert_eq!(migrate_dir(&dir), 0);
         fs::remove_dir_all(&dir).unwrap();
-    }
-
-    #[test]
-    fn interpolates_angles_between_frames() {
-        let playback = Playback {
-            replay: sample_replay(),
-            time: 0.0,
-            speed_index: 3,
-            paused: true,
-            return_to: AppState::Menu,
-            shown_until: -MARKER_SECS,
-            tracer: true,
-        };
-        let (yaw, pitch) = playback.angles_at(0.006);
-        assert!((yaw - 0.35).abs() < 1e-5 && (pitch - 0.05).abs() < 1e-5);
-        assert_eq!(playback.angles_at(1.0), (0.4, 0.1));
-        assert_eq!(playback.shots_until(0.005), (1, 0));
     }
 
     fn fixture(name: &str) -> Vec<u8> {

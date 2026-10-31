@@ -8,6 +8,7 @@ mod finder;
 mod history;
 mod icon;
 mod level;
+mod metrics;
 mod persist;
 mod presence;
 mod replay;
@@ -15,7 +16,6 @@ mod routine;
 mod settings;
 mod sfx;
 mod smart_finder;
-mod tracer;
 mod ui;
 
 use bevy::{

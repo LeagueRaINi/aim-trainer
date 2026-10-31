@@ -1,7 +1,7 @@
-//! Aim tracer for replays: the crosshair's recent path, colored by how straight each movement
-//! was. A clean flick travels in a straight line from where you were aiming to the target; a
-//! curved path means the arm and wrist (or the horizontal and vertical parts of the motion)
-//! weren't coordinated.
+//! Path straightness ("bow") of aim movements, shown by the replay tracer and used by the
+//! weak-spot analysis. A clean flick travels in a straight line from where you were aiming to
+//! the target; a curved path means the arm and wrist (or the horizontal and vertical parts of
+//! the motion) weren't coordinated.
 //!
 //! The path is split into movements (runs of samples moving faster than `MOVE_SPEED`). Each
 //! movement is judged by its bow: the largest distance of its path from the straight line between
@@ -13,10 +13,10 @@ use bevy::prelude::*;
 const MOVE_SPEED: f32 = 20.0;
 /// Movements shorter than this (degrees) are micro-adjustments and aren't judged.
 const MIN_MOVE: f32 = 1.0;
-/// Bow at or below which a movement counts as straight (green).
-const STRAIGHT: f32 = 0.05;
-/// Bow at or above which a movement counts as clearly curved (red).
-const CURVED: f32 = 0.25;
+/// Bow at or below which a movement counts as straight (green in the tracer).
+pub const STRAIGHT: f32 = 0.05;
+/// Bow at or above which a movement counts as clearly curved (red in the tracer).
+pub const CURVED: f32 = 0.25;
 
 /// For each segment between consecutive aim samples `(seconds, (yaw, pitch) in degrees)`, the
 /// bow of the movement it belongs to, or `None` while resting or micro-adjusting.
@@ -48,17 +48,6 @@ pub fn segment_bows(points: &[(f32, Vec2)]) -> Vec<Option<f32>> {
         bows[start..i].fill(Some(bow));
     }
     bows
-}
-
-/// Green for straight, through yellow, to red for curved; faint white while resting.
-pub fn bow_color(bow: Option<f32>) -> Color {
-    match bow {
-        None => Color::srgba(1.0, 1.0, 1.0, 0.35),
-        Some(bow) => {
-            let curved = ((bow - STRAIGHT) / (CURVED - STRAIGHT)).clamp(0.0, 1.0);
-            Color::hsl(130.0 * (1.0 - curved), 0.9, 0.55)
-        }
-    }
 }
 
 #[cfg(test)]
@@ -96,7 +85,7 @@ mod tests {
         let judged = judged(&bows);
         assert_eq!(judged.len(), 1);
         assert!(judged[0] < 0.01, "{judged:?}");
-        assert_eq!(bow_color(Some(judged[0])), bow_color(Some(0.0)));
+        assert!(judged[0] <= STRAIGHT);
     }
 
     #[test]

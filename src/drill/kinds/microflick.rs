@@ -7,10 +7,10 @@ use bevy::prelude::*;
 use crate::{
     AppState,
     camera::PlayerCamera,
+    metrics::flick_probe::{FlickProbe, angles, screen_offset},
     drill::{
         DrillConfig, DrillSet, Run,
         def::{Category, DecayRule, DrillDef, Environment, TtkFrom, no_spawn_next, no_tuning},
-        flick_probe::{FlickProbe, angles, screen_offset},
         geometry::{TARGET_DISTANCE, away_from, direction, random_range},
         params::ParamId,
         stats::ScoreModel,
@@ -151,9 +151,9 @@ fn probe_flicks(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::drill::{
-        DrillKind,
-        flick_probe::{screen_angle, wrap},
+    use crate::{
+        drill::DrillKind,
+        metrics::flick_probe::{screen_angle, wrap},
     };
 
     /// A Microflick config trained on down-left flicks of 15-25 degrees.

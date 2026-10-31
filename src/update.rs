@@ -152,12 +152,13 @@ fn install_latest(exe: &Path, current: &Version, updater: &Updater) -> Result<Op
         .user_agent(concat!("aim_trainer/", env!("CARGO_PKG_VERSION")))
         .build()
         .into();
-    let release: Release = agent
-        .get(LATEST_RELEASE)
-        .header("Accept", "application/vnd.github+json")
-        .call()
-        .and_then(|mut response| response.body_mut().read_json())
-        .map_err(|err| format!("couldn't check GitHub: {err}"))?;
+    let release: Release = match agent.get(LATEST_RELEASE).header("Accept", "application/vnd.github+json").call() {
+        // Nothing published yet.
+        Err(ureq::Error::StatusCode(404)) => return Ok(None),
+        response => response
+            .and_then(|mut response| response.body_mut().read_json())
+            .map_err(|err| format!("couldn't check GitHub: {err}"))?,
+    };
     let Some(update) = pick_update(current, &release)? else { return Ok(None) };
     updater.set(UpdateStatus::Downloading(update.version.clone()));
     let packed = agent

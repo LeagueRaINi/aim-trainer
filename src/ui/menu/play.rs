@@ -70,7 +70,7 @@ fn decay_note() -> String {
 /// What the adaptive buttons do, in one short paragraph.
 fn adaptive_note() -> String {
     format!(
-        "Adaptive: each target's size adapts to keep you at your limit, and counts only if hit within the decay time ({ADAPTIVE_TIME_LIMIT} s with decay off). Measure runs {MEASURE_SECS:.0} s; Train uses the drill length. θ75 = the radius you hit 75% of the time, smaller is better."
+        "Adaptive (the Measure / Train buttons under a drill): target size adapts to keep you at your limit, and a target counts only if hit within the decay time ({ADAPTIVE_TIME_LIMIT} s with decay off). Measure runs {MEASURE_SECS:.0} s; Train uses the drill length. θ75 = the radius you hit 75% of the time, smaller is better."
     )
 }
 

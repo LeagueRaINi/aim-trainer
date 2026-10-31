@@ -47,9 +47,9 @@ use bevy::math::{EulerRot, Quat, Vec2, Vec3};
 
 use crate::drill::def::TtkFrom;
 use crate::drill::{DrillConfig, DrillKind};
-use crate::metrics::bow;
 use crate::metrics::flick_probe::{END_SPEED, FlickProbe, START_SPEED, angles, screen_angle, wrap};
 use crate::metrics::throughput::{self, BANDS, Click};
+use crate::metrics::{bow, median};
 use crate::replay::{Replay, ReplayFrame, Shot};
 
 /// Drills whose replays are made of flicks ([`DrillDef::flick_analysis`](crate::drill::def::DrillDef::flick_analysis)).
@@ -554,6 +554,8 @@ pub struct CellStats {
     pub n: usize,
     /// Median first-flick landing ratio.
     pub landing: Option<f32>,
+    /// Median |landing - 1|: how far first flicks end from the target, whichever side.
+    pub landing_error: Option<f32>,
     /// Median |off-axis| error, fraction of the distance.
     pub off_axis: Option<f32>,
     /// Median bow.
@@ -598,6 +600,7 @@ impl CellStats {
         Self {
             n,
             landing: median(&mut landings),
+            landing_error: centers[Metric::Landing.index()],
             off_axis: centers[Metric::OffAxis.index()],
             bow: centers[Metric::Bow.index()],
             corrections: centers[Metric::Corrections.index()],
@@ -779,9 +782,17 @@ fn describe(stats: &CellStats, overall: &CellStats) -> String {
         .filter_map(|&(_, metric)| {
             Some(match metric {
                 Metric::Landing => {
-                    let (landing, usual) = (stats.landing?, overall.landing?);
-                    let verb = if landing < 1.0 { "undershoot" } else { "overshoot" };
-                    format!("you {verb} by {:.0}% (overall {})", (landing - 1.0).abs() * 100.0, landing_text(usual))
+                    let (error, usual) = (stats.landing_error?, overall.landing_error?);
+                    // Name a side only when most of the error is on it: landings of 0.8 and 1.2
+                    // have a median of 1 but are still 20% off.
+                    let side = stats.landing.map(|l| l - 1.0).filter(|bias| bias.abs() >= 0.5 * error);
+                    let error = percent(error);
+                    let usual = percent(usual);
+                    match side {
+                        Some(bias) if bias < 0.0 => format!("you undershoot by {error} (overall off by {usual})"),
+                        Some(_) => format!("you overshoot by {error} (overall off by {usual})"),
+                        None => format!("your first flicks land {error} off, short and long (overall {usual})"),
+                    }
                 },
                 Metric::OffAxis => {
                     format!(
@@ -888,15 +899,6 @@ fn compare(
 
 fn mean(values: &[f32]) -> f32 {
     values.iter().sum::<f32>() / values.len().max(1) as f32
-}
-
-fn median(values: &mut [f32]) -> Option<f32> {
-    if values.is_empty() {
-        return None;
-    }
-    values.sort_unstable_by(f32::total_cmp);
-    let mid = values.len() / 2;
-    Some(if values.len().is_multiple_of(2) { (values[mid - 1] + values[mid]) * 0.5 } else { values[mid] })
 }
 
 /// The `q` quantile (nearest rank) of non-empty `values`.
@@ -1128,6 +1130,20 @@ mod tests {
             }
         }
         assert!(!analysis.tendencies.is_empty());
+    }
+
+    /// The landing text reports the ranked quantity, median |landing - 1|, and names a side only
+    /// when the group clearly leans to it.
+    #[test]
+    fn landing_detail_reports_the_ranked_error() {
+        let overall = CellStats { landing: Some(1.0), landing_error: Some(0.05), ..CellStats::default() };
+        let mut gaps = [None; 6];
+        gaps[Metric::Landing.index()] = Some(2.0);
+        // Half the flicks land at 0.8, half at 1.2: median 1.0 but 20% off.
+        let split = CellStats { landing: Some(1.0), landing_error: Some(0.2), gaps, ..CellStats::default() };
+        assert_eq!(describe(&split, &overall), "Your first flicks land 20% off, short and long (overall 5%).");
+        let short = CellStats { landing: Some(0.82), landing_error: Some(0.18), gaps, ..CellStats::default() };
+        assert_eq!(describe(&short, &overall), "You undershoot by 18% (overall off by 5%).");
     }
 
     #[test]

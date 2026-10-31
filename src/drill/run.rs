@@ -7,7 +7,7 @@ use bevy::window::WindowFocused;
 
 use super::{DrillKind, DrillSpec, RunStats, TargetAssets, targets};
 use crate::AppState;
-use crate::camera::ViewCone;
+use crate::camera::{PlayerCamera, ViewCone};
 use crate::metrics::throughput::Click;
 use crate::settings::Settings;
 
@@ -220,10 +220,22 @@ impl Run {
         }
     }
 
+    /// The finished run's stats, with every landing and click.
     pub fn stats(&self, settings: &Settings) -> RunStats {
         RunStats {
-            kind: self.kind(),
             drill: self.drill.name.clone(),
+            landings: self.landings.clone(),
+            clicks: self.clicks.clone(),
+            ..self.live_stats(settings)
+        }
+    }
+
+    /// The counters only, without the drill name, landings or clicks: allocates nothing, for the
+    /// HUD to read every frame.
+    pub fn live_stats(&self, settings: &Settings) -> RunStats {
+        RunStats {
+            kind: self.kind(),
+            drill: String::new(),
             sens: self.sens,
             cm_per_360: settings.cm_per_360(self.sens),
             duration: (self.elapsed - self.scoring_from).max(f32::EPSILON),
@@ -233,8 +245,8 @@ impl Run {
             ttk_total: self.ttk_total,
             best_ttk: self.best_ttk,
             on_target: self.on_target,
-            landings: self.landings.clone(),
-            clicks: self.clicks.clone(),
+            landings: Vec::new(),
+            clicks: Vec::new(),
         }
     }
 }
@@ -266,6 +278,7 @@ pub(super) fn ready_gate(
     assets: Res<TargetAssets>,
     mut next: ResMut<targets::NextSpawn>,
     view: Res<ViewCone>,
+    camera: Single<&Transform, With<PlayerCamera>>,
 ) {
     if run.aborted {
         return;
@@ -279,7 +292,8 @@ pub(super) fn ready_gate(
                 && (mouse.just_pressed(MouseButton::Left) || keys.just_pressed(KeyCode::Space))
             {
                 run.phase = Phase::Countdown;
-                targets::spawn_initial(&mut commands, &assets, &mut next, &run, &view);
+                let aim = camera.forward().as_vec3();
+                targets::spawn_initial(&mut commands, &assets, &mut next, &run, aim, &view);
             }
         },
         Phase::Countdown => {

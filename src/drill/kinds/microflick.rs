@@ -7,16 +7,16 @@ use bevy::prelude::*;
 use crate::AppState;
 use crate::camera::{PlayerCamera, ViewCone};
 use crate::drill::def::{Category, DecayRule, DrillDef, Environment, TtkFrom, no_spawn_next, no_tuning};
-use crate::drill::geometry::{TARGET_DISTANCE, away_from, direction, random_range};
+use crate::drill::geometry::{
+    CEILING_PITCH, EDGE_SLACK, FLOOR_PITCH, TARGET_DISTANCE, away_from, bisect, direction, pull_in, random_pitch,
+    random_range,
+};
 use crate::drill::params::ParamId;
 use crate::drill::stats::ScoreModel;
 use crate::drill::targets::{SpawnCtx, Target, TargetExpired, TargetKilled};
 use crate::drill::{DrillConfig, DrillSet, Run};
-use crate::metrics::flick_probe::{FlickProbe, angles, screen_offset};
+use crate::metrics::flick_probe::{FlickProbe, angles, screen_offset, wrap};
 
-/// Lowest pitch (degrees) a constrained flick target may sit at: lower ones (at
-/// `TARGET_DISTANCE`) would sink into the floor 2.5 m below the eye.
-const FLOOR_PITCH: f32 = -13.0;
 /// Attempts at finding a constrained flick target before falling back to a reset target.
 const CONSTRAINED_TRIES: usize = 32;
 
@@ -57,41 +57,54 @@ pub(super) fn respawn_flick(ctx: &mut SpawnCtx, _: Option<usize>) {
     spawn_flick(ctx);
 }
 
-/// Microflick / Head level: anywhere within the yaw/pitch ranges, away from the crosshair and on
-/// screen. Head level has a pitch range of 0, so its targets always sit exactly at head height.
+/// Microflick / Head level: anywhere within the yaw/pitch ranges (between floor and ceiling), away
+/// from the crosshair and on screen. Head level has a pitch range of 0, so its targets always sit
+/// exactly at head height.
 pub(super) fn flick_position(aim: Vec3, view: &ViewCone, margin: f32, config: &DrillConfig) -> Vec3 {
     if config.flick_constrained() {
         return constrained_flick_position(aim, view, margin, config);
     }
     away_from(aim, config.min_flick, view, margin, || {
-        direction(
-            random_range(-config.yaw_range, config.yaw_range).to_radians(),
-            random_range(-config.pitch_range, config.pitch_range).to_radians(),
-        )
+        direction(random_range(-config.yaw_range, config.yaw_range).to_radians(), random_pitch(config.pitch_range))
     })
 }
 
-/// The (yaw, pitch) area constrained flick targets stay in: the yaw/pitch ranges, above the floor.
+/// The (yaw, pitch) area constrained flick targets stay in: the yaw/pitch ranges, between floor
+/// and ceiling.
 fn flick_area(config: &DrillConfig) -> (Vec2, Vec2) {
     let min = Vec2::new(-config.yaw_range, (-config.pitch_range).max(FLOOR_PITCH));
-    (min, Vec2::new(config.yaw_range, config.pitch_range.max(min.y)))
+    (min, Vec2::new(config.yaw_range, config.pitch_range.min(CEILING_PITCH).max(min.y)))
 }
 
 /// Microflick aimed at a weak spot: `min_flick..max_flick` degrees from the aim, towards
-/// `flick_direction +- flick_spread` on screen, inside [`flick_area`]. Repeated flicks the same
-/// way walk the aim to the edge of the area; once no such target fits, the next one is a reset
-/// target on the opposite side of the area, which leaves room for the trained flicks again.
+/// `flick_direction +- flick_spread`, inside [`flick_area`] and on screen. A flick longer than the
+/// view shows in its direction goes as far as it does. Repeated flicks the same way walk the aim
+/// to the edge of the area; once no such target fits, the next one is a reset target on the
+/// opposite side of the area, which leaves room for the trained flicks again. If the area is too
+/// small for that to be a real flick either, the target leaves the area, as far as the view and
+/// the room allow: along the trained direction or back if either is as long as a trained flick
+/// could be, else sideways or diagonally (the floor and ceiling can cut both short).
 fn constrained_flick_position(aim: Vec3, view: &ViewCone, margin: f32, config: &DrillConfig) -> Vec3 {
     let from = angles(aim);
     let (near, far) = config.flick_distance_range();
     let (min, max) = flick_area(config);
     let to_direction = |p: Vec2| direction(p.x.to_radians(), p.y.to_radians());
+    // How far (up to `far`) a target can sit from the aim towards on-screen `angle` and still be
+    // on screen (and, `in_room`, between floor and ceiling).
+    let reach = |angle: f32, in_room: bool| {
+        far * bisect(|t| {
+            let p = from + screen_offset(angle, far * t);
+            (!in_room || (FLOOR_PITCH..=CEILING_PITCH).contains(&p.y))
+                && view.contains(aim, to_direction(p), margin + EDGE_SLACK)
+        })
+    };
     for _ in 0..CONSTRAINED_TRIES {
         let angle = match config.flick_direction {
             Some(center) => center + random_range(-config.flick_spread, config.flick_spread),
             None => random_range(0.0, 360.0),
         };
-        let candidate = from + screen_offset(angle, random_range(near, far));
+        let shown = reach(angle, false);
+        let candidate = from + screen_offset(angle, random_range(near.min(shown), far.min(shown)));
         if candidate.cmpge(min).all()
             && candidate.cmple(max).all()
             && view.contains(aim, to_direction(candidate), margin)
@@ -100,12 +113,26 @@ fn constrained_flick_position(aim: Vec3, view: &ViewCone, margin: f32, config: &
         }
     }
     let middle = (min + max) * 0.5;
-    let reset = match config.flick_direction {
+    let (reset, center) = match config.flick_direction {
         // As far back as the area allows, for the longest run of trained flicks.
-        Some(center) => middle - screen_offset(center, far),
-        None => middle,
+        Some(center) => (middle - screen_offset(center, far), center),
+        None => (middle, random_range(0.0, 360.0)),
     };
-    view.pull_in(aim, to_direction(reset.clamp(min, max)), margin) * TARGET_DISTANCE
+    let reset = pull_in(aim, to_direction(reset.clamp(min, max)), view, margin);
+    // The reset is a real flick too: as long as a trained one could be from here.
+    let need = near.min(reach(center, false));
+    if wrap(angles(reset) - from).length() >= need {
+        return reset * TARGET_DISTANCE;
+    }
+    let ways = [0.0, 180.0, 45.0, -45.0, 135.0, -135.0, 90.0, -90.0].map(|turn| {
+        let angle = center + turn;
+        (angle, reach(angle, true))
+    });
+    let (angle, distance) =
+        ways.iter().find(|way| way.1 >= need).copied().unwrap_or_else(|| {
+            ways.into_iter().fold((center, 0.0), |best, way| if way.1 > best.1 { way } else { best })
+        });
+    to_direction(from + screen_offset(angle, distance)) * TARGET_DISTANCE
 }
 
 /// Measures the current target's first flick.
@@ -152,7 +179,7 @@ fn probe_flicks(
 mod tests {
     use super::*;
     use crate::drill::DrillKind;
-    use crate::metrics::flick_probe::{screen_angle, wrap};
+    use crate::metrics::flick_probe::screen_angle;
 
     /// A Microflick config trained on down-left flicks of 15-25 degrees.
     fn down_left() -> DrillConfig {
@@ -240,6 +267,65 @@ mod tests {
                     let target = flick_position(aim, &view, MARGIN, &config).normalize();
                     assert!(view.contains(aim, target, MARGIN), "aim {aim}: {target} off screen");
                 }
+            }
+        }
+    }
+
+    /// Up (90) or down (270) flicks of 40-60°: longer than the 33° the view shows vertically.
+    fn long_vertical(towards: f32) -> DrillConfig {
+        let mut config = DrillConfig {
+            kind: DrillKind::Microflick,
+            yaw_range: 40.0,
+            pitch_range: 25.0,
+            min_flick: 40.0,
+            max_flick: 60.0,
+            flick_direction: Some(towards),
+            flick_spread: 22.5,
+            ..DrillConfig::defaults(DrillKind::Microflick)
+        };
+        config.sanitize();
+        config
+    }
+
+    #[test]
+    fn flicks_longer_than_the_view_still_need_a_flick() {
+        let view = view();
+        let to_direction = |p: Vec2| direction(p.x.to_radians(), p.y.to_radians());
+        for towards in [90.0, 270.0] {
+            let config = long_vertical(towards);
+            let starts = [Vec3::NEG_Z, direction(0.4, -0.2), direction(-0.6, 0.35), direction(0.1, 0.5)];
+            for start in starts {
+                let mut aim = start;
+                for _ in 0..200 {
+                    let target = flick_position(aim, &view, MARGIN, &config).normalize();
+                    let from = angles(aim);
+                    // The farthest the view shows in the trained direction.
+                    let shown = 60.0
+                        * bisect(|t| view.contains(aim, to_direction(from + screen_offset(towards, 60.0 * t)), MARGIN));
+                    let distance = wrap(angles(target) - from).length();
+                    assert!(view.contains(aim, target, MARGIN), "{towards}° from {from}: {target} off screen");
+                    assert!(
+                        distance >= config.min_flick.min(shown) - 0.05,
+                        "{towards}° from {from}: only {distance}° away, {shown}° shown"
+                    );
+                    let pitch = angles(target).y;
+                    assert!((FLOOR_PITCH - 1e-3..=CEILING_PITCH + 1e-3).contains(&pitch), "{towards}°: pitch {pitch}");
+                    aim = target;
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn unconstrained_targets_stay_above_the_floor() {
+        let mut config = DrillConfig { pitch_range: 30.0, ..DrillConfig::defaults(DrillKind::Microflick) };
+        config.sanitize();
+        // Straight ahead, and looking 34° down at the floor.
+        for aim in [Vec3::NEG_Z, direction(0.3, -0.6)] {
+            for _ in 0..500 {
+                let target = flick_position(aim, &view(), MARGIN, &config).normalize();
+                assert!(angles(target).y >= FLOOR_PITCH - 1e-3, "aim {aim}: {target} below the floor");
+                assert!(view().contains(aim, target, MARGIN), "aim {aim}: {target} off screen");
             }
         }
     }

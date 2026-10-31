@@ -14,6 +14,7 @@ use bevy::feathers::tokens;
 use bevy::input_focus::tab_navigation::TabGroup;
 use bevy::prelude::*;
 use bevy::text::{FontSourceTemplate, FontWeight};
+use bevy::ui_widgets::ScrollArea;
 
 use super::theme::*;
 
@@ -103,6 +104,16 @@ pub fn column() -> impl Scene {
             flex_direction: FlexDirection::Column,
             row_gap: px(SPACE_S),
         }
+    }
+}
+
+/// A column that scrolls with the mouse wheel once its content is taller than the space its
+/// parent gives it, so long lists stay inside the fixed-size menu.
+pub fn scroll_column() -> impl Scene {
+    bsn! {
+        @column()
+        Node { overflow: Overflow::scroll_y(), min_height: px(0) }
+        ScrollArea
     }
 }
 

@@ -10,6 +10,12 @@ use super::{CustomContent, CustomPlaylist, CustomScenario, DrillRef, PlaylistSte
 use crate::drill::{DrillConfig, DrillKind};
 
 pub const SHARE_PREFIX: &str = "AIMPL1:";
+/// Most steps an imported playlist may have. Every custom step is checked against every
+/// scenario you have, so a crafted code with thousands would stall the app.
+const MAX_SHARED_STEPS: usize = 100;
+/// Longest share code accepted, checked before decoding: room for `MAX_SHARED_STEPS` custom
+/// steps (about 600 characters each).
+const MAX_CODE_LEN: usize = 128 << 10;
 
 #[derive(Serialize, Deserialize)]
 struct SharedPlaylist {
@@ -50,10 +56,17 @@ impl CustomContent {
     /// Scenarios identical to one you already have (same config, and the same name or a renamed
     /// copy of it) are reused rather than duplicated.
     pub fn import_playlist(&mut self, code: &str) -> Result<u32, String> {
-        let payload = code.trim().strip_prefix(SHARE_PREFIX).ok_or("Not an Aim Trainer playlist code.")?;
+        let code = code.trim();
+        if code.len() > MAX_CODE_LEN {
+            return Err("The share code is too long.".into());
+        }
+        let payload = code.strip_prefix(SHARE_PREFIX).ok_or("Not an Aim Trainer playlist code.")?;
         let bytes = URL_SAFE_NO_PAD.decode(payload).map_err(|_| "The share code is damaged.".to_string())?;
         let text = String::from_utf8(bytes).map_err(|_| "The share code is damaged.".to_string())?;
         let shared: SharedPlaylist = ron::from_str(&text).map_err(|_| "The share code is damaged.".to_string())?;
+        if shared.steps.len() > MAX_SHARED_STEPS {
+            return Err(format!("Playlists with more than {MAX_SHARED_STEPS} steps can't be imported."));
+        }
 
         let mut steps = Vec::with_capacity(shared.steps.len());
         for (drill, secs) in shared.steps {
@@ -130,6 +143,20 @@ mod tests {
         assert!(content.import_playlist("hello").is_err());
         assert!(content.import_playlist(&format!("{SHARE_PREFIX}not-base64!!")).is_err());
         assert!(content.playlists.is_empty());
+    }
+
+    #[test]
+    fn oversized_share_codes_are_rejected() {
+        let playlist = |name: String, steps: usize| SharedPlaylist {
+            name,
+            steps: (0..steps).map(|_| (SharedDrill::Builtin(DrillKind::Gridshot), 30.0)).collect(),
+        };
+        let mut content = CustomContent::default();
+        assert!(content.import_playlist(&share_code(&playlist("p".into(), MAX_SHARED_STEPS))).is_ok());
+        assert!(content.import_playlist(&share_code(&playlist("p".into(), MAX_SHARED_STEPS + 1))).is_err());
+        // Valid, but too long to decode.
+        assert!(content.import_playlist(&share_code(&playlist("p".repeat(MAX_CODE_LEN), 1))).is_err());
+        assert_eq!(content.playlists.len(), 1);
     }
 
     fn share_code(shared: &SharedPlaylist) -> String {

@@ -1,6 +1,8 @@
 //! Saving resources to RON files: load with backup of unreadable files, atomic debounced saves,
 //! and a last save on exit. Used by the settings and the custom content.
 
+use std::fs::File;
+use std::io::Write;
 use std::marker::PhantomData;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
@@ -19,7 +21,7 @@ pub(crate) trait Persisted: Resource + Serialize {
     const PATH: &'static str;
 }
 
-/// Inserts a loaded resource and keeps its file up to date: logs load problems at startup,
+/// Inserts a loaded resource and keeps its file up to date: reports load problems at startup,
 /// saves (debounced) after changes and right away on exit.
 pub(crate) struct PersistPlugin<T> {
     pub value: T,
@@ -30,11 +32,17 @@ impl<T: Persisted + Clone> Plugin for PersistPlugin<T> {
     fn build(&self, app: &mut App) {
         app.insert_resource(self.value.clone())
             .insert_resource(SaveState::<T>::new(self.report.clone()))
+            .init_resource::<LoadProblems>()
             .add_systems(Startup, report_load_problem::<T>)
             .add_systems(Update, autosave::<T>)
             .add_systems(Last, save_on_exit::<T>);
     }
 }
+
+/// The files that had load problems this session, for the menu to point at; release builds have
+/// no console, so the log alone would go unnoticed.
+#[derive(Resource, Default)]
+pub(crate) struct LoadProblems(pub Vec<&'static str>);
 
 /// Problems found while loading a file.
 #[derive(Clone, Debug)]
@@ -52,7 +60,7 @@ impl Default for LoadReport {
     }
 }
 
-fn with_suffix(path: &Path, suffix: &str) -> PathBuf {
+pub(crate) fn with_suffix(path: &Path, suffix: &str) -> PathBuf {
     let mut name = path.as_os_str().to_owned();
     name.push(suffix);
     name.into()
@@ -94,11 +102,20 @@ pub(crate) fn load_ron<T: DeserializeOwned + Default>(path: &Path) -> (T, LoadRe
     }
 }
 
-/// Writes via a temporary file and a rename, so a crash mid-write never leaves a truncated file.
+/// Writes via a synced temporary file and a rename, so a crash or power loss mid-write never
+/// leaves a truncated file.
 pub(crate) fn write_atomic(path: &Path, text: &str) -> io::Result<()> {
     let tmp = with_suffix(path, ".tmp");
-    fs::write(&tmp, text)?;
+    write_synced(&tmp, text.as_bytes())?;
     fs::rename(&tmp, path)
+}
+
+/// Writes a file and waits until it is on disk, so a rename that follows can't publish a file
+/// that a power loss would leave empty.
+pub(crate) fn write_synced(path: &Path, contents: &[u8]) -> io::Result<()> {
+    let mut file = File::create(path)?;
+    file.write_all(contents)?;
+    file.sync_all()
 }
 
 fn save<T: Persisted>(value: &T) {
@@ -126,9 +143,10 @@ impl<T> SaveState<T> {
     }
 }
 
-fn report_load_problem<T: Persisted>(mut state: ResMut<SaveState<T>>) {
+fn report_load_problem<T: Persisted>(mut state: ResMut<SaveState<T>>, mut problems: ResMut<LoadProblems>) {
     if let Some(problem) = state.report.problem.take() {
         error!("{problem}");
+        problems.0.push(T::PATH);
     }
 }
 

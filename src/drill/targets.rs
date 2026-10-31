@@ -77,11 +77,12 @@ pub struct SpawnCtx<'a, 'w, 's> {
     pub(crate) config: &'a DrillConfig,
     /// Run time; new targets are born now.
     pub(crate) now: f32,
-    /// The view direction (straight ahead for the initial targets).
+    /// The view direction.
     pub(crate) aim: Vec3,
     /// What the player can see; new targets must appear inside it.
     pub(crate) view: ViewCone,
-    /// Whether the run is live, so `aim` is where the player is actually aiming.
+    /// Whether the run is live, so the flick to the new target starts at `aim` (before that, the
+    /// player keeps moving through the countdown).
     pub(crate) live: bool,
     /// Slots taken by live targets (see [`Slot`]).
     pub(crate) occupied: &'a mut Vec<usize>,
@@ -198,12 +199,14 @@ pub(super) fn spawn_static(mut commands: Commands, assets: Res<TargetAssets>, ru
     spawn_environment(&mut commands, &assets, run.kind().def().environment, AppState::Playing);
 }
 
-/// Initial targets, spawned when the countdown starts.
+/// Initial targets, spawned when the countdown starts, around `aim`: the player can already look
+/// around while the ready card is up.
 pub(super) fn spawn_initial(
     commands: &mut Commands,
     assets: &TargetAssets,
     next: &mut NextSpawn,
     run: &Run,
+    aim: Vec3,
     view: &ViewCone,
 ) {
     let mut occupied = Vec::new();
@@ -212,8 +215,7 @@ pub(super) fn spawn_initial(
         assets,
         config: &run.drill.config,
         now: 0.0,
-        // Initial targets are placed relative to straight ahead, where the view starts.
-        aim: Vec3::NEG_Z,
+        aim,
         view: *view,
         live: false,
         occupied: &mut occupied,

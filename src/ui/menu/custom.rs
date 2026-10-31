@@ -164,7 +164,7 @@ impl EditorField {
 pub fn custom_lists_column() -> impl Scene {
     let new_buttons: Vec<_> = DrillKind::ALL.into_iter().map(new_scenario_button).collect();
     bsn! {
-        @column()
+        @scroll_column()
         Node { width: px(470), row_gap: px(SPACE_L), flex_shrink: 0.0 }
         Children [
             @card("My scenarios", bsn_list! {

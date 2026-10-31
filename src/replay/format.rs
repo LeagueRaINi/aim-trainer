@@ -5,7 +5,8 @@ use std::{array, fs};
 
 use bevy::prelude::*;
 
-use crate::drill::DrillKind;
+use super::recorder::SAMPLE_INTERVAL;
+use crate::drill::{DrillKind, SECS_RANGE};
 
 pub(super) const REPLAY_DIR: &str = "replays";
 /// Older replays beyond this many are deleted when a new one is saved.
@@ -18,10 +19,17 @@ const ANGLE_UNITS: f64 = 1e6;
 const POSITION_UNITS: f64 = 1e4;
 /// Quantized values are clamped to this magnitude so the integer math can't overflow.
 const QUANTIZED_LIMIT: f64 = (1u64 << 40) as f64;
-/// v3 frames list at most this many targets (as v2 did).
+/// v3 frames list at most this many targets.
 const MAX_TARGETS: usize = u8::MAX as usize;
 /// Largest decompressed v3 body accepted, so a corrupt file can't exhaust memory.
 const MAX_BODY: usize = 256 << 20;
+/// Most frames decoded: the longest run sampled at the recording rate, doubled for the extra
+/// frames shots add. A tiny body could otherwise list millions of frames.
+const MAX_FRAMES: usize = 2 * (SECS_RANGE.1 / SAMPLE_INTERVAL) as usize;
+/// Most targets decoded over all frames (16 bytes each): enough for the longest run at the
+/// recording rate with 80 targets at once, the most a drill shows. Every frame holds a copy of
+/// its targets, so unchanged 255-target frames, a few body bytes each, would cost 4 KB apiece.
+const MAX_TOTAL_TARGETS: usize = 1 << 24;
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum Shot {
@@ -49,24 +57,21 @@ pub struct Replay {
     pub name: String,
     pub sens: f32,
     pub duration: f32,
+    /// At least one, with finite, non-decreasing `t` (checked on load; the player relies on it).
     pub frames: Vec<ReplayFrame>,
 }
 
 impl Replay {
-    fn path(timestamp: u64) -> PathBuf {
-        Self::path_in(Path::new(REPLAY_DIR), timestamp)
-    }
-
-    fn path_in(dir: &Path, timestamp: u64) -> PathBuf {
+    fn path(dir: &Path, timestamp: u64) -> PathBuf {
         dir.join(format!("{timestamp}.replay"))
     }
 
-    pub fn exists(timestamp: u64) -> bool {
-        Self::path(timestamp).is_file()
+    pub fn exists(dir: &Path, timestamp: u64) -> bool {
+        Self::path(dir, timestamp).is_file()
     }
 
-    pub fn load(timestamp: u64) -> Option<Self> {
-        Self::decode(&fs::read(Self::path(timestamp)).ok()?)
+    pub fn load(dir: &Path, timestamp: u64) -> Option<Self> {
+        Self::decode(&fs::read(Self::path(dir, timestamp)).ok()?)
     }
 
     /// Timestamps of every replay saved in `dir`, oldest first.
@@ -78,13 +83,13 @@ impl Replay {
         stamps
     }
 
-    /// The newest saved replays (newest first, at most `limit`) of the given drill kinds. Only
-    /// the header byte is checked before decoding, so other drills' replays cost a file read.
-    pub fn recent(kinds: &[DrillKind], limit: usize) -> Vec<Self> {
-        Self::saved_stamps(Path::new(REPLAY_DIR))
+    /// The newest replays saved in `dir` (newest first, at most `limit`) of the given drill kinds.
+    /// Only the header byte is checked before decoding, so other drills' replays cost a file read.
+    pub fn recent(dir: &Path, kinds: &[DrillKind], limit: usize) -> Vec<Self> {
+        Self::saved_stamps(dir)
             .into_iter()
             .rev()
-            .filter_map(|stamp| fs::read(Self::path(stamp)).ok())
+            .filter_map(|stamp| fs::read(Self::path(dir, stamp)).ok())
             .filter(|bytes| {
                 bytes.get(5).and_then(|&i| DrillKind::ALL.get(i as usize)).is_some_and(|s| kinds.contains(s))
             })
@@ -95,7 +100,7 @@ impl Replay {
 
     /// Saves in `dir` under the run's history timestamp and prunes the oldest replays there.
     pub fn save(&self, dir: &Path, timestamp: u64) {
-        let result = fs::create_dir_all(dir).and_then(|_| fs::write(Self::path_in(dir, timestamp), self.encode()));
+        let result = fs::create_dir_all(dir).and_then(|_| fs::write(Self::path(dir, timestamp), self.encode()));
         if let Err(err) = result {
             return error!("Failed to save replay: {err}");
         }
@@ -103,7 +108,7 @@ impl Replay {
         let excess = stamps.len().saturating_sub(KEEP_REPLAYS);
         // Never the replay just saved, even if the clock went backwards and it looks oldest.
         for old in stamps[..excess].iter().filter(|&&old| old != timestamp) {
-            let _ = fs::remove_file(Self::path_in(dir, *old));
+            let _ = fs::remove_file(Self::path(dir, *old));
         }
     }
 
@@ -142,7 +147,7 @@ impl Replay {
         let sens = reader.f32()?;
         let duration = reader.f32()?;
         let body = miniz_oxide::inflate::decompress_to_vec_zlib_with_limit(reader.0, MAX_BODY).ok()?;
-        let frames = decode_body(&body, bytes.len())?;
+        let frames = decode_body(&body)?;
         Some(Self { kind, name, sens, duration, frames })
     }
 
@@ -229,8 +234,9 @@ fn encode_body(frames: &[ReplayFrame]) -> Vec<u8> {
     body
 }
 
-/// Inverse of [`encode_body`]; `input_len` (the file size) caps the pre-allocation.
-fn decode_body(body: &[u8], input_len: usize) -> Option<Vec<ReplayFrame>> {
+/// Inverse of [`encode_body`]. Rejects bodies beyond [`MAX_FRAMES`] or [`MAX_TOTAL_TARGETS`],
+/// without frames, or whose times aren't finite and non-decreasing.
+fn decode_body(body: &[u8]) -> Option<Vec<ReplayFrame>> {
     let mut reader = Reader(body);
     let step = reader.unsigned()?;
     if step > u64::from(u32::MAX) {
@@ -238,6 +244,9 @@ fn decode_body(body: &[u8], input_len: usize) -> Option<Vec<ReplayFrame>> {
     }
     let mut times_in = reader.stream()?;
     let flags_in = reader.stream()?;
+    if flags_in.0.is_empty() || flags_in.0.len() > MAX_FRAMES {
+        return None;
+    }
     let mut yaw_in = reader.stream()?;
     let mut pitch_in = reader.stream()?;
     let mut residuals_in = reader.stream()?;
@@ -248,9 +257,13 @@ fn decode_body(body: &[u8], input_len: usize) -> Option<Vec<ReplayFrame>> {
     let mut time = TimeCoder::default();
     let (mut yaw_coder, mut pitch_coder) = (AngleCoder::default(), AngleCoder::default());
     let mut previous: Vec<TrackedTarget> = Vec::new();
-    let mut frames = Vec::with_capacity(flags_in.0.len().min(input_len));
+    let mut frames: Vec<ReplayFrame> = Vec::with_capacity(flags_in.0.len());
+    let mut total_targets = 0;
     for &flag in flags_in.0 {
         let t = time.decode(times_in.signed()?)?;
+        if !t.is_finite() || frames.last().is_some_and(|last| t < last.t) {
+            return None;
+        }
         let yaw = yaw_coder.decode(step, &mut yaw_in, &mut residuals_in)?;
         let pitch = pitch_coder.decode(step, &mut pitch_in, &mut residuals_in)?;
         if flag & 4 != 0 {
@@ -258,6 +271,10 @@ fn decode_body(body: &[u8], input_len: usize) -> Option<Vec<ReplayFrame>> {
             previous = (0..count).map(|_| decode_target(&mut targets_in, &previous)).collect::<Option<_>>()?;
         } else {
             previous.iter_mut().for_each(|target| target.motion = [0; 4]);
+        }
+        total_targets += previous.len();
+        if total_targets > MAX_TOTAL_TARGETS {
+            return None;
         }
         let targets = previous
             .iter()
@@ -567,6 +584,36 @@ pub(super) mod tests {
         bytes[middle] ^= 0x10;
         assert!(Replay::decode(&bytes).is_none());
         assert!(Replay::decode(b"nope").is_none());
+    }
+
+    /// A body of `frames` frames at t = 0 looking straight ahead, all showing the same `targets`
+    /// targets: a few bytes per frame however many targets they list.
+    fn uniform_body(frames: usize, targets: u64) -> Vec<u8> {
+        let mut flags = vec![0; frames];
+        flags[0] = 4;
+        let mut target_stream = Vec::new();
+        put_unsigned(&mut target_stream, targets);
+        target_stream.resize(target_stream.len() + 5 * targets as usize, 0);
+        let mut body = vec![0]; // no angle step
+        for stream in [vec![0; frames], flags, vec![0; frames], vec![0; frames], vec![0; 2 * frames], target_stream] {
+            put_unsigned(&mut body, stream.len() as u64);
+            body.extend_from_slice(&stream);
+        }
+        body
+    }
+
+    #[test]
+    fn rejects_oversized_or_unplayable_bodies() {
+        // The frame count is capped before anything is decoded.
+        assert_eq!(decode_body(&uniform_body(MAX_FRAMES, 1)).map(|frames| frames.len()), Some(MAX_FRAMES));
+        assert!(decode_body(&uniform_body(MAX_FRAMES + 1, 1)).is_none());
+        // The player needs a frame, and finite times in order.
+        assert!(decode_body(&encode_body(&[])).is_none());
+        let frame = |t| ReplayFrame { t, yaw: 0.0, pitch: 0.0, shot: Shot::None, targets: vec![] };
+        assert!(decode_body(&encode_body(&[0.0, 0.0, 0.01].map(frame))).is_some());
+        for times in [[0.0, 0.02, 0.01], [0.0, f32::NAN, 0.02], [0.0, 0.01, f32::INFINITY]] {
+            assert!(decode_body(&encode_body(&times.map(frame))).is_none(), "{times:?}");
+        }
     }
 
     fn fixture(name: &str) -> Vec<u8> {

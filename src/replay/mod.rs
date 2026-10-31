@@ -37,7 +37,7 @@ impl Plugin for ReplayPlugin {
     }
 }
 
-/// Where finished runs' replays are saved.
+/// The one directory replays are saved in and loaded from.
 #[derive(Resource)]
 pub struct ReplayDir(pub PathBuf);
 

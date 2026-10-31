@@ -1,5 +1,7 @@
 //! History tab: per-drill progress chart, trend numbers and recent runs with replays.
 
+use std::path::Path;
+
 use bevy::feathers::controls::ButtonVariant;
 use bevy::feathers::display::label_dim;
 use bevy::feathers::theme::ThemeBackgroundColor;
@@ -11,7 +13,7 @@ use crate::AppState;
 use crate::drill::DrillKind;
 use crate::drill::stats::HistoryStat;
 use crate::history::{History, HistoryEntry, RECENT_RUNS, format_date, overall_change, recent_change};
-use crate::replay::{Replay, watch};
+use crate::replay::{Replay, ReplayDir, watch};
 use crate::ui::charts::*;
 use crate::ui::theme::*;
 use crate::ui::widgets::*;
@@ -41,6 +43,15 @@ impl Default for HistoryView {
 #[derive(Component, Clone, Copy, Default)]
 pub struct HistoryBody;
 
+/// The History page's content, scrolling once many drills or a long summary outgrow the menu.
+pub fn history_body() -> impl Scene {
+    bsn! {
+        @scroll_column()
+        Node { flex_grow: 1.0, row_gap: px(SPACE_M) }
+        HistoryBody
+    }
+}
+
 #[derive(Component, Clone, Default)]
 struct HistoryDrillButton(String);
 
@@ -67,6 +78,7 @@ pub fn rebuild_history(
     mut commands: Commands,
     view: Res<HistoryView>,
     history: Res<History>,
+    replays: Res<ReplayDir>,
     bodies: Query<(Entity, Ref<HistoryBody>)>,
 ) {
     for (body, marker) in &bodies {
@@ -105,7 +117,7 @@ pub fn rebuild_history(
         spawn_summary(&mut commands, summary, &history, &view.0);
 
         let list = commands.spawn_scene(bsn! { @surface() Node { row_gap: px(2) } }).insert(ChildOf(body)).id();
-        spawn_run_list(&mut commands, list, &runs);
+        spawn_run_list(&mut commands, list, &runs, &replays.0);
     }
 }
 
@@ -194,7 +206,7 @@ fn spawn_chart(commands: &mut Commands, parent: Entity, runs: &[&HistoryEntry]) 
     );
 }
 
-fn spawn_run_list(commands: &mut Commands, parent: Entity, runs: &[&HistoryEntry]) {
+fn spawn_run_list(commands: &mut Commands, parent: Entity, runs: &[&HistoryEntry], replays: &Path) {
     let kind = runs.last().map_or(DrillKind::default(), |run| run.kind);
     let columns = kind.def().score.history_columns();
     const NUMBER_W: f32 = 56.0;
@@ -232,7 +244,7 @@ fn spawn_run_list(commands: &mut Commands, parent: Entity, runs: &[&HistoryEntry
         let entry = commands.spawn_scene(table_row(cells, age % 2 == 0)).insert(ChildOf(parent)).id();
 
         let timestamp = run.timestamp;
-        if Replay::exists(timestamp) {
+        if Replay::exists(replays, timestamp) {
             commands
                 .spawn_scene(bsn! {
                     @compact_button("Replay", ButtonVariant::Normal)
@@ -250,9 +262,10 @@ fn open_replay(
     buttons: Query<&ReplayButton>,
     mut commands: Commands,
     mut next_state: ResMut<NextState<AppState>>,
+    replays: Res<ReplayDir>,
 ) {
     let Ok(&ReplayButton(timestamp)) = buttons.get(activate.event_target()) else { return };
-    match Replay::load(timestamp) {
+    match Replay::load(&replays.0, timestamp) {
         Some(replay) => watch(&mut commands, &mut next_state, replay, AppState::Menu),
         None => warn!("Replay {timestamp} could not be loaded"),
     }

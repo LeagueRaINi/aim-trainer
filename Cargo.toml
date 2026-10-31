@@ -2,11 +2,15 @@
 name = "aim_trainer"
 version = "1.0.0"
 edition = "2024"
+# `src/bin/release.rs` is the maintainer's release-signing tool, not part of the game.
+default-run = "aim_trainer"
 
 [dependencies]
 bevy = { version = "0.20.1", features = ["bevy_feathers", "wav", "system_clipboard"] }
 base64 = "0.23"
 discord-rich-presence = "1.1"
+# Verifies the release key's signature on downloaded updates (and signs them in the release tool).
+ed25519-dalek = { version = "3", default-features = false }
 fastrand = "2"
 # Decodes the embedded window icon; the same version Bevy already builds.
 image = { version = "0.25", default-features = false, features = ["png"] }
@@ -15,8 +19,6 @@ miniz_oxide = "0.9"
 ron = "0.12"
 # Unpacks downloaded updates (releases ship the exe zstd-compressed).
 ruzstd = "0.9"
-# Replaces the running exe with a downloaded update.
-self-replace = "1.5"
 # Compares release versions; the same version the dependency tree already builds.
 semver = "1"
 serde = { version = "1", features = ["derive"] }

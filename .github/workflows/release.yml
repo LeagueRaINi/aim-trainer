@@ -1,50 +1,87 @@
-# Publishing a release: set `version` in Cargo.toml, commit, then push a matching tag
-# (`git tag v1.2.0 && git push origin v1.2.0`). This builds the Windows exe and publishes it with
-# a zstd-compressed copy, which is what the in-app updater downloads (see src/update.rs).
+# Building a release: set `version` in Cargo.toml, commit, then push a matching tag
+# (`git tag v1.2.0 && git push origin v1.2.0`). This tests and builds the Windows exe and creates a
+# DRAFT release with it and a zstd-compressed copy. Drafts are invisible to installed copies; the
+# maintainer signs and publishes it with `cargo run --bin release -- v1.2.0` (see ARCHITECTURE.md,
+# Releases, and src/update.rs).
+#
+# The build job runs every dependency's build scripts, so it only gets a read-only token; the
+# publish job holds the write token and runs no repository code. Actions are pinned to commits.
 name: Release
 
 on:
   push:
-    tags: ["v*"]
+    tags: ["v[0-9]+.[0-9]+.[0-9]+"]
 
-permissions:
-  contents: write
+permissions: {}
 
 jobs:
-  release:
+  build:
     runs-on: windows-latest
+    permissions:
+      contents: read
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
-      # The exe reports Cargo.toml's version; a tag that differs would make installs update to
-      # the "new" release on every start.
-      - name: Check the tag matches the version
+      # Releases only (no pre-releases: installed copies would take them), and the exe reports
+      # Cargo.toml's version: a tag that differs would make installs update on every start.
+      - name: Check the tag
         shell: bash
         run: |
+          if [[ ! "$GITHUB_REF_NAME" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "Tag $GITHUB_REF_NAME isn't v<major>.<minor>.<patch>" >&2
+            exit 1
+          fi
           version=$(grep -m1 '^version = ' Cargo.toml | cut -d '"' -f2)
           if [ "v$version" != "$GITHUB_REF_NAME" ]; then
             echo "Tag $GITHUB_REF_NAME doesn't match Cargo.toml version $version" >&2
             exit 1
           fi
 
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
+      # The pinned nightly from rust-toolchain.toml, with rustfmt and clippy.
+      - name: Install toolchain
+        run: rustup toolchain install
 
-      - name: Test
-        run: cargo test --locked
+      - name: Check
+        run: |
+          cargo fmt --check
+          cargo clippy --all-targets --locked -- -D warnings
+          cargo test --locked
 
       - name: Build
-        run: cargo build --release --locked
+        run: cargo build --release --locked --bin aim_trainer
 
       - name: Package
         shell: bash
         run: |
           command -v zstd || choco install zstandard -y --no-progress
-          cp target/release/aim_trainer.exe aim_trainer.exe
-          zstd -19 aim_trainer.exe -o aim_trainer.exe.zst
+          mkdir dist
+          cp target/release/aim_trainer.exe dist/aim_trainer.exe
+          zstd -19 dist/aim_trainer.exe -o dist/aim_trainer.exe.zst
 
-      - name: Publish
-        shell: bash
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: release
+          path: dist/
+          if-no-files-found: error
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: release
+          path: dist
+
+      # A draft only: installed copies never see it until it is signed and published.
+      - name: Create the draft release
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release create "$GITHUB_REF_NAME" aim_trainer.exe aim_trainer.exe.zst --title "$GITHUB_REF_NAME" --generate-notes
+          GH_REPO: ${{ github.repository }}
+        run: >-
+          gh release create "$GITHUB_REF_NAME" dist/aim_trainer.exe dist/aim_trainer.exe.zst
+          --draft --verify-tag --title "$GITHUB_REF_NAME" --generate-notes

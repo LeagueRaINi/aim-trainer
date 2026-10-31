@@ -116,13 +116,9 @@ impl CustomContent {
         self.next_id
     }
 
-    /// Taken by another scenario, or by a built-in drill's name or variant name (their history
-    /// would get mixed in).
+    /// Taken by another scenario or by a built-in drill (see [`builtin_name`]).
     fn name_taken(&self, name: &str) -> bool {
-        let builtin = DrillKind::ALL.iter().any(|s| {
-            name.strip_prefix(s.name()).is_some_and(|rest| rest.is_empty() || rest.starts_with(VARIANT_SEPARATOR))
-        });
-        builtin || self.scenarios.iter().any(|s| s.name == name)
+        builtin_name(name) || self.scenarios.iter().any(|s| s.name == name)
     }
 
     /// A name not used by any built-in drill or other custom scenario, so history stays separate.
@@ -185,7 +181,7 @@ impl CustomContent {
         let name = name.trim();
         let clash = name.is_empty()
             || name.contains([',', '\n', '\r'])
-            || DrillKind::ALL.iter().any(|s| s.name() == name)
+            || builtin_name(name)
             || self.scenarios.iter().any(|s| s.id != id && s.name == name);
         match self.scenario_mut(id) {
             Some(scenario) if !clash => {
@@ -244,6 +240,14 @@ impl CustomContent {
     }
 }
 
+/// A built-in drill's name or variant name, which a scenario can't take: their history would get
+/// mixed in (and adaptive variants' QUEST+ priors, keyed by name).
+fn builtin_name(name: &str) -> bool {
+    DrillKind::ALL
+        .iter()
+        .any(|s| name.strip_prefix(s.name()).is_some_and(|rest| rest.is_empty() || rest.starts_with(VARIANT_SEPARATOR)))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -255,6 +259,7 @@ mod tests {
         let b = content.new_scenario(DrillKind::Gridshot);
         assert_ne!(content.scenario(a).unwrap().name, content.scenario(b).unwrap().name);
         assert!(!content.rename_scenario(a, "Gridshot"));
+        assert!(!content.rename_scenario(a, &format!("Microflick{VARIANT_SEPARATOR}adaptive")));
         assert!(!content.rename_scenario(a, &content.scenario(b).unwrap().name.clone()));
         assert!(!content.rename_scenario(a, "   "));
         assert!(content.rename_scenario(a, "5x5 wide"));
@@ -292,12 +297,11 @@ mod tests {
         assert!(content.playlist_routine(empty, &Settings::default()).is_none());
     }
 
+    /// What the custom file is saved as loads back unchanged.
     #[test]
     fn saved_content_round_trips() {
-        let mut content = CustomContent::default();
-        content.new_scenario(DrillKind::Peek);
-        content.new_playlist();
-        let text = ron::ser::to_string(&content).unwrap();
+        let (content, _) = fixture_content();
+        let text = ron::ser::to_string_pretty(&content, ron::ser::PrettyConfig::default()).unwrap();
         assert_eq!(ron::from_str::<CustomContent>(&text).unwrap(), content);
     }
 
@@ -374,9 +378,9 @@ mod tests {
         assert!(dir.join("custom.ron.bak").exists());
     }
 
-    /// The content `fixtures/custom.ron` and `fixtures/share_code.txt` were saved from: one
-    /// scenario per kind (Microflick with flick constraints) and a playlist of a built-in and a
-    /// custom step. Returns it with the playlist's id.
+    /// The content `fixtures/custom.ron` (saved by v1.0.0) and `fixtures/share_code.txt` were
+    /// saved from: one scenario per kind (Microflick with flick constraints) and a playlist of a
+    /// built-in and a custom step. Returns it with the playlist's id.
     pub(super) fn fixture_content() -> (CustomContent, u32) {
         let mut content = CustomContent::default();
         let ids: Vec<u32> = DrillKind::fixture_kinds().iter().map(|&kind| content.new_scenario(kind)).collect();
@@ -393,9 +397,11 @@ mod tests {
         (content, playlist)
     }
 
-    /// Pins the custom file format: field names, kind/`DrillRef` variant names, the writer.
+    /// Custom files saved by v1.0.0 keep loading: field names, kind/`DrillRef` variant names, and
+    /// `DrillConfig` fields added since (absent from the file) at their defaults. The fixture is
+    /// frozen; never regenerate it.
     #[test]
-    fn loads_saved_custom_fixture() {
+    fn loads_v1_custom_fixture() {
         let fixture = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/fixtures/custom.ron"));
         let (expected, _) = fixture_content();
         let mut loaded: CustomContent = ron::from_str(fixture).unwrap();
@@ -403,7 +409,5 @@ mod tests {
         assert_eq!(loaded, expected);
         let kinds: Vec<DrillKind> = loaded.scenarios.iter().map(|s| s.config.kind).collect();
         assert_eq!(kinds, DrillKind::fixture_kinds());
-        let written = ron::ser::to_string_pretty(&expected, ron::ser::PrettyConfig::default()).unwrap();
-        assert_eq!(written.replace("\r\n", "\n"), fixture.replace("\r\n", "\n"));
     }
 }

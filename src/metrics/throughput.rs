@@ -110,18 +110,19 @@ fn mean(values: impl Iterator<Item = f32>) -> Option<f32> {
 /// Effective throughput in bits/s (module docs); `None` until a condition has [`MIN_GROUP`]
 /// clicks.
 pub fn throughput(clicks: &[Click]) -> Option<f32> {
-    let mut conditions: BTreeMap<(usize, i32), Vec<&Click>> = BTreeMap::new();
-    for (click, _) in measured(clicks) {
-        conditions.entry(click.condition()).or_default().push(click);
+    let mut conditions: BTreeMap<(usize, i32), Vec<(&Click, f32)>> = BTreeMap::new();
+    // The clicks `measured` counts, with their offsets along the flick in degrees.
+    for (click, offset) in clicks.iter().filter(|c| c.first).filter_map(|c| Some((c, c.task_offset()?))) {
+        conditions.entry(click.condition()).or_default().push((click, offset.x));
     }
     mean(conditions.values().filter(|group| group.len() >= MIN_GROUP).filter_map(|group| {
         let n = group.len() as f32;
-        let xs: Vec<f32> = group.iter().map(|c| c.task_offset().map_or(0.0, |offset| offset.x)).collect();
+        let xs: Vec<f32> = group.iter().map(|&(_, x)| x).collect();
         let mean_x = xs.iter().sum::<f32>() / n;
         let sigma = (xs.iter().map(|x| (x - mean_x).powi(2)).sum::<f32>() / (n - 1.0)).sqrt();
         let width = WE_PER_SIGMA * sigma;
-        let amplitude = group.iter().map(|c| c.amplitude()).sum::<f32>() / n;
-        let time = group.iter().map(|c| c.time).sum::<f32>() / n;
+        let amplitude = group.iter().map(|(c, _)| c.amplitude()).sum::<f32>() / n;
+        let time = group.iter().map(|(c, _)| c.time).sum::<f32>() / n;
         (width > 0.0 && time > 0.0).then(|| (amplitude / width + 1.0).log2() / time)
     }))
 }

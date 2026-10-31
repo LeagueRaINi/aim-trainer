@@ -120,34 +120,18 @@ impl ViewCone {
         Self { tan_half_h: tan_half_v * aspect, tan_half_v }
     }
 
-    /// Whether `dir` is on screen when looking along `aim`, at least `margin` radians inside
-    /// every edge.
+    /// Whether `dir` is on screen when looking along `aim`, at least `margin` radians from every
+    /// edge: the true angle to each edge plane, so the margin also holds near the corners.
     pub fn contains(&self, aim: Vec3, dir: Vec3, margin: f32) -> bool {
         let local = view_rotation(aim).inverse() * dir;
-        if local.z >= 0.0 {
-            return false;
-        }
-        let inside =
-            |tan_half: f32, offset: f32| (offset / -local.z).abs() <= (tan_half.atan() - margin).max(0.0).tan();
-        inside(self.tan_half_h, local.x) && inside(self.tan_half_v, local.y)
-    }
-
-    /// `dir` moved towards `aim` (along the great circle between them) until it is on screen
-    /// with `margin` to spare.
-    pub fn pull_in(&self, aim: Vec3, dir: Vec3, margin: f32) -> Vec3 {
-        if self.contains(aim, dir, margin) {
-            return dir;
-        }
-        let (mut inside, mut outside) = (0.0, 1.0);
-        for _ in 0..16 {
-            let t = (inside + outside) * 0.5;
-            if self.contains(aim, aim.slerp(dir, t), margin) {
-                inside = t;
-            } else {
-                outside = t;
-            }
-        }
-        aim.slerp(dir, inside)
+        let min_sin = margin.sin() * local.length();
+        // The edge plane at half angle `a` has the inward normal (-cos a, -sin a) in the
+        // (offset, z) plane; dotted with `local` that is the sine of the angle to the plane
+        // (times its length). With `t = tan a`: (-z * t - |offset|) / sqrt(1 + t²).
+        let inside = |tan_half: f32, offset: f32| {
+            (-local.z * tan_half - offset.abs()) / (1.0 + tan_half * tan_half).sqrt() >= min_sin
+        };
+        local.z < 0.0 && inside(self.tan_half_h, local.x) && inside(self.tan_half_v, local.y)
     }
 }
 
@@ -171,4 +155,42 @@ fn lock_cursor(mut cursor: Single<&mut CursorOptions>) {
 fn unlock_cursor(mut cursor: Single<&mut CursorOptions>) {
     cursor.visible = true;
     cursor.grab_mode = CursorGrabMode::None;
+}
+
+#[cfg(test)]
+mod tests {
+    use std::f32::consts::TAU;
+
+    use super::*;
+
+    /// A target whose centre `contains` accepts with a margin is entirely on screen, also in the
+    /// corners: every point that far from the centre is inside the view.
+    #[test]
+    fn margin_holds_up_to_the_corners() {
+        // A 21:9 window with Hor+ (74° vertical) and a large target's margin, where a per-axis
+        // margin leaves only about 60% of it near the corners.
+        let view = ViewCone::new(74f32.to_radians(), 21.0 / 9.0);
+        let margin = 0.05;
+        let on_screen = |aim: Vec3, dir: Vec3| {
+            let local = view_rotation(aim).inverse() * dir;
+            let fits = |offset: f32, tan_half: f32| (offset / -local.z).abs() <= tan_half * 1.0001;
+            local.z < 0.0 && fits(local.x, view.tan_half_h) && fits(local.y, view.tan_half_v)
+        };
+        let steps = (-50..=50).map(|i| i as f32 / 50.0);
+        for aim in [Vec3::NEG_Z, Vec3::new(0.4, 0.3, -1.0).normalize()] {
+            let rotation = view_rotation(aim);
+            for (u, v) in steps.clone().flat_map(|u| steps.clone().map(move |v| (u, v))) {
+                let dir = rotation * Vec3::new(u * view.tan_half_h, v * view.tan_half_v, -1.0).normalize();
+                if !view.contains(aim, dir, margin) {
+                    continue;
+                }
+                let (a, b) = dir.any_orthonormal_pair();
+                for k in 0..64 {
+                    let (sin, cos) = (k as f32 / 64.0 * TAU).sin_cos();
+                    let rim = Quat::from_axis_angle(a * cos + b * sin, margin) * dir;
+                    assert!(on_screen(aim, rim), "aim {aim}, ({u}, {v}): {rim} off screen");
+                }
+            }
+        }
+    }
 }

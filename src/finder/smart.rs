@@ -38,7 +38,7 @@ use bevy::prelude::*;
 
 use super::gp::Mixture;
 use crate::drill::{DrillKind, DrillSpec, Run, RunPurpose, RunStats};
-use crate::metrics::throughput;
+use crate::metrics::{median, throughput};
 use crate::settings::{FinderFocus, Settings};
 
 /// Relative range searched around the starting sensitivity.
@@ -368,11 +368,11 @@ impl SmartFinder {
         if self.step != SmartStep::Rate {
             return;
         }
-        let Pending { scores, throughputs, landings, biases, .. } = std::mem::take(&mut self.pending);
+        let Pending { scores, throughputs, mut landings, biases, .. } = std::mem::take(&mut self.pending);
         let sens = self.current_sens();
         self.opening.pop();
         let bias = (biases.len() >= MIN_CLICKS).then(|| biases.iter().sum::<f32>() / biases.len() as f32);
-        let landing = median(landings);
+        let landing = if landings.len() < MIN_LANDINGS { None } else { median(&mut landings) };
         self.trials.push(SmartTrial { sens, scores, throughputs, landing, bias, feel: feel.clamp(1, 5) });
         self.refit();
         self.step = if self.finished() { SmartStep::Done } else { SmartStep::Trial };
@@ -651,16 +651,6 @@ impl Line {
         let x = (level - self.intercept) / self.slope;
         (self.t >= MIN_TREND_T && x.abs() <= MAX_TREND_FACTOR.ln()).then_some(x)
     }
-}
-
-/// Median of a trial's landing ratios, if it has at least `MIN_LANDINGS` of them.
-fn median(mut values: Vec<f32>) -> Option<f32> {
-    if values.len() < MIN_LANDINGS {
-        return None;
-    }
-    values.sort_by(f32::total_cmp);
-    let mid = values.len() / 2;
-    Some(if values.len().is_multiple_of(2) { (values[mid - 1] + values[mid]) * 0.5 } else { values[mid] })
 }
 
 #[cfg(test)]

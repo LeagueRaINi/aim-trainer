@@ -305,7 +305,8 @@ mod tests {
         assert_eq!(settings.crosshair.outline_opacity, 0.0);
     }
 
-    /// The settings `fixtures/settings.ron` was saved from.
+    /// The settings `fixtures/settings.ron` was saved from (by v1.0.0). Settings added later
+    /// stay at their defaults here.
     fn fixture_settings() -> Settings {
         let mut s = Settings {
             sens: 1.25,
@@ -345,9 +346,11 @@ mod tests {
         s
     }
 
-    /// Pins the settings file format: field names, enum variant names and the pretty writer.
+    /// Settings files saved by v1.0.0 keep loading: field and enum variant names, with settings
+    /// added since (absent from the file) at their defaults. The fixture is frozen; never
+    /// regenerate it.
     #[test]
-    fn loads_saved_settings_fixture() {
+    fn loads_v1_settings_fixture() {
         let fixture = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/fixtures/settings.ron"));
         let dir = TempDir::new("settings_fixture");
         let path = dir.join("settings.ron");
@@ -356,7 +359,26 @@ mod tests {
         assert!(report.problem.is_none());
         loaded.sanitize();
         assert_eq!(loaded, fixture_settings());
+    }
+
+    /// What the settings file is saved as loads back unchanged.
+    #[test]
+    fn saved_settings_round_trip() {
         let written = ron::ser::to_string_pretty(&fixture_settings(), ron::ser::PrettyConfig::default()).unwrap();
-        assert_eq!(written.replace("\r\n", "\n"), fixture.replace("\r\n", "\n"));
+        assert_eq!(ron::from_str::<Settings>(&written).unwrap(), fixture_settings());
+    }
+
+    /// A file missing fields at every level (and keeping one since removed) loads with the
+    /// defaults filled in, so each settings struct needs its `#[serde(default)]`.
+    #[test]
+    fn partial_settings_files_load_with_defaults() {
+        let text = "(sens: 0.5, removed: (map: 0), targets: (lifetime: 1.0), video: (vsync: true), \
+                    crosshair: (center_dot: true), audio: (volume: 0.3), discord: (), updates: ())";
+        let mut expected = Settings { sens: 0.5, ..Settings::default() };
+        expected.targets.lifetime = 1.0;
+        expected.video.vsync = true;
+        expected.crosshair.center_dot = true;
+        expected.audio.volume = 0.3;
+        assert_eq!(ron::from_str::<Settings>(text).unwrap(), expected);
     }
 }

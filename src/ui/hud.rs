@@ -101,7 +101,6 @@ pub(super) fn update_hud(
     mut fields: Query<(&HudField, &mut Text)>,
     mut ready_card: Single<&mut Node, With<ReadyCard>>,
 ) {
-    let stats = run.stats(&settings);
     let adaptive_mode = run.drill.config.adaptive();
     let fps = diagnostics.get(&FrameTimeDiagnosticsPlugin::FPS).and_then(|fps| fps.smoothed()).unwrap_or(0.0);
     for (field, mut text) in &mut fields {
@@ -112,7 +111,7 @@ pub(super) fn update_hud(
                 Cow::Owned(format!("Warm-in {:.1}s (not scored)", run.warm_in_left()))
             },
             HudField::Detail => {
-                let detail = run.kind().def().score.hud_detail(&stats);
+                let detail = run.kind().def().score.hud_detail(&run.live_stats(&settings));
                 match adaptive.estimate().filter(|_| adaptive_mode.is_some()) {
                     Some(e) if e.trials > 0 => Cow::Owned(format!(
                         "{detail}   ·   θ75 {:.2}° ({:.2}–{:.2})   ·   {}/{} in time",
@@ -122,6 +121,8 @@ pub(super) fn update_hud(
                 }
             },
             HudField::Info => Cow::Owned(format!("{fps:.0} fps   Esc to quit")),
+            // Only while the ready card shows it.
+            HudField::ReadyBlurb if run.phase() != Phase::Ready => continue,
             HudField::ReadyBlurb => match adaptive_mode {
                 Some(mode) => Cow::Owned(format!(
                     "Adaptive {}: {} Hit each target within {:.1} s.",

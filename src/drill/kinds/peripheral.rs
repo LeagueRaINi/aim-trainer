@@ -5,7 +5,7 @@ use bevy::prelude::*;
 use crate::camera::ViewCone;
 use crate::drill::DrillConfig;
 use crate::drill::def::{Category, DecayRule, DrillDef, Environment, TtkFrom};
-use crate::drill::geometry::{away_from, direction, random_range, random_sign};
+use crate::drill::geometry::{away_from, direction, random_pitch, random_range, random_sign};
 use crate::drill::params::ParamId;
 use crate::drill::stats::ScoreModel;
 use crate::drill::targets::SpawnCtx;
@@ -50,14 +50,12 @@ fn spawn_next(ctx: &mut SpawnCtx) {
     ctx.spawn_target(position, lifetime);
 }
 
-/// At least `min_flick` degrees to the side, so the eyes have to catch it first, and on screen.
+/// At least `min_flick` degrees to the side, so the eyes have to catch it first, on screen and
+/// between floor and ceiling.
 fn peripheral_position(aim: Vec3, view: &ViewCone, margin: f32, config: &DrillConfig) -> Vec3 {
     let near = config.min_flick.min(config.yaw_range);
     away_from(aim, near * 0.8, view, margin, || {
-        direction(
-            (random_sign() * random_range(near, config.yaw_range)).to_radians(),
-            random_range(-config.pitch_range, config.pitch_range).to_radians(),
-        )
+        direction((random_sign() * random_range(near, config.yaw_range)).to_radians(), random_pitch(config.pitch_range))
     })
 }
 

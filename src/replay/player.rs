@@ -209,9 +209,6 @@ pub(crate) fn advance_playback(
     mut targets: Query<(&mut Transform, &mut Visibility), With<ReplayTarget>>,
     markers: Query<(Entity, &ShotMarker)>,
 ) {
-    if playback.replay.frames.is_empty() {
-        return;
-    }
     let shown_until = playback.shown_until;
     if !playback.paused {
         let end = playback.end();

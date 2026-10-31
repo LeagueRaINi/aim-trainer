@@ -13,7 +13,7 @@ use crate::adaptive_log::{AdaptiveEntry, AdaptiveLog};
 use crate::drill::{Run, RunPurpose, RunStats, begin_run};
 use crate::history::{LastRun, RunRecorded};
 use crate::metrics::{quest, throughput};
-use crate::replay::{Replay, watch};
+use crate::replay::{Replay, ReplayDir, watch};
 use crate::settings::Settings;
 use crate::ui::charts::*;
 use crate::ui::theme::*;
@@ -114,10 +114,11 @@ fn retry(
 fn watch_last_replay(
     _: On<Activate>,
     last: Res<LastRun>,
+    replays: Res<ReplayDir>,
     mut commands: Commands,
     mut next_state: ResMut<NextState<AppState>>,
 ) {
-    match Replay::load(last.timestamp) {
+    match Replay::load(&replays.0, last.timestamp) {
         Some(replay) => watch(&mut commands, &mut next_state, replay, AppState::Results),
         None => warn!("Replay for this run could not be loaded"),
     }

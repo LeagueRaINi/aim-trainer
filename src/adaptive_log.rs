@@ -10,7 +10,7 @@ use std::path::{Path, PathBuf};
 use bevy::prelude::*;
 
 use crate::drill::DrillSet;
-use crate::drill::adaptive::{AdaptiveRun, quest_task};
+use crate::drill::adaptive::{AdaptiveRun, prior_key, quest_task};
 use crate::history::{RunRecorded, append_csv_row, csv_safe};
 use crate::metrics::quest::{Estimate, QuestMode};
 
@@ -122,7 +122,7 @@ impl AdaptiveLog {
 /// Each task's latest θ75 becomes the prior of its next run.
 fn seed_priors(log: Res<AdaptiveLog>, mut adaptive: ResMut<AdaptiveRun>) {
     for entry in &log.entries {
-        adaptive.priors.insert(quest_task(&entry.drill).to_string(), entry.estimate.theta75);
+        adaptive.priors.insert(prior_key(&entry.drill), entry.estimate.theta75);
     }
 }
 
@@ -145,7 +145,7 @@ pub(crate) fn record_adaptive(
             time_limit: config.time_limit(),
             estimate,
         };
-        adaptive.priors.insert(quest_task(&entry.drill).to_string(), estimate.theta75);
+        adaptive.priors.insert(prior_key(&entry.drill), estimate.theta75);
         log.record(&entry);
     }
 }
@@ -236,8 +236,25 @@ mod tests {
         );
         assert_eq!((entry.estimate.trials, entry.estimate.hits), (3, 2));
         assert!(log.entry(43).is_none());
-        let prior = app.world().resource::<AdaptiveRun>().priors["Microflick · adaptive"];
+        let prior = app.world().resource::<AdaptiveRun>().priors[&prior_key("Microflick · adaptive · train")];
         assert!((prior - entry.estimate.theta75).abs() < 1e-3);
         assert_eq!(AdaptiveLog::load(&path).entries.len(), 1);
+    }
+
+    /// A name with CSV-unsafe characters (a hand-edited custom drill) keeps its prior across a
+    /// restart: the log stores it CSV-safe, and runs look it up under the same key.
+    #[test]
+    fn priors_survive_a_restart() {
+        let dir = TempDir::new("adaptive_restart");
+        let path = dir.join("adaptive.csv");
+        AdaptiveLog::load(&path).record(&entry(100, "Flick, wide · adaptive · train", QuestMode::Train, 0.8));
+        let mut app = App::new();
+        app.add_plugins(MinimalPlugins)
+            .insert_resource(AdaptiveLog::load(&path))
+            .init_resource::<AdaptiveRun>()
+            .add_systems(Startup, seed_priors);
+        app.update();
+        let priors = &app.world().resource::<AdaptiveRun>().priors;
+        assert_eq!(priors.get(&prior_key("Flick, wide · adaptive · measure")), Some(&0.8));
     }
 }

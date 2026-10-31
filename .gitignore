@@ -5,6 +5,7 @@
 /replays
 /aim_trainer_custom.ron
 /aim_trainer_adaptive.csv
+/aim_trainer.log
 # Backups of unreadable data files and in-progress atomic writes.
 /aim_trainer_*.bak
 /aim_trainer_*.tmp

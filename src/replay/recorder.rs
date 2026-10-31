@@ -6,7 +6,7 @@ use super::format::{Replay, ReplayFrame, Shot};
 use crate::drill::DrillKind;
 
 /// Recording rate. Shots are always recorded on the exact frame they happen.
-const SAMPLE_INTERVAL: f32 = 1.0 / 240.0;
+pub(super) const SAMPLE_INTERVAL: f32 = 1.0 / 240.0;
 
 /// Collects frames while a drill is live. Owned by the drill systems.
 #[derive(Resource, Default)]

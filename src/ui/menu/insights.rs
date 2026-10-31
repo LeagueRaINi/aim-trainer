@@ -16,7 +16,7 @@ use crate::analysis::{
 use crate::custom::CustomContent;
 use crate::drill::{DrillConfig, DrillKind, DrillSpec, Run, RunPurpose, VARIANT_SEPARATOR, begin_run};
 use crate::metrics::quest::{QuestMode, TARGET_HIT};
-use crate::replay::Replay;
+use crate::replay::{Replay, ReplayDir};
 use crate::settings::Settings;
 use crate::ui::charts::*;
 use crate::ui::theme::*;
@@ -42,7 +42,12 @@ struct TrainButton(Cell);
 
 /// Re-analyses your newest flick-drill replays when the Insights tab is opened (also after a run,
 /// as the menu is rebuilt). Runs inline: at most `RECENT_REPLAYS` replays are decoded.
-pub fn rebuild_insights(mut commands: Commands, tab: Res<MenuTab>, bodies: Query<(Entity, Ref<InsightsBody>)>) {
+pub fn rebuild_insights(
+    mut commands: Commands,
+    tab: Res<MenuTab>,
+    replays: Res<ReplayDir>,
+    bodies: Query<(Entity, Ref<InsightsBody>)>,
+) {
     if *tab != MenuTab::Insights {
         return;
     }
@@ -51,7 +56,7 @@ pub fn rebuild_insights(mut commands: Commands, tab: Res<MenuTab>, bodies: Query
             continue;
         }
         commands.entity(body).despawn_related::<Children>();
-        let analysis = analysis::analyze(&Replay::recent(&analysis::flick_kinds(), RECENT_REPLAYS));
+        let analysis = analysis::analyze(&Replay::recent(&replays.0, &analysis::flick_kinds(), RECENT_REPLAYS));
         if analysis.enough_data() {
             spawn_insights(&mut commands, body, &analysis);
         } else {

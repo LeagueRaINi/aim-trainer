@@ -225,14 +225,13 @@ fn format_row(timestamp: u64, stats: &RunStats, purpose: RunPurpose, settings: &
     )
 }
 
-/// Appends `row` to the CSV at `path`, writing `header` first into a new (or empty) file.
+/// Appends `row` to the CSV at `path`, writing `header` first into a new (or empty) file. Lines
+/// go out in a single write with their newline, so a crash can't leave a row unterminated for
+/// the next one to run into (both would then fail to parse).
 pub(crate) fn append_csv_row(path: &Path, header: &str, row: &str) -> std::io::Result<()> {
     let needs_header = fs::metadata(path).map_or(true, |meta| meta.len() == 0);
-    let mut file = OpenOptions::new().create(true).append(true).open(path)?;
-    if needs_header {
-        writeln!(file, "{header}")?;
-    }
-    writeln!(file, "{row}")
+    let text = if needs_header { format!("{header}\n{row}\n") } else { format!("{row}\n") };
+    OpenOptions::new().create(true).append(true).open(path)?.write_all(text.as_bytes())
 }
 
 /// `YYYY-MM-DD` (UTC) for a unix timestamp. Howard Hinnant's days-to-civil algorithm.

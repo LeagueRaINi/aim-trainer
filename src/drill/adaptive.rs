@@ -11,6 +11,7 @@ use super::targets::{Target, TargetExpired, TargetKilled};
 use super::{DrillSet, Run, VARIANT_SEPARATOR};
 use crate::AppState;
 use crate::camera::PlayerCamera;
+use crate::history::csv_safe;
 use crate::metrics::quest::{Estimate, Quest, QuestMode};
 
 /// Length of a Measure run, seconds: at least 60 targets even if every one expires at the
@@ -21,7 +22,7 @@ pub const MEASURE_SECS: f32 = 90.0;
 #[derive(Resource, Default)]
 pub struct AdaptiveRun {
     live: Option<LiveQuest>,
-    /// The latest θ75 (degrees) per [`quest_task`], the prior of the next run of that task.
+    /// The latest θ75 (degrees) per [`prior_key`], the prior of the next run of that task.
     /// Filled from the adaptive results log.
     pub priors: HashMap<String, f32>,
 }
@@ -37,7 +38,7 @@ impl AdaptiveRun {
     /// Starts a procedure for `run` if it is adaptive, centred on the task's latest θ75.
     pub(crate) fn begin(&mut self, run: &Run) {
         self.live = run.drill.config.adaptive().map(|mode| {
-            let prior = self.priors.get(quest_task(&run.drill.name)).copied();
+            let prior = self.priors.get(&prior_key(&run.drill.name)).copied();
             LiveQuest { quest: Quest::new(prior), mode, current: None }
         });
     }
@@ -79,6 +80,12 @@ pub fn quest_task(drill: &str) -> &str {
                 .and_then(|rest| rest.strip_suffix(VARIANT_SEPARATOR))
         })
         .unwrap_or(drill)
+}
+
+/// The [`AdaptiveRun::priors`] key of a drill: its [`quest_task`], made CSV-safe like the names
+/// read back from the adaptive log, so a run finds its prior after a restart too.
+pub fn prior_key(drill: &str) -> String {
+    csv_safe(quest_task(drill))
 }
 
 pub(super) fn register(app: &mut App) {

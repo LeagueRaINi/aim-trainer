@@ -31,9 +31,10 @@ use self::sensitivity::sensitivity_page;
 use self::video::video_page;
 use super::theme::*;
 use super::widgets::*;
-use crate::AppState;
+use crate::persist::LoadProblems;
 use crate::settings::Settings;
 use crate::update::current_version;
+use crate::{AppState, LOG_PATH};
 
 /// Which menu page is visible. Kept across visits so you return to where you were.
 #[derive(Resource, Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -80,8 +81,9 @@ const MENU_H: f32 = 660.0;
 /// Width of the left column on two-column pages.
 const MAIN_COLUMN_W: f32 = 540.0;
 
-pub fn spawn_menu(mut commands: Commands, settings: Res<Settings>) {
+pub fn spawn_menu(mut commands: Commands, settings: Res<Settings>, load_problems: Res<LoadProblems>) {
     let version = format!("v{}", current_version());
+    let note = load_note(&load_problems.0);
     commands
         .spawn_scene(bsn! {
             @overlay()
@@ -98,6 +100,8 @@ pub fn spawn_menu(mut commands: Commands, settings: Res<Settings>) {
                         @heading("Aim Trainer")
                         --
                         @label_dim(version)
+                        --
+                        @label_dim(note)
                         --
                         @spacer()
                         --
@@ -130,8 +134,7 @@ pub fn spawn_menu(mut commands: Commands, settings: Res<Settings>) {
                     @online_page()
                     --
                     @page(MenuTab::History)
-                    Node { flex_direction: FlexDirection::Column, row_gap: px(SPACE_M) }
-                    history::HistoryBody
+                    Children [ @history::history_body() ]
                     --
                     @page(MenuTab::Insights)
                     insights::InsightsBody
@@ -139,6 +142,14 @@ pub fn spawn_menu(mut commands: Commands, settings: Res<Settings>) {
             ]
         })
         .insert(DespawnOnExit(AppState::Menu));
+}
+
+/// Points at the log when data files couldn't be loaded, so falling back to defaults isn't silent.
+fn load_note(files: &[&str]) -> String {
+    if files.is_empty() {
+        return String::new();
+    }
+    format!("Couldn't load {}: using defaults. Details in {LOG_PATH}.", files.join(" and "))
 }
 
 /// Segmented tab strip; the active tab is filled with the accent color.

@@ -9,22 +9,22 @@ Bevy 0.20 app (Rust 2024). `main.rs` declares `AppState` (Menu, Playing, Results
 | `main.rs` | `AppState`, plugin registration. Settings are loaded before the window exists. |
 | `persist.rs` | RON persistence for any `Persisted` resource: load (a broken file gets a `.bak` backup), debounced autosave, save on exit (`PersistPlugin<T>`). |
 | `settings/` | `mod.rs`: `Settings` and its sub-structs. `fields.rs`: the `SettingField` table (label, limits, get/set), which drives both the UI and `Settings::sanitize`. `sens.rs`: game presets and sensitivity math. |
-| `camera.rs` | `PlayerCamera`, `Look`, raw mouse look at `ActiveSens`, FOV, cursor lock. |
+| `camera.rs` | `PlayerCamera`, `Look`, raw mouse look at `ActiveSens`, FOV, cursor lock. `ViewCone`: what the camera shows (from its projection, so 16:9-locked or Hor+), and `contains`, whether a direction is on screen with a true angular margin to every edge. |
 | `display.rs`, `level.rs`, `crosshair.rs`, `sfx.rs`, `icon.rs`, `presence.rs` | Window/video, room, crosshair, hit sounds, window icon, Discord Rich Presence. |
 | `drill/` | Drills and the run lifecycle (see below). |
 | `metrics/` | Pure aim measurements: `flick_probe` (first-flick landing), `bow` (path straightness), `throughput` (click positions in the task-axis frame, effective throughput TPe), `quest` (QUEST+ over target size: posterior, next radius, θ75 estimate), `normal` (Φ). |
-| `replay/` | `format.rs`: the binary format (v3), save/load/prune. `recorder.rs`: `Recorder`. `player.rs`: the replay player and tracer. `mod.rs`: `ReplayPlugin` and the handler that saves a finished practice run's replay. |
+| `replay/` | `format.rs`: the binary format (v3), save/load/prune; decoding is size-capped and rejects unplayable replays. `recorder.rs`: `Recorder`. `player.rs`: the replay player and tracer. `mod.rs`: `ReplayPlugin`, `ReplayDir` (the one directory replays are saved in and loaded from) and the handler that saves a finished practice run's replay. |
 | `history.rs` | Results CSV, comparisons, trends. Records each `RunFinished` and announces it as `RunRecorded`. Also defines `LastRun`. |
 | `adaptive_log.rs` | Adaptive-mode results CSV (θ75 per adaptive run, joined to the history row by timestamp); feeds each task's latest θ75 back as the next run's prior. |
 | `routine.rs` | Built-in warmups, `Routine`, and the handler for finished routine steps. |
 | `custom/` | `mod.rs`: custom scenarios and playlists (`CustomContent`). `share.rs`: `AIMPL1:` share codes. |
 | `finder/` | `classic.rs`: A/B bisection. `smart.rs`: the Bayesian-optimisation finder (opening design, expected-improvement trial picks, best range, stopping rule, recommendation). `gp.rs`: its Gaussian process (squared-exponential kernel + trial drift + noise, hyperparameter mixture, joint posterior draws). `mod.rs`: `FinderPlugin` and the handler for finished finder trials (including smart-finder auto-chaining). |
 | `analysis.rs` | Weak-spot analysis over flick replays (the Insights tab). |
-| `update.rs` | Auto-update: checks the latest GitHub release at startup, verifies and installs a newer exe in place (`Updater`, `UpdateStatus`). Skipped for cargo builds. |
+| `update.rs` | Auto-update (`Updater`, `UpdateStatus`). A background thread checks the latest GitHub release at startup, verifies a newer one (GitHub's SHA-256 digest, then the Ed25519 release signature from `signing.rs`) and stages it as `<exe>.update`; it never touches the running exe. `main` swaps a staged exe in (two renames, rolled back on failure) before the app starts, or after it quits for Restart, then starts the new exe. Staging and swapping hold `aim_trainer.update.lock` next to the exe, so two running copies never race. Skipped for cargo builds. |
 | `test_util.rs` | Tests only: `TempDir`, a temp directory deleted when dropped. |
 | `ui/` | All UI. `hud.rs`: in-game HUD. `replay_hud.rs`: replay HUD. `menu/`: one module per tab. `screens/`: results, finder, routine screens. `widgets.rs`, `bindings.rs`, `charts.rs`, `theme.rs`: shared building blocks. |
 
-Dependency direction: `persist`, `metrics` and `drill::kind` are leaves. `drill` uses `settings`, `camera`, `sfx`, `metrics` and `replay::Recorder`. `history`, `routine`, `custom`, `finder`, `replay`, `adaptive_log` and `analysis` use `drill` (`adaptive_log` also uses `history`). `ui` uses everything. No non-UI module imports `ui`, and `drill` does not import `history`, `adaptive_log`, `finder` or `routine`.
+Dependency direction: `persist` and `metrics` are leaves. `drill` uses `settings`, `camera`, `sfx`, `metrics` and `replay::Recorder`; `settings` in turn uses `drill` (`DrillKind`, `SECS_RANGE`), as does `replay`, so those pairs import each other. Within `drill`, `kind` imports `def` and every `kinds::*` module (for `DrillKind::def`). `history`, `routine`, `custom`, `finder`, `adaptive_log` and `analysis` use `drill` (`adaptive_log` also uses `history`). `ui` uses everything. No non-UI module imports `ui`, and `drill` does not import `history`, `adaptive_log`, `finder` or `routine`.
 
 ## Drills
 
@@ -75,7 +75,7 @@ Exactly these touch points. The recipe was checked with a throwaway drill that h
      - flags: `click_kills` (false if the drill handles clicks itself), `environment`, `first_flick_probe`, `classic_finder`, `flick_analysis`, `adaptive` (offers adaptive mode; needs one click-killed target at a time that can expire);
      - `params`: the custom-editor fields, as existing `ParamId`s;
      - hooks: `tune_defaults` (or `def::no_tuning`), `spawn_initial`, `respawn` (or `def::no_respawn`), `spawn_next` (or `def::no_spawn_next`).
-   - The spawn hooks are plain `fn(&mut SpawnCtx…)`. Use `ctx.spawn_target(position, lifetime)` (it returns `EntityCommands` for drill-specific components), `ctx.lifetime()`, `ctx.config`, `ctx.aim`, `ctx.now`, `ctx.next` (for delayed spawns) and `ctx.occupied`/`Slot` (for layouts).
+   - The spawn hooks are plain `fn(&mut SpawnCtx…)`. Use `ctx.spawn_target(position, lifetime)` (it returns `EntityCommands` for drill-specific components), `ctx.lifetime()`, `ctx.config`, `ctx.aim`, `ctx.now`, `ctx.next` (for delayed spawns) and `ctx.occupied`/`Slot` (for layouts). Targets must appear fully on screen relative to the live aim: check positions with `ctx.view.contains(ctx.aim, dir, ctx.margin())` (or pick through `geometry::away_from`, which falls back to `geometry::pull_in`), and keep them between `geometry::FLOOR_PITCH` and `CEILING_PITCH` (`geometry::random_pitch`).
    - Only if the drill has per-frame behaviour: its components and systems, plus `pub(super) fn register(app: &mut App)`, which adds each system `.in_set(DrillSet::<Stage>)`. Systems can use `Run`'s crate-visible methods: `live()`, `shot()`, `kill(ttk)`, `expire()`, `track_on_target(dt)`, `land(ratio)`. For a target that is visible but not yet something to react to, insert `Dormant`.
 2. **`src/drill/kind.rs`:**
    - append the variant at the end of `enum DrillKind`;
@@ -115,9 +115,10 @@ BSN rules:
 
 ## Recipe: add a setting
 
-1. Add the field to the settings struct and its `Default`.
-2. Add either a `SettingField` variant in `settings/fields.rs` (spec, get and set; the limits and sanitize follow automatically) or a `Choice` variant in `ui/bindings.rs` for discrete values.
+1. Add the field to the settings struct and its `Default`. The struct's `#[serde(default)]` lets files saved before it load.
+2. Add either a `SettingField` variant in `settings/fields.rs` or a `Choice` variant in `ui/bindings.rs` for discrete values. A `SettingField` needs its `spec`, `stored` and `store` arms and an entry in `SettingField::ALL` (bump the array length); `get`, `set` and sanitize follow. The compiler enforces the arms but not the `ALL` entry: a field missing from it is silently never sanitized, and `sanitize_uses_field_limits` loops over `ALL` too.
 3. Add one row in the right `ui/menu/<page>.rs`.
+4. Leave `fixtures/settings.ron` alone: `loads_v1_settings_fixture` checks that the v1.0.0 file still loads, with the new field at its default.
 
 ## Persisted formats (never change)
 
@@ -131,10 +132,17 @@ BSN rules:
 - `SHARE_PREFIX`;
 - file names;
 - the adaptive results CSV header and columns (`adaptive_log::HEADER`) and `QuestMode` names;
-- the release asset name `aim_trainer.exe.zst`, its zstd packing, and `v<version>` release tags (installed copies look for exactly these).
+- the release asset names `aim_trainer.exe.zst` and `aim_trainer.exe.zst.sig`, the zstd packing, the signature format (the Ed25519 signature of the `.zst` bytes as 128 lowercase hex digits and a newline), `signing::PUBLIC_KEY`, and `v<major>.<minor>.<patch>` release tags (installed copies look for exactly these; a new key means installed copies refuse every later release).
 
-The tests in `fixtures/` pin the file formats.
+`fixtures/` holds files saved by v1.0.0. `settings.ron` and `custom.ron` are frozen: their tests check they still load into the expected values, with anything added since at its default (separate round-trip tests cover the current writer). `history_rows.csv`, `replay_v3.bin` and `share_code.txt` are also compared byte for byte with what the current code writes. Never regenerate a fixture to make a test pass: a failure means files people already have would no longer load.
 
 ## Releases
 
-Bump `version` in `Cargo.toml`, commit, then push a matching tag (`git tag v1.2.0 && git push origin v1.2.0`). `.github/workflows/release.yml` refuses a tag that doesn't match the version, then tests, builds and publishes `aim_trainer.exe` (for manual downloads) and `aim_trainer.exe.zst` (for the updater). GitHub records each asset's SHA-256 digest on upload; `update.rs` won't install a download without a matching one.
+Releases are signed offline: installed copies only stage a download whose `aim_trainer.exe.zst.sig` verifies with the public key built into them (`signing::PUBLIC_KEY`). The private key is the maintainer's, in `%USERPROFILE%\.aim_trainer\release_signing.key` (the 32-byte Ed25519 seed as 64 hex digits and a newline); it is never in the repository or in CI.
+
+1. Bump `version` in `Cargo.toml`, commit and push.
+2. Push a matching tag: `git tag v1.2.0 && git push origin v1.2.0`. Only `v<major>.<minor>.<patch>` tags run `.github/workflows/release.yml`, and it refuses a tag that doesn't match the version.
+3. The workflow's build job (read-only token, no stored git credentials) runs `cargo fmt --check`, clippy and the tests, builds the exe and packs it with `zstd -19`. Its publish job (the only one with a write token; it runs no repository code) creates a **draft** release with `aim_trainer.exe` (for manual downloads) and `aim_trainer.exe.zst` (for the updater). Drafts are invisible to `releases/latest`, so installed copies don't see it yet.
+4. From the repository, with the GitHub CLI (`gh`) logged in, run `cargo run --bin release -- v1.2.0`. `src/bin/release.rs` (not part of the game) downloads the draft's `.zst`, signs it with the key file, checks the signature against `signing::PUBLIC_KEY` the way installed copies do, uploads `aim_trainer.exe.zst.sig` and publishes the draft.
+
+GitHub records each asset's SHA-256 digest on upload; `update.rs` checks it first, then the signature. A release without a valid signature is never staged. Actions in the workflow are pinned to commit SHAs (with the version in a comment); to update one, take the commit of its new tag from `git ls-remote https://github.com/<owner>/<repo> refs/tags/<tag>` (the `^{}` line for annotated tags).

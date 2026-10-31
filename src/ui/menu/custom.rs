@@ -25,7 +25,7 @@ use crate::{
     AppState,
     custom::{CustomContent, DrillRef, MAX_NAME_CHARS, PlaylistStep},
     drill::{
-        DrillKind, DrillSpec, Run, RunPurpose, SECS_RANGE, begin_run,
+        ADAPTIVE_TIME_LIMIT, DrillKind, DrillSpec, Run, RunPurpose, SECS_RANGE, begin_run,
         params::{ParamId, ParamSpec},
     },
     routine::start_routine,
@@ -369,6 +369,14 @@ pub fn rebuild_custom(
                 commands
                     .spawn_scene(label_dim(format!("Based on {}: {}", kind.name(), kind.blurb())))
                     .insert(ChildOf(editor));
+                if let Some(mode) = scenario.config.adaptive() {
+                    let note = format!(
+                        "Adaptive ({}): each target's size adapts to you, so Size is ignored, and a target counts if hit within Lifetime ({:.1} s when 0).",
+                        mode.name().to_lowercase(),
+                        ADAPTIVE_TIME_LIMIT
+                    );
+                    commands.spawn_scene(label_dim(note)).insert(ChildOf(editor));
+                }
                 let mut fields = vec![EditorField::Duration, EditorField::Param(ParamId::Size)];
                 if scenario.config.supports_decay() {
                     fields.push(EditorField::Param(ParamId::Lifetime));

@@ -1,5 +1,5 @@
 //! Insights tab: flick weak spots found in your recent replays (see [`crate::analysis`]), with
-//! one-click training for each.
+//! one-click adaptive training for each.
 
 use bevy::{
     feathers::{constants::fonts, controls::ButtonVariant, theme::ThemeBackgroundColor, tokens},
@@ -17,7 +17,8 @@ use crate::{
     },
     custom::CustomContent,
     replay::Replay,
-    drill::{DrillConfig, DrillSpec, Run, RunPurpose, DrillKind, begin_run},
+    drill::{DrillConfig, DrillKind, DrillSpec, Run, RunPurpose, VARIANT_SEPARATOR, begin_run},
+    metrics::quest::{QuestMode, TARGET_HIT},
     settings::Settings,
 };
 
@@ -182,7 +183,8 @@ fn spawn_findings(commands: &mut Commands, parent: Entity, analysis: &Analysis) 
             .insert(ChildOf(row));
     }
     let note = format!(
-        "Train this plays a {TRAINING_SECS:.0} s Microflick of just those flicks. It's saved in the Custom tab, and its History shows your progress."
+        "Train this plays a {TRAINING_SECS:.0} s adaptive Microflick of just those flicks: target sizes adapt so you hit about {:.0}% in time, and the result shows the size you reached (θ75). It's saved in the Custom tab, and its History shows your progress.",
+        TARGET_HIT * 100.0
     );
     text(commands, list, note, 11.0, tokens::TEXT_DIM, Node::default());
 }
@@ -228,8 +230,9 @@ fn spawn_band_table(commands: &mut Commands, parent: Entity, analysis: &Analysis
     text(commands, table, legend.into(), 11.0, tokens::TEXT_DIM, Node::default());
 }
 
-/// Creates (or updates) the weak spot's training scenario and starts it, like playing a custom
-/// scenario from the Custom tab.
+/// Creates (or updates) the weak spot's adaptive training scenario (Train mode, so targets stay
+/// at the size you hit 75% of the time) and starts it, like playing a custom scenario from the
+/// Custom tab. Its own name keeps its history apart from earlier fixed-size weak-spot runs.
 fn train(
     activate: On<Activate>,
     buttons: Query<&TrainButton>,
@@ -239,8 +242,10 @@ fn train(
     mut next_state: ResMut<NextState<AppState>>,
 ) {
     let Ok(&TrainButton(spot)) = buttons.get(activate.event_target()) else { return };
-    let config = spot.training_config(DrillConfig::builtin(DrillKind::Microflick, &settings));
-    let id = content.upsert_scenario(&spot.scenario_name(), TRAINING_SECS, config);
+    let mut config = spot.training_config(DrillConfig::builtin(DrillKind::Microflick, &settings));
+    config.adaptive = Some(QuestMode::Train);
+    let name = format!("{}{VARIANT_SEPARATOR}adaptive", spot.scenario_name());
+    let id = content.upsert_scenario(&name, TRAINING_SECS, config);
     let Some(scenario) = content.scenario(id) else { return };
     let drill = DrillSpec { name: scenario.name.clone(), config: scenario.config.clone() };
     let run = Run::new(drill, settings.sens, scenario.duration, RunPurpose::Practice, scenario.name.clone());

@@ -1,0 +1,33 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#232833"/>
+      <stop offset="1" stop-color="#101318"/>
+    </linearGradient>
+    <radialGradient id="orb" cx="0.38" cy="0.32" r="0.75">
+      <stop offset="0" stop-color="#8ff0ff"/>
+      <stop offset="0.45" stop-color="#1ad9ff"/>
+      <stop offset="1" stop-color="#0a8fc0"/>
+    </radialGradient>
+    <radialGradient id="glow" cx="0.5" cy="0.5" r="0.5">
+      <stop offset="0" stop-color="#1ad9ff" stop-opacity="0.55"/>
+      <stop offset="1" stop-color="#1ad9ff" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="trail" x1="0" y1="1" x2="1" y2="0">
+      <stop offset="0" stop-color="#5cdc85" stop-opacity="0"/>
+      <stop offset="1" stop-color="#5cdc85" stop-opacity="1"/>
+    </linearGradient>
+  </defs>
+  <rect x="32" y="32" width="960" height="960" rx="216" fill="url(#bg)"/>
+  <rect x="32" y="32" width="960" height="960" rx="216" fill="none" stroke="#ffffff" stroke-opacity="0.07" stroke-width="8"/>
+  <!-- the flick: a straight tracer from the bottom-left into the target -->
+  <path d="M 196 828 L 484 540" stroke="url(#trail)" stroke-width="44" stroke-linecap="round"/>
+  <!-- target -->
+  <circle cx="584" cy="440" r="270" fill="url(#glow)"/>
+  <circle cx="584" cy="440" r="138" fill="url(#orb)"/>
+  <!-- crosshair around it: four lines with a gap, plus a center dot -->
+  <g stroke="#ffffff" stroke-width="40" stroke-linecap="round">
+    <path d="M584 170 V 262 M584 618 V 710 M314 440 H 406 M762 440 H 854"/>
+  </g>
+  <circle cx="584" cy="440" r="26" fill="#ffffff"/>
+</svg>

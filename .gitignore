@@ -1,0 +1,9 @@
+/target
+# Per-user data written next to the working directory.
+/aim_trainer_settings.ron
+/aim_trainer_results.csv
+/replays
+/aim_trainer_custom.ron
+# Backups of unreadable data files and in-progress atomic writes.
+/aim_trainer_*.bak
+/aim_trainer_*.tmp

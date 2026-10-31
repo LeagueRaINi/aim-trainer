@@ -107,6 +107,15 @@ pub struct SmartFinder {
     pub step: SmartStep,
 }
 
+/// The drills each trial plays for a focus.
+pub fn focus_drills(focus: FinderFocus) -> &'static [Scenario] {
+    match focus {
+        FinderFocus::Balanced => &[Scenario::Microflick, Scenario::Tracking],
+        FinderFocus::Flicking => &[Scenario::Gridshot, Scenario::Microflick],
+        FinderFocus::Tracking => &[Scenario::Tracking],
+    }
+}
+
 impl SmartFinder {
     pub fn new(start_sens: f32, focus: FinderFocus) -> Self {
         let (lo, hi) = (PROBE_LOW.ln(), PROBE_HIGH.ln());
@@ -114,7 +123,7 @@ impl SmartFinder {
             .map(|i| start_sens * (lo + (hi - lo) * i as f32 / (PROBES - 1) as f32).exp())
             .collect();
         fastrand::shuffle(&mut probes);
-        Self { start_sens, drills: focus.drills(), probes, trials: Vec::new(), pending: Pending::default(), step: SmartStep::Trial }
+        Self { start_sens, drills: focus_drills(focus), probes, trials: Vec::new(), pending: Pending::default(), step: SmartStep::Trial }
     }
 
     pub fn total_trials(&self) -> usize {

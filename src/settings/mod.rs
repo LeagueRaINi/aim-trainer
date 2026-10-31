@@ -1,12 +1,17 @@
-//! Persistent user settings and sensitivity math.
-//!
-//! Sensitivity is modelled the same way Source/Valorant-style games do it:
-//! every raw mouse count rotates the view by `sens * yaw` degrees.
+//! Persistent user settings: the saved types, their defaults and loading. Sensitivity math
+//! lives in [`sens`], the numeric fields' limits (shared by the UI and [`Settings::sanitize`])
+//! in [`fields`].
+
+pub mod fields;
+mod sens;
 
 use std::path::Path;
 
 use bevy::prelude::*;
 use serde::{Deserialize, Serialize};
+
+pub use fields::SettingField;
+pub use sens::PRESETS;
 
 use crate::{
     persist::{LoadReport, Persisted, load_ron},
@@ -14,30 +19,10 @@ use crate::{
 };
 
 const SETTINGS_PATH: &str = "aim_trainer_settings.ron";
-const CM_PER_INCH: f32 = 2.54;
 
 impl Persisted for Settings {
     const PATH: &'static str = SETTINGS_PATH;
 }
-
-/// A game whose yaw/FOV we can mimic so in-game sensitivity numbers transfer 1:1.
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub struct GamePreset {
-    pub name: &'static str,
-    /// Degrees of rotation per mouse count at sensitivity 1.0.
-    pub yaw: f32,
-    /// Horizontal FOV in degrees at 16:9.
-    pub hfov: f32,
-    /// How the game handles screens that aren't 16:9.
-    pub aspect: AspectMode,
-}
-
-pub const PRESETS: [GamePreset; 2] = [
-    // Valorant: 103° at 16:9 (70.53° vertical); wider screens get black bars.
-    GamePreset { name: "Valorant", yaw: 0.07, hfov: 103.0, aspect: AspectMode::Lock16x9 },
-    // CS2: 90° at 4:3, which is 106.26° at 16:9; wider screens see more (Hor+).
-    GamePreset { name: "CS2", yaw: 0.022, hfov: 106.26, aspect: AspectMode::Native },
-];
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub enum DisplayMode {
@@ -191,17 +176,6 @@ pub enum FinderFocus {
     Tracking,
 }
 
-impl FinderFocus {
-    /// The drills each trial plays.
-    pub fn drills(self) -> &'static [Scenario] {
-        match self {
-            FinderFocus::Balanced => &[Scenario::Microflick, Scenario::Tracking],
-            FinderFocus::Flicking => &[Scenario::Gridshot, Scenario::Microflick],
-            FinderFocus::Tracking => &[Scenario::Tracking],
-        }
-    }
-}
-
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct AudioSettings {
@@ -276,57 +250,6 @@ impl Default for Settings {
 }
 
 impl Settings {
-    /// Degrees of view rotation per raw mouse count.
-    pub fn deg_per_count(&self, sens: f32) -> f32 {
-        sens * self.yaw
-    }
-
-    /// Physical mouse travel for a full 360° turn.
-    pub fn cm_per_360(&self, sens: f32) -> f32 {
-        360.0 / (self.deg_per_count(sens) * self.dpi) * CM_PER_INCH
-    }
-
-    /// Converts `sens` (in the current yaw) to the equivalent sensitivity in `preset`.
-    pub fn sens_in(&self, sens: f32, preset: &GamePreset) -> f32 {
-        sens * self.yaw / preset.yaw
-    }
-
-    /// Vertical FOV in radians. Fixed regardless of window aspect, so wider windows see more (Hor+).
-    pub fn vfov_rad(&self) -> f32 {
-        let half_h = (self.hfov.to_radians() * 0.5).tan();
-        2.0 * (half_h / (16.0 / 9.0)).atan()
-    }
-
-    /// The preset whose yaw and FOV match the current values, if any.
-    pub fn matching_preset(&self) -> Option<&'static GamePreset> {
-        PRESETS
-            .iter()
-            .find(|p| (p.yaw - self.yaw).abs() < 1e-6 && (p.hfov - self.hfov).abs() < 0.01)
-    }
-
-    /// Switches to a game's yaw/FOV/aspect handling, converting `sens` so cm/360 stays the same.
-    pub fn apply_preset(&mut self, preset: &GamePreset) {
-        self.sens = self.sens_in(self.sens, preset);
-        self.yaw = preset.yaw;
-        self.hfov = preset.hfov;
-        self.video.aspect = preset.aspect;
-    }
-
-    /// One-line summary of the current sensitivity, used across screens.
-    pub fn describe_sens(&self, sens: f32) -> String {
-        let equivalents = PRESETS
-            .iter()
-            .map(|p| format!("{} {:.3}", p.name, self.sens_in(sens, p)))
-            .collect::<Vec<_>>()
-            .join("  |  ");
-        format!(
-            "{:.2} cm/360  ({:.2} in)  |  {}",
-            self.cm_per_360(sens),
-            self.cm_per_360(sens) / CM_PER_INCH,
-            equivalents
-        )
-    }
-
     /// Reads the settings file. Must run before the app exists (the window is created from the
     /// settings); the report's problems are logged once the app is running.
     pub(crate) fn load() -> (Self, LoadReport) {
@@ -335,34 +258,16 @@ impl Settings {
         (settings, report)
     }
 
-    /// Clamps values (e.g. from a hand-edited file) to the same hard limits the settings UI uses.
-    /// Non-finite values fall back to the defaults.
+    /// Clamps values (e.g. from a hand-edited file) to the same hard limits the settings UI uses
+    /// (see [`SettingField`]). Non-finite values fall back to the defaults.
     pub fn sanitize(&mut self) {
-        let d = Self::default();
-        let fit = |value: &mut f32, default: f32, min: f32, max: f32| {
-            *value = if value.is_finite() { value.clamp(min, max) } else { default };
-        };
-        fit(&mut self.sens, d.sens, 0.001, 100.0);
-        fit(&mut self.yaw, d.yaw, 0.0001, 1.0);
-        fit(&mut self.dpi, d.dpi, 50.0, 32000.0);
-        fit(&mut self.hfov, d.hfov, 40.0, 150.0);
-        fit(&mut self.run_secs, d.run_secs, 5.0, 600.0);
-        fit(&mut self.target_scale, d.target_scale, 0.1, 4.0);
-        fit(&mut self.finder_trial_secs, d.finder_trial_secs, 5.0, 120.0);
-        fit(&mut self.targets.lifetime, d.targets.lifetime, 0.0, 10.0);
-        fit(&mut self.audio.volume, d.audio.volume, 0.0, 1.0);
-        self.finder_rounds = self.finder_rounds.clamp(1, 12);
-        self.video.fps_cap = self.video.fps_cap.min(1000);
-        if ![1, 2, 4, 8].contains(&self.video.msaa) {
-            self.video.msaa = d.video.msaa;
+        let defaults = Self::default();
+        for field in SettingField::ALL {
+            field.sanitize(self, &defaults);
         }
-        let (c, dc) = (&mut self.crosshair, &d.crosshair);
-        fit(&mut c.dot_thickness, dc.dot_thickness, 1.0, 10.0);
-        fit(&mut c.line_length, dc.line_length, 0.0, 20.0);
-        fit(&mut c.line_thickness, dc.line_thickness, 1.0, 10.0);
-        fit(&mut c.line_offset, dc.line_offset, 0.0, 20.0);
-        fit(&mut c.outline_thickness, dc.outline_thickness, 1.0, 6.0);
-        fit(&mut c.outline_opacity, dc.outline_opacity, 0.0, 1.0);
+        if ![1, 2, 4, 8].contains(&self.video.msaa) {
+            self.video.msaa = defaults.video.msaa;
+        }
     }
 }
 
@@ -371,33 +276,6 @@ mod tests {
     use std::fs;
 
     use super::*;
-
-    #[test]
-    fn cm_per_360_matches_known_valorant_value() {
-        // 0.4 @ 800 DPI in Valorant is a well known ~40.82 cm/360.
-        let settings = Settings { sens: 0.4, dpi: 800.0, ..Settings::default() };
-        assert!((settings.cm_per_360(0.4) - 40.82).abs() < 0.01);
-    }
-
-    #[test]
-    fn converts_between_games_at_equal_cm_per_360() {
-        let valorant = Settings::default();
-        let cs2_sens = valorant.sens_in(0.4, &PRESETS[1]);
-        assert!((cs2_sens - 1.2727).abs() < 1e-3);
-
-        let mut cs2 = valorant.clone();
-        cs2.apply_preset(&PRESETS[1]);
-        assert!((cs2.sens - cs2_sens).abs() < 1e-6);
-        assert!((cs2.cm_per_360(cs2.sens) - valorant.cm_per_360(0.4)).abs() < 1e-3);
-    }
-
-    #[test]
-    fn vertical_fov_of_cs2_preset_is_4_3_ninety() {
-        // CS2's 106.26° @ 16:9 corresponds to 73.74° vertical.
-        let mut settings = Settings::default();
-        settings.apply_preset(&PRESETS[1]);
-        assert!((settings.vfov_rad().to_degrees() - 73.74).abs() < 0.01);
-    }
 
     #[test]
     fn sanitize_clamps_to_ui_limits() {

@@ -19,7 +19,7 @@ use crate::{
     presence::{Connection, PresenceLink},
     routine::{ROUTINES, Routine, start_routine},
     scenario::{DrillSpec, Run, RunPurpose, Scenario, begin_run},
-    settings::{AspectMode, CrosshairSettings, DisplayMode, FinderFocus, FinderMethod, HitSound, Settings},
+    settings::{AspectMode, CrosshairSettings, DisplayMode, FinderFocus, FinderMethod, HitSound, SettingField, Settings},
     ui::history,
 };
 
@@ -278,11 +278,11 @@ fn play_page(settings: &Settings) -> impl Scene {
                 })
                 --
                 @card("Drill settings", bsn_list! {
-                    @number_field(Field::RunSecs, settings)
+                    @number_field(SettingField::RunSecs, settings)
                     --
-                    @number_field(Field::TargetScale, settings)
+                    @number_field(SettingField::TargetScale, settings)
                     --
-                    @number_field(Field::TargetLifetime, settings)
+                    @number_field(SettingField::TargetLifetime, settings)
                     --
                     @label_dim("Decay: targets shrink and count as a miss if not hit in time (Gridshot, Microflick, Head level). 0 = off.")
                     --
@@ -361,9 +361,9 @@ fn finder_page(settings: &Settings) -> impl Scene {
                         @choice("Head level", Choice::FinderDrill(Scenario::HeadLevel))
                     })
                     --
-                    @number_field(Field::FinderTrialSecs, settings)
+                    @number_field(SettingField::FinderTrialSecs, settings)
                     --
-                    @number_field(Field::FinderRounds, settings)
+                    @number_field(SettingField::FinderRounds, settings)
                     --
                     @actions(bsn_list! {
                         @button("Start finder", ButtonVariant::Primary)
@@ -402,13 +402,13 @@ fn sensitivity_page(settings: &Settings) -> impl Scene {
                         @choice("CS2", Choice::Preset(1))
                     })
                     --
-                    @number_field(Field::Sens, settings)
+                    @number_field(SettingField::Sens, settings)
                     --
-                    @number_field(Field::Dpi, settings)
+                    @number_field(SettingField::Dpi, settings)
                     --
-                    @number_field(Field::Yaw, settings)
+                    @number_field(SettingField::Yaw, settings)
                     --
-                    @number_field(Field::Hfov, settings)
+                    @number_field(SettingField::Hfov, settings)
                     --
                     @tile()
                     Node { margin: UiRect::top(px(SPACE_XS)), row_gap: px(SPACE_XS) }
@@ -447,11 +447,11 @@ fn crosshair_page(settings: &Settings) -> impl Scene {
                     @crosshair_color_choices()
                     --
                     @setting_row("Custom RGB", bsn_list! {
-                        @number_input(Field::ColorR, settings, 72.0)
+                        @number_input(SettingField::ColorR, settings, 72.0)
                         --
-                        @number_input(Field::ColorG, settings, 72.0)
+                        @number_input(SettingField::ColorG, settings, 72.0)
                         --
-                        @number_input(Field::ColorB, settings, 72.0)
+                        @number_input(SettingField::ColorB, settings, 72.0)
                     })
                 })
                 --
@@ -461,24 +461,24 @@ fn crosshair_page(settings: &Settings) -> impl Scene {
                     @card("Center dot & lines", bsn_list! {
                         @on_off_row("Center dot", Choice::CenterDot(true), Choice::CenterDot(false))
                         --
-                        @number_field(Field::DotThickness, settings)
+                        @number_field(SettingField::DotThickness, settings)
                         --
                         @on_off_row("Inner lines", Choice::InnerLines(true), Choice::InnerLines(false))
                         --
-                        @number_field(Field::LineLength, settings)
+                        @number_field(SettingField::LineLength, settings)
                         --
-                        @number_field(Field::LineThickness, settings)
+                        @number_field(SettingField::LineThickness, settings)
                         --
-                        @number_field(Field::LineOffset, settings)
+                        @number_field(SettingField::LineOffset, settings)
                     })
                     Node { flex_grow: 1.0, flex_basis: px(0) }
                     --
                     @card("Outlines", bsn_list! {
                         @on_off_row("Outlines", Choice::Outlines(true), Choice::Outlines(false))
                         --
-                        @number_field(Field::OutlineThickness, settings)
+                        @number_field(SettingField::OutlineThickness, settings)
                         --
-                        @number_field(Field::OutlineOpacity, settings)
+                        @number_field(SettingField::OutlineOpacity, settings)
                     })
                     Node { flex_grow: 1.0, flex_basis: px(0) }
                 ]
@@ -547,7 +547,7 @@ fn video_page(settings: &Settings) -> impl Scene {
                         @choice("8x", Choice::Msaa(8))
                     })
                     --
-                    @number_field(Field::FpsCap, settings)
+                    @number_field(SettingField::FpsCap, settings)
                 })
             ]
             --
@@ -580,7 +580,7 @@ fn audio_page(settings: &Settings) -> impl Scene {
                         @choice(HitSound::ALL[3].name(), Choice::HitSound(HitSound::ALL[3]))
                     })
                     --
-                    @number_field(Field::Volume, settings)
+                    @number_field(SettingField::Volume, settings)
                     --
                     @label_dim("Picking a sound or changing the volume plays a preview.")
                 })

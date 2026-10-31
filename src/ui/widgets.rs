@@ -24,7 +24,10 @@ use bevy::{
 use super::theme::*;
 use crate::{
     scenario::Scenario,
-    settings::{AspectMode, CROSSHAIR_COLORS, DisplayMode, FinderFocus, FinderMethod, HitSound, PRESETS, Settings, TARGET_COLORS},
+    settings::{
+        AspectMode, CROSSHAIR_COLORS, DisplayMode, FinderFocus, FinderMethod, HitSound, PRESETS, SettingField, Settings,
+        TARGET_COLORS, fields::FieldSpec,
+    },
     sfx::HitSounds,
 };
 
@@ -527,134 +530,14 @@ pub fn highlight_choices(settings: Res<Settings>, mut buttons: Query<(&Choice, &
 // Number fields
 // ---------------------------------------------------------------------------------------------
 
-/// A numeric setting edited through a `FeathersNumberInput`.
-#[derive(Component, Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub enum Field {
-    #[default]
-    Sens,
-    Yaw,
-    Dpi,
-    Hfov,
-    RunSecs,
-    TargetScale,
-    FinderRounds,
-    FinderTrialSecs,
-    FpsCap,
-    Volume,
-    DotThickness,
-    LineLength,
-    LineThickness,
-    LineOffset,
-    OutlineThickness,
-    OutlineOpacity,
-    ColorR,
-    ColorG,
-    ColorB,
-    TargetLifetime,
-}
-
-struct FieldSpec {
-    label: &'static str,
-    precision: i32,
-    step: f64,
-    soft: (f32, f32),
-    hard: (f32, f32),
-}
-
-impl Field {
-    fn spec(self) -> FieldSpec {
-        let spec = |label, precision, step, soft, hard| FieldSpec { label, precision, step, soft, hard };
-        let px = |label| spec(label, 0, 1.0, (0.0, 20.0), (0.0, 20.0));
-        let channel = |label| spec(label, 0, 1.0, (0.0, 255.0), (0.0, 255.0));
-        match self {
-            Field::Sens => spec("Sensitivity", 3, 0.01, (0.05, 4.0), (0.001, 100.0)),
-            Field::Yaw => spec("Yaw (deg / count)", 4, 0.001, (0.001, 0.1), (0.0001, 1.0)),
-            Field::Dpi => spec("Mouse DPI", 0, 50.0, (100.0, 3200.0), (50.0, 32000.0)),
-            Field::Hfov => spec("Horizontal FOV (16:9)", 2, 1.0, (70.0, 130.0), (40.0, 150.0)),
-            Field::RunSecs => spec("Drill length (s)", 0, 5.0, (10.0, 180.0), (5.0, 600.0)),
-            Field::TargetScale => spec("Target size (x)", 2, 0.05, (0.3, 2.0), (0.1, 4.0)),
-            Field::FinderRounds => spec("Rounds", 0, 1.0, (1.0, 12.0), (1.0, 12.0)),
-            Field::FinderTrialSecs => spec("Trial length (s)", 0, 5.0, (5.0, 60.0), (5.0, 120.0)),
-            Field::FpsCap => spec("FPS cap (0 = unlimited)", 0, 10.0, (0.0, 500.0), (0.0, 1000.0)),
-            Field::Volume => spec("Volume (%)", 0, 5.0, (0.0, 100.0), (0.0, 100.0)),
-            Field::DotThickness => spec("Dot thickness", 0, 1.0, (1.0, 10.0), (1.0, 10.0)),
-            Field::LineLength => px("Line length"),
-            Field::LineThickness => spec("Line thickness", 0, 1.0, (1.0, 10.0), (1.0, 10.0)),
-            Field::LineOffset => px("Line offset"),
-            Field::OutlineThickness => spec("Outline thickness", 0, 1.0, (1.0, 6.0), (1.0, 6.0)),
-            Field::OutlineOpacity => spec("Outline opacity", 2, 0.05, (0.0, 1.0), (0.0, 1.0)),
-            Field::ColorR => channel("R"),
-            Field::ColorG => channel("G"),
-            Field::ColorB => channel("B"),
-            Field::TargetLifetime => spec("Target decay (s)", 2, 0.1, (0.0, 3.0), (0.0, 10.0)),
-        }
-    }
-
-    fn get(self, settings: &Settings) -> f32 {
-        let crosshair = &settings.crosshair;
-        match self {
-            Field::Sens => settings.sens,
-            Field::Yaw => settings.yaw,
-            Field::Dpi => settings.dpi,
-            Field::Hfov => settings.hfov,
-            Field::RunSecs => settings.run_secs,
-            Field::TargetScale => settings.target_scale,
-            Field::FinderRounds => settings.finder_rounds as f32,
-            Field::FinderTrialSecs => settings.finder_trial_secs,
-            Field::FpsCap => settings.video.fps_cap as f32,
-            Field::Volume => (settings.audio.volume * 100.0).round(),
-            Field::DotThickness => crosshair.dot_thickness,
-            Field::LineLength => crosshair.line_length,
-            Field::LineThickness => crosshair.line_thickness,
-            Field::LineOffset => crosshair.line_offset,
-            Field::OutlineThickness => crosshair.outline_thickness,
-            Field::OutlineOpacity => crosshair.outline_opacity,
-            Field::ColorR => crosshair.color[0] as f32,
-            Field::ColorG => crosshair.color[1] as f32,
-            Field::ColorB => crosshair.color[2] as f32,
-            Field::TargetLifetime => settings.targets.lifetime,
-        }
-    }
-
-    fn set(self, settings: &mut Settings, value: f32) {
-        let spec = self.spec();
-        let value = value.clamp(spec.hard.0, spec.hard.1);
-        // Integer fields (precision 0) only ever hold whole numbers.
-        let value = if spec.precision == 0 { value.round() } else { value };
-        let crosshair = &mut settings.crosshair;
-        match self {
-            Field::Sens => settings.sens = value,
-            Field::Yaw => settings.yaw = value,
-            Field::Dpi => settings.dpi = value,
-            Field::Hfov => settings.hfov = value,
-            Field::RunSecs => settings.run_secs = value,
-            Field::TargetScale => settings.target_scale = value,
-            Field::FinderRounds => settings.finder_rounds = value as u32,
-            Field::FinderTrialSecs => settings.finder_trial_secs = value,
-            Field::FpsCap => settings.video.fps_cap = value as u32,
-            Field::Volume => settings.audio.volume = value / 100.0,
-            Field::DotThickness => crosshair.dot_thickness = value,
-            Field::LineLength => crosshair.line_length = value,
-            Field::LineThickness => crosshair.line_thickness = value,
-            Field::LineOffset => crosshair.line_offset = value,
-            Field::OutlineThickness => crosshair.outline_thickness = value,
-            Field::OutlineOpacity => crosshair.outline_opacity = value,
-            Field::ColorR => crosshair.color[0] = value as u8,
-            Field::ColorG => crosshair.color[1] = value as u8,
-            Field::ColorB => crosshair.color[2] = value as u8,
-            Field::TargetLifetime => settings.targets.lifetime = value,
-        }
-    }
-}
-
 /// A labelled number input row.
-pub fn number_field(field: Field, settings: &Settings) -> impl Scene {
+pub fn number_field(field: SettingField, settings: &Settings) -> impl Scene {
     let text = field.spec().label;
     setting_row(text, bsn_list! { @number_input(field, settings, FIELD_W) })
 }
 
 /// A bare number input of fixed width.
-pub fn number_input(field: Field, settings: &Settings, width: f32) -> impl Scene {
+pub fn number_input(field: SettingField, settings: &Settings, width: f32) -> impl Scene {
     let FieldSpec { precision, step, soft, hard, .. } = field.spec();
     let value = field.get(settings);
     let soft = SoftLimit::f32(soft.0..=soft.1);
@@ -677,7 +560,7 @@ pub fn number_input(field: Field, settings: &Settings, width: f32) -> impl Scene
 
 fn edit_field(
     change: On<ValueChange<f32>>,
-    fields: Query<&Field>,
+    fields: Query<&SettingField>,
     mut settings: ResMut<Settings>,
     sounds: Res<HitSounds>,
     mut commands: Commands,
@@ -694,13 +577,13 @@ fn edit_field(
     }
     // The widget is controlled: echo the (clamped/rounded) value back so it displays it.
     commands.entity(input).insert(NumberInputValue::F32(after));
-    if field == Field::Volume && change.is_final && after != before {
+    if field == SettingField::Volume && change.is_final && after != before {
         sounds.play(&mut commands, &settings.audio);
     }
 }
 
 /// Pushes setting changes made elsewhere (presets, finder results) into the number inputs.
-pub fn sync_fields(settings: Res<Settings>, fields: Query<(Entity, &Field, &NumberInputValue)>, mut commands: Commands) {
+pub fn sync_fields(settings: Res<Settings>, fields: Query<(Entity, &SettingField, &NumberInputValue)>, mut commands: Commands) {
     for (entity, field, value) in &fields {
         let wanted = field.get(&settings);
         if !matches!(value, NumberInputValue::F32(shown) if *shown == wanted) {
@@ -748,18 +631,6 @@ pub fn polyline(commands: &mut Commands, parent: Entity, points: &[Vec2], color:
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn integer_fields_round_and_clamp() {
-        let mut settings = Settings::default();
-        Field::ColorR.set(&mut settings, 300.4);
-        assert_eq!(settings.crosshair.color[0], 255);
-        Field::LineLength.set(&mut settings, 4.6);
-        assert_eq!(settings.crosshair.line_length, 5.0);
-        Field::Volume.set(&mut settings, 40.0);
-        assert!((settings.audio.volume - 0.4).abs() < 1e-6);
-        assert_eq!(Field::Volume.get(&settings), 40.0);
-    }
 
     #[test]
     fn choosing_a_preset_selects_it_and_keeps_cm_per_360() {

@@ -200,6 +200,19 @@ impl Default for DiscordSettings {
     }
 }
 
+/// Updates from the GitHub releases (see `update`).
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct UpdateSettings {
+    /// Check at startup and install newer releases.
+    pub auto: bool,
+}
+
+impl Default for UpdateSettings {
+    fn default() -> Self {
+        Self { auto: true }
+    }
+}
 
 #[derive(Resource, Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
@@ -222,6 +235,7 @@ pub struct Settings {
     pub crosshair: CrosshairSettings,
     pub audio: AudioSettings,
     pub discord: DiscordSettings,
+    pub updates: UpdateSettings,
 }
 
 impl Default for Settings {
@@ -243,6 +257,7 @@ impl Default for Settings {
             crosshair: CrosshairSettings::default(),
             audio: AudioSettings::default(),
             discord: DiscordSettings::default(),
+            updates: UpdateSettings::default(),
         }
     }
 }
@@ -326,6 +341,7 @@ mod tests {
         s.audio.hit_sound = HitSound::Ding;
         s.audio.volume = 0.25;
         s.discord.enabled = false;
+        s.updates.auto = false;
         s
     }
 

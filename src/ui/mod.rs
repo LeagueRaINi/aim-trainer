@@ -58,6 +58,7 @@ impl Plugin for UiPlugin {
                     menu::custom::sync_item_names,
                     menu::custom::sync_status,
                     menu::update_discord_status,
+                    menu::update_update_status,
                 )
                     .run_if(in_state(AppState::Menu)),
             );

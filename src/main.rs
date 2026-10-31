@@ -22,6 +22,7 @@ mod settings;
 mod sfx;
 #[cfg(test)] mod test_util;
 mod ui;
+mod update;
 
 use bevy::diagnostic::FrameTimeDiagnosticsPlugin;
 use bevy::feathers::FeathersPlugins;
@@ -73,6 +74,6 @@ fn main() {
         ui::UiPlugin,
     ))
     // Outside the tuple above, which is at Bevy's 15-plugin limit.
-    .add_plugins(adaptive_log::AdaptiveLogPlugin);
+    .add_plugins((adaptive_log::AdaptiveLogPlugin, update::UpdatePlugin));
     app.run();
 }

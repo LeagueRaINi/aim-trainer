@@ -43,6 +43,7 @@ pub enum Choice {
     InnerLines(bool),
     Outlines(bool),
     Discord(bool),
+    AutoUpdate(bool),
 }
 
 impl Default for Choice {
@@ -69,6 +70,7 @@ impl Choice {
             Choice::InnerLines(on) => settings.crosshair.inner_lines = on,
             Choice::Outlines(on) => settings.crosshair.outlines = on,
             Choice::Discord(on) => settings.discord.enabled = on,
+            Choice::AutoUpdate(on) => settings.updates.auto = on,
         }
     }
 
@@ -89,6 +91,7 @@ impl Choice {
             Choice::InnerLines(on) => settings.crosshair.inner_lines == on,
             Choice::Outlines(on) => settings.crosshair.outlines == on,
             Choice::Discord(on) => settings.discord.enabled == on,
+            Choice::AutoUpdate(on) => settings.updates.auto == on,
         }
     }
 }

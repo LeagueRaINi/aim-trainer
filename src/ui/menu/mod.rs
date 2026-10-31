@@ -4,27 +4,28 @@
 mod audio;
 mod crosshair;
 pub mod custom;
-mod discord;
 mod finder;
 pub mod history;
 pub mod insights;
+mod online;
 mod play;
 mod sensitivity;
 mod video;
 
 use bevy::app::Propagate;
 use bevy::feathers::controls::ButtonVariant;
+use bevy::feathers::display::label_dim;
 use bevy::feathers::theme::{SurfaceLevel, ThemeBackgroundColor, ThemeContext};
 use bevy::feathers::tokens;
 use bevy::prelude::*;
 use bevy::ui_widgets::Activate;
-pub use discord::update_discord_status;
+pub use online::{update_discord_status, update_update_status};
 pub use sensitivity::update_sens_info;
 
 use self::audio::audio_page;
 use self::crosshair::crosshair_page;
-use self::discord::discord_page;
 use self::finder::finder_page;
+use self::online::online_page;
 use self::play::play_page;
 use self::sensitivity::sensitivity_page;
 use self::video::video_page;
@@ -32,6 +33,7 @@ use super::theme::*;
 use super::widgets::*;
 use crate::AppState;
 use crate::settings::Settings;
+use crate::update::current_version;
 
 /// Which menu page is visible. Kept across visits so you return to where you were.
 #[derive(Resource, Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -46,7 +48,7 @@ pub enum MenuTab {
     Audio,
     History,
     Insights,
-    Discord,
+    Online,
 }
 
 impl MenuTab {
@@ -58,7 +60,7 @@ impl MenuTab {
             MenuTab::Sensitivity => "Sensitivity",
             MenuTab::Crosshair => "Crosshair",
             MenuTab::Video => "Video",
-            MenuTab::Discord => "Discord",
+            MenuTab::Online => "Online",
             MenuTab::Audio => "Audio",
             MenuTab::History => "History",
             MenuTab::Insights => "Insights",
@@ -79,6 +81,7 @@ const MENU_H: f32 = 660.0;
 const MAIN_COLUMN_W: f32 = 540.0;
 
 pub fn spawn_menu(mut commands: Commands, settings: Res<Settings>) {
+    let version = format!("v{}", current_version());
     commands
         .spawn_scene(bsn! {
             @overlay()
@@ -94,7 +97,11 @@ pub fn spawn_menu(mut commands: Commands, settings: Res<Settings>) {
                         --
                         @heading("Aim Trainer")
                         --
+                        @label_dim(version)
+                        --
                         @spacer()
+                        --
+                        @online::restart_button()
                         --
                         @button("Quit", ButtonVariant::Normal)
                         Node { min_width: px(90) }
@@ -120,7 +127,7 @@ pub fn spawn_menu(mut commands: Commands, settings: Res<Settings>) {
                     --
                     @audio_page(&settings)
                     --
-                    @discord_page()
+                    @online_page()
                     --
                     @page(MenuTab::History)
                     Node { flex_direction: FlexDirection::Column, row_gap: px(SPACE_M) }
@@ -160,7 +167,7 @@ fn tab_bar() -> impl Scene {
             --
             @tab_button(MenuTab::Insights)
             --
-            @tab_button(MenuTab::Discord)
+            @tab_button(MenuTab::Online)
         ]
     }
 }

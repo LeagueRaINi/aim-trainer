@@ -13,7 +13,19 @@ image = { version = "0.25", default-features = false, features = ["png"] }
 # Compresses replays (zlib); the same version png's flate2 already builds.
 miniz_oxide = "0.9"
 ron = "0.12"
+# Unpacks downloaded updates (releases ship the exe zstd-compressed).
+ruzstd = "0.9"
+# Replaces the running exe with a downloaded update.
+self-replace = "1.5"
+# Compares release versions; the same version the dependency tree already builds.
+semver = "1"
 serde = { version = "1", features = ["derive"] }
+# GitHub's release JSON; the same version the dependency tree already builds.
+serde_json = "1"
+# Verifies downloaded updates against the digest GitHub publishes.
+sha2 = "0.11"
+# Fetches updates from GitHub releases.
+ureq = { version = "3.5", features = ["json"] }
 # Window/taskbar icon type; the same version Bevy's windowing uses.
 winit = { version = "0.30", default-features = false }
 

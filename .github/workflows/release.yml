@@ -1,0 +1,50 @@
+# Publishing a release: set `version` in Cargo.toml, commit, then push a matching tag
+# (`git tag v1.2.0 && git push origin v1.2.0`). This builds the Windows exe and publishes it with
+# a zstd-compressed copy, which is what the in-app updater downloads (see src/update.rs).
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      # The exe reports Cargo.toml's version; a tag that differs would make installs update to
+      # the "new" release on every start.
+      - name: Check the tag matches the version
+        shell: bash
+        run: |
+          version=$(grep -m1 '^version = ' Cargo.toml | cut -d '"' -f2)
+          if [ "v$version" != "$GITHUB_REF_NAME" ]; then
+            echo "Tag $GITHUB_REF_NAME doesn't match Cargo.toml version $version" >&2
+            exit 1
+          fi
+
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Test
+        run: cargo test --locked
+
+      - name: Build
+        run: cargo build --release --locked
+
+      - name: Package
+        shell: bash
+        run: |
+          command -v zstd || choco install zstandard -y --no-progress
+          cp target/release/aim_trainer.exe aim_trainer.exe
+          zstd -19 aim_trainer.exe -o aim_trainer.exe.zst
+
+      - name: Publish
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "$GITHUB_REF_NAME" aim_trainer.exe aim_trainer.exe.zst --title "$GITHUB_REF_NAME" --generate-notes

@@ -5,7 +5,7 @@
 use bevy::{prelude::*, window::WindowFocused};
 
 use super::{DrillKind, DrillSpec, RunStats, TargetAssets, targets};
-use crate::{AppState, metrics::throughput::Click, settings::Settings};
+use crate::{AppState, camera::ViewCone, metrics::throughput::Click, settings::Settings};
 
 const COUNTDOWN_SECS: f32 = 1.5;
 const READY_ARM_SECS: f32 = 0.6;
@@ -252,6 +252,7 @@ pub fn begin_run(commands: &mut Commands, next_state: &mut NextState<AppState>, 
 }
 
 /// Starts the countdown on click or Space, then the drill once it reaches zero.
+#[allow(clippy::too_many_arguments)]
 pub(super) fn ready_gate(
     mut commands: Commands,
     time: Res<Time>,
@@ -260,6 +261,7 @@ pub(super) fn ready_gate(
     mut run: ResMut<Run>,
     assets: Res<TargetAssets>,
     mut next: ResMut<targets::NextSpawn>,
+    view: Res<ViewCone>,
 ) {
     if run.aborted {
         return;
@@ -271,7 +273,7 @@ pub(super) fn ready_gate(
             run.ready_for += time.delta_secs();
             if run.ready_for >= READY_ARM_SECS && (mouse.just_pressed(MouseButton::Left) || keys.just_pressed(KeyCode::Space)) {
                 run.phase = Phase::Countdown;
-                targets::spawn_initial(&mut commands, &assets, &mut next, &run);
+                targets::spawn_initial(&mut commands, &assets, &mut next, &run, &view);
             }
         }
         Phase::Countdown => {

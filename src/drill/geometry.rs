@@ -2,6 +2,8 @@
 
 use bevy::prelude::*;
 
+use crate::camera::ViewCone;
+
 /// Distance from the camera to the plane/sphere targets live on.
 pub(crate) const TARGET_DISTANCE: f32 = 10.0;
 
@@ -35,16 +37,17 @@ pub(crate) fn ray_box(origin: Vec3, dir: Vec3, min: Vec3, max: Vec3) -> Option<f
     (far >= near.max(0.0)).then_some(near.max(0.0))
 }
 
-/// Draws random directions until one is at least `min_deg` away from `aim`; returns a target
-/// position at [`TARGET_DISTANCE`].
-pub(crate) fn away_from(aim: Vec3, min_deg: f32, mut pick: impl FnMut() -> Vec3) -> Vec3 {
+/// Draws random directions until one is at least `min_deg` away from `aim` and on screen (with
+/// `margin` radians to the edges); returns a target position at [`TARGET_DISTANCE`]. If no pick
+/// qualifies, the last one is pulled towards the aim until it is on screen.
+pub(crate) fn away_from(aim: Vec3, min_deg: f32, view: &ViewCone, margin: f32, mut pick: impl FnMut() -> Vec3) -> Vec3 {
     let max_cos = min_deg.to_radians().cos();
     let mut dir = pick();
-    for _ in 0..16 {
-        if dir.dot(aim) < max_cos {
-            break;
+    for _ in 0..32 {
+        if dir.dot(aim) < max_cos && view.contains(aim, dir, margin) {
+            return dir * TARGET_DISTANCE;
         }
         dir = pick();
     }
-    dir * TARGET_DISTANCE
+    view.pull_in(aim, dir, margin) * TARGET_DISTANCE
 }

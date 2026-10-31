@@ -40,13 +40,16 @@ fn tune(config: &mut DrillConfig) {
 mod tests {
     use bevy::prelude::*;
 
-    use crate::drill::{DrillConfig, DrillKind, kinds::microflick::flick_position};
+    use crate::{
+        camera::ViewCone,
+        drill::{DrillConfig, DrillKind, kinds::microflick::flick_position},
+    };
 
     #[test]
     fn head_level_targets_stay_at_eye_height() {
         let config = DrillConfig::defaults(DrillKind::HeadLevel);
         for _ in 0..50 {
-            assert!(flick_position(Vec3::NEG_Z, &config).y.abs() < 1e-4);
+            assert!(flick_position(Vec3::NEG_Z, &ViewCone::default(), 0.04, &config).y.abs() < 1e-4);
         }
     }
 }

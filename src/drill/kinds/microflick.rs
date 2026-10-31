@@ -6,7 +6,7 @@ use bevy::prelude::*;
 
 use crate::{
     AppState,
-    camera::PlayerCamera,
+    camera::{PlayerCamera, ViewCone},
     metrics::flick_probe::{FlickProbe, angles, screen_offset},
     drill::{
         DrillConfig, DrillSet, Run,
@@ -53,7 +53,7 @@ pub(super) fn register(app: &mut App) {
 
 /// One flick target, away from the aim.
 pub(super) fn spawn_flick(ctx: &mut SpawnCtx) {
-    let (position, lifetime) = (flick_position(ctx.aim, ctx.config), ctx.lifetime());
+    let (position, lifetime) = (flick_position(ctx.aim, &ctx.view, ctx.margin(), ctx.config), ctx.lifetime());
     ctx.spawn_target(position, lifetime);
 }
 
@@ -61,13 +61,13 @@ pub(super) fn respawn_flick(ctx: &mut SpawnCtx, _: Option<usize>) {
     spawn_flick(ctx);
 }
 
-/// Microflick / Head level: anywhere within the yaw/pitch ranges, away from the crosshair.
-/// Head level has a pitch range of 0, so its targets always sit exactly at head height.
-pub(super) fn flick_position(aim: Vec3, config: &DrillConfig) -> Vec3 {
+/// Microflick / Head level: anywhere within the yaw/pitch ranges, away from the crosshair and on
+/// screen. Head level has a pitch range of 0, so its targets always sit exactly at head height.
+pub(super) fn flick_position(aim: Vec3, view: &ViewCone, margin: f32, config: &DrillConfig) -> Vec3 {
     if config.flick_constrained() {
-        return constrained_flick_position(aim, config);
+        return constrained_flick_position(aim, view, margin, config);
     }
-    away_from(aim, config.min_flick, || {
+    away_from(aim, config.min_flick, view, margin, || {
         direction(
             random_range(-config.yaw_range, config.yaw_range).to_radians(),
             random_range(-config.pitch_range, config.pitch_range).to_radians(),
@@ -85,19 +85,19 @@ fn flick_area(config: &DrillConfig) -> (Vec2, Vec2) {
 /// `flick_direction +- flick_spread` on screen, inside [`flick_area`]. Repeated flicks the same
 /// way walk the aim to the edge of the area; once no such target fits, the next one is a reset
 /// target on the opposite side of the area, which leaves room for the trained flicks again.
-fn constrained_flick_position(aim: Vec3, config: &DrillConfig) -> Vec3 {
+fn constrained_flick_position(aim: Vec3, view: &ViewCone, margin: f32, config: &DrillConfig) -> Vec3 {
     let from = angles(aim);
     let (near, far) = config.flick_distance_range();
     let (min, max) = flick_area(config);
-    let to_position = |p: Vec2| direction(p.x.to_radians(), p.y.to_radians()) * TARGET_DISTANCE;
+    let to_direction = |p: Vec2| direction(p.x.to_radians(), p.y.to_radians());
     for _ in 0..CONSTRAINED_TRIES {
         let angle = match config.flick_direction {
             Some(center) => center + random_range(-config.flick_spread, config.flick_spread),
             None => random_range(0.0, 360.0),
         };
         let candidate = from + screen_offset(angle, random_range(near, far));
-        if candidate.cmpge(min).all() && candidate.cmple(max).all() {
-            return to_position(candidate);
+        if candidate.cmpge(min).all() && candidate.cmple(max).all() && view.contains(aim, to_direction(candidate), margin) {
+            return to_direction(candidate) * TARGET_DISTANCE;
         }
     }
     let middle = (min + max) * 0.5;
@@ -106,7 +106,7 @@ fn constrained_flick_position(aim: Vec3, config: &DrillConfig) -> Vec3 {
         Some(center) => middle - screen_offset(center, far),
         None => middle,
     };
-    to_position(reset.clamp(min, max))
+    view.pull_in(aim, to_direction(reset.clamp(min, max)), margin) * TARGET_DISTANCE
 }
 
 /// Measures the current target's first flick.
@@ -189,7 +189,7 @@ mod tests {
         let config = down_left();
         for aim in [Vec3::NEG_Z, direction(-0.2, 0.15)] {
             for _ in 0..2000 {
-                assert!(follows(&config, aim, flick_position(aim, &config)), "aim {aim}");
+                assert!(follows(&config, aim, flick_position(aim, &view(), MARGIN, &config)), "aim {aim}");
             }
         }
     }
@@ -202,7 +202,7 @@ mod tests {
         let mut trained = 0;
         const SPAWNS: usize = 2000;
         for _ in 0..SPAWNS {
-            let target = flick_position(aim, &config);
+            let target = flick_position(aim, &view(), MARGIN, &config);
             let at = angles(target.normalize());
             assert!(at.cmpge(min - 1e-3).all() && at.cmple(max + 1e-3).all(), "{at} outside the area");
             trained += follows(&config, aim, target) as usize;
@@ -217,7 +217,31 @@ mod tests {
         let config = DrillConfig::defaults(DrillKind::Microflick);
         assert!(!config.flick_constrained());
         // Targets still land on both sides, as before.
-        let sides: Vec<bool> = (0..200).map(|_| flick_position(Vec3::NEG_Z, &config).x > 0.0).collect();
+        let sides: Vec<bool> = (0..200).map(|_| flick_position(Vec3::NEG_Z, &view(), MARGIN, &config).x > 0.0).collect();
         assert!(sides.contains(&true) && sides.contains(&false));
+    }
+
+    /// Valorant's view (103° at 16:9) and a small target's margin.
+    fn view() -> ViewCone {
+        ViewCone::default()
+    }
+    const MARGIN: f32 = 0.04;
+
+    #[test]
+    fn targets_always_spawn_on_screen() {
+        let view = view();
+        // Plain Microflick and a long-flick weak spot (40-60°, beyond the 51.5° screen edge),
+        // aiming straight ahead and from far off to the side.
+        let mut long_left = down_left();
+        (long_left.yaw_range, long_left.min_flick, long_left.max_flick, long_left.flick_direction) = (80.0, 40.0, 60.0, Some(180.0));
+        long_left.sanitize();
+        for config in [DrillConfig::defaults(DrillKind::Microflick), long_left] {
+            for aim in [Vec3::NEG_Z, direction(0.45, 0.1), direction(-0.5, -0.15)] {
+                for _ in 0..1000 {
+                    let target = flick_position(aim, &view, MARGIN, &config).normalize();
+                    assert!(view.contains(aim, target, MARGIN), "aim {aim}: {target} off screen");
+                }
+            }
+        }
     }
 }

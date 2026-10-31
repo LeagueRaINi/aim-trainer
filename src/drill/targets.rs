@@ -7,13 +7,13 @@ use bevy::{ecs::system::EntityCommands, prelude::*};
 use super::{
     DrillConfig, Run,
     def::{Environment, TtkFrom},
-    geometry::ray_hit,
+    geometry::{TARGET_DISTANCE, ray_hit},
     kinds::peek,
 };
 use crate::{
     AppState,
-    camera::PlayerCamera,
-    metrics::{flick_probe::angles, throughput::Click},
+    camera::{PlayerCamera, ViewCone},
+    metrics::{flick_probe::angles, quest::RADIUS_RANGE, throughput::Click},
     replay::Recorder,
     settings::Settings,
     sfx::HitSounds,
@@ -80,6 +80,8 @@ pub struct SpawnCtx<'a, 'w, 's> {
     pub(crate) now: f32,
     /// The view direction (straight ahead for the initial targets).
     pub(crate) aim: Vec3,
+    /// What the player can see; new targets must appear inside it.
+    pub(crate) view: ViewCone,
     /// Whether the run is live, so `aim` is where the player is actually aiming.
     pub(crate) live: bool,
     /// Slots taken by live targets (see [`Slot`]).
@@ -91,6 +93,18 @@ impl SpawnCtx<'_, '_, '_> {
     /// Target radius for this config.
     pub(crate) fn radius(&self) -> f32 {
         self.config.kind.def().base_radius * self.config.size
+    }
+
+    /// How far (radians) a target's centre must stay inside the screen edges so all of it is
+    /// visible, plus a little room. Adaptive targets are sized after spawning, so they keep room
+    /// for the largest size they can get.
+    pub(crate) fn margin(&self) -> f32 {
+        const EDGE_ROOM: f32 = 1.5;
+        let radius = match self.config.adaptive() {
+            Some(_) => RADIUS_RANGE.1.to_radians(),
+            None => (self.radius() / TARGET_DISTANCE).atan(),
+        };
+        radius + EDGE_ROOM.to_radians()
     }
 
     /// Lifetime of decaying targets, if this config decays; adaptive targets always get their
@@ -186,15 +200,16 @@ pub(super) fn spawn_static(mut commands: Commands, assets: Res<TargetAssets>, ru
 }
 
 /// Initial targets, spawned when the countdown starts.
-pub(super) fn spawn_initial(commands: &mut Commands, assets: &TargetAssets, next: &mut NextSpawn, run: &Run) {
+pub(super) fn spawn_initial(commands: &mut Commands, assets: &TargetAssets, next: &mut NextSpawn, run: &Run, view: &ViewCone) {
     let mut occupied = Vec::new();
     let mut ctx = SpawnCtx {
         commands,
         assets,
         config: &run.drill.config,
         now: 0.0,
-        // Initial targets are placed relative to straight ahead.
+        // Initial targets are placed relative to straight ahead, where the view starts.
         aim: Vec3::NEG_Z,
+        view: *view,
         live: false,
         occupied: &mut occupied,
         next,
@@ -214,6 +229,7 @@ pub(super) fn shoot(
     mut next: ResMut<NextSpawn>,
     mut killed: MessageWriter<TargetKilled>,
     camera: Single<&Transform, With<PlayerCamera>>,
+    view: Res<ViewCone>,
     targets: Query<(Entity, &Target, &Transform, Option<&Slot>)>,
 ) {
     let def = run.kind().def();
@@ -262,6 +278,7 @@ pub(super) fn shoot(
         config: &run.drill.config,
         now,
         aim,
+        view: *view,
         live: true,
         occupied: &mut occupied,
         next: &mut next,
@@ -304,6 +321,7 @@ pub(super) fn decay(
     mut next: ResMut<NextSpawn>,
     mut expired_messages: MessageWriter<TargetExpired>,
     camera: Single<&Transform, (With<PlayerCamera>, Without<Target>)>,
+    view: Res<ViewCone>,
     mut targets: Query<(Entity, &Target, &mut Transform, Option<&Slot>)>,
 ) {
     if !run.live() {
@@ -334,6 +352,7 @@ pub(super) fn decay(
             config: &run.drill.config,
             now,
             aim,
+            view: *view,
             live: true,
             occupied: &mut occupied,
             next: &mut next,
@@ -349,6 +368,7 @@ pub(super) fn spawn_pending(
     assets: Res<TargetAssets>,
     mut next: ResMut<NextSpawn>,
     camera: Single<&Transform, With<PlayerCamera>>,
+    view: Res<ViewCone>,
 ) {
     let now = run.elapsed;
     if !run.live() || next.0.is_none_or(|at| now < at) {
@@ -362,6 +382,7 @@ pub(super) fn spawn_pending(
         config: &run.drill.config,
         now,
         aim: camera.forward().as_vec3(),
+        view: *view,
         live: true,
         occupied: &mut occupied,
         next: &mut next,

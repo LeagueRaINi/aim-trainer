@@ -2,13 +2,16 @@
 
 use bevy::prelude::*;
 
-use crate::drill::{
-    DrillConfig,
-    def::{Category, DecayRule, DrillDef, Environment, TtkFrom},
-    geometry::{away_from, direction, random_range, random_sign},
-    params::ParamId,
-    stats::ScoreModel,
-    targets::SpawnCtx,
+use crate::{
+    camera::ViewCone,
+    drill::{
+        DrillConfig,
+        def::{Category, DecayRule, DrillDef, Environment, TtkFrom},
+        geometry::{away_from, direction, random_range, random_sign},
+        params::ParamId,
+        stats::ScoreModel,
+        targets::SpawnCtx,
+    },
 };
 
 pub const DEF: DrillDef = DrillDef {
@@ -47,14 +50,14 @@ fn respawn(ctx: &mut SpawnCtx, _: Option<usize>) {
 }
 
 fn spawn_next(ctx: &mut SpawnCtx) {
-    let (position, lifetime) = (peripheral_position(ctx.aim, ctx.config), ctx.lifetime());
+    let (position, lifetime) = (peripheral_position(ctx.aim, &ctx.view, ctx.margin(), ctx.config), ctx.lifetime());
     ctx.spawn_target(position, lifetime);
 }
 
-/// At least `min_flick` degrees to the side, so the eyes have to catch it first.
-fn peripheral_position(aim: Vec3, config: &DrillConfig) -> Vec3 {
+/// At least `min_flick` degrees to the side, so the eyes have to catch it first, and on screen.
+fn peripheral_position(aim: Vec3, view: &ViewCone, margin: f32, config: &DrillConfig) -> Vec3 {
     let near = config.min_flick.min(config.yaw_range);
-    away_from(aim, near * 0.8, || {
+    away_from(aim, near * 0.8, view, margin, || {
         direction(
             (random_sign() * random_range(near, config.yaw_range)).to_radians(),
             random_range(-config.pitch_range, config.pitch_range).to_radians(),
@@ -71,7 +74,8 @@ mod tests {
     fn peripheral_targets_appear_off_center() {
         let config = DrillConfig::defaults(DrillKind::Peripheral);
         for _ in 0..50 {
-            let dir = peripheral_position(Vec3::NEG_Z, &config).normalize();
+            let dir = peripheral_position(Vec3::NEG_Z, &ViewCone::default(), 0.04, &config).normalize();
+            assert!(ViewCone::default().contains(Vec3::NEG_Z, dir, 0.04));
             assert!(dir.angle_between(Vec3::NEG_Z).to_degrees() >= config.min_flick - 1e-3);
         }
     }

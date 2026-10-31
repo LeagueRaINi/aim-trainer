@@ -357,6 +357,7 @@ mod fixture_tests {
                     best_ttk: 0.2,
                     on_target: 12.5 + f,
                     landings: vec![],
+                    clicks: vec![],
                 };
                 let purpose = if i % 2 == 0 { RunPurpose::Practice } else { RunPurpose::FinderTrial };
                 (1_793_394_818 + i as u64, stats, purpose)

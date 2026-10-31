@@ -2,6 +2,7 @@
 //! score and the stats shown with it.
 
 use super::DrillKind;
+use crate::metrics::throughput::{self, Click};
 
 #[derive(Clone, Debug)]
 pub struct RunStats {
@@ -21,6 +22,9 @@ pub struct RunStats {
     pub on_target: f32,
     /// First-flick landing ratios (1 = landed on target); Microflick only.
     pub landings: Vec<f32>,
+    /// Every counted click at a flick target, in click-killing drills (see
+    /// [`throughput`](crate::metrics::throughput)).
+    pub clicks: Vec<Click>,
 }
 
 impl RunStats {
@@ -47,6 +51,26 @@ impl RunStats {
     /// The secondary stats shown next to the score, as (caption, value).
     pub fn key_stats(&self) -> Vec<(&'static str, String)> {
         self.kind.def().score.key_stats(self)
+    }
+
+    /// Effective throughput, bits/s; `None` without enough flicks of a kind.
+    pub fn throughput(&self) -> Option<f32> {
+        throughput::throughput(&self.clicks)
+    }
+
+    /// Mean click position along the flick, in target radii: > 0 past the centre.
+    pub fn click_bias(&self) -> Option<f32> {
+        throughput::bias(&self.clicks)
+    }
+
+    /// Mean sideways click distance from the centre, in target radii.
+    pub fn click_off_axis(&self) -> Option<f32> {
+        throughput::off_axis(&self.clicks)
+    }
+
+    /// Fraction of flicks whose first click was within half a radius of the centre.
+    pub fn centre_hits(&self) -> Option<f32> {
+        throughput::centre_hits(&self.clicks)
     }
 }
 
@@ -144,6 +168,7 @@ mod tests {
             best_ttk: 0.2,
             on_target: 0.0,
             landings: Vec::new(),
+            clicks: Vec::new(),
         }
     }
 

@@ -6,7 +6,7 @@
 //! drill. A flick starts when its target appears, or at the previous kill if that was later
 //! (Gridshot dots wait while you shoot the others), and ends at the kill or expiry. Targets that
 //! were already up when the run went live are skipped (the aim before that isn't recorded), as
-//! are flicks under [`MIN_DISTANCE`] degrees.
+//! are flicks under [`MIN_DISTANCE`](crate::metrics::flick_probe::MIN_DISTANCE) degrees.
 //!
 //! **Per flick**, with angles in (yaw, pitch) degrees:
 //! - direction: on-screen direction from the aim to the target, in 8 sectors of 45 degrees;
@@ -42,7 +42,8 @@ use crate::{
     drill::{DrillConfig, DrillKind, def::TtkFrom},
     metrics::{
         bow,
-        flick_probe::{END_SPEED, FlickProbe, MIN_DISTANCE, START_SPEED, angles, screen_angle, wrap},
+        flick_probe::{END_SPEED, FlickProbe, START_SPEED, angles, screen_angle, wrap},
+        throughput::{self, BANDS},
     },
     replay::{Replay, ReplayFrame, Shot},
 };
@@ -80,8 +81,6 @@ const TRAINING_MAX: f32 = 60.0;
 /// The 8 on-screen flick directions, counter-clockwise from right (sector `i` is centered on
 /// `45 * i` degrees).
 pub const SECTORS: [&str; 8] = ["Right", "Up-right", "Up", "Up-left", "Left", "Down-left", "Down", "Down-right"];
-/// Flick distance bands, degrees.
-pub const BANDS: [(f32, f32); 5] = [(MIN_DISTANCE, 8.0), (8.0, 15.0), (15.0, 25.0), (25.0, 40.0), (40.0, f32::INFINITY)];
 
 pub fn band_label(band: usize) -> String {
     match BANDS[band] {
@@ -125,7 +124,7 @@ impl Flick {
     }
 
     pub fn band(&self) -> usize {
-        BANDS.iter().rposition(|band| self.distance >= band.0).unwrap_or(0)
+        throughput::band(self.distance)
     }
 
     /// Fitts' index of difficulty, bits.

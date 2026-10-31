@@ -12,7 +12,7 @@ Bevy 0.20 app (Rust 2024). `main.rs` declares `AppState` (Menu, Playing, Results
 | `camera.rs` | `PlayerCamera`, `Look`, raw mouse look at `ActiveSens`, FOV, cursor lock. |
 | `display.rs`, `level.rs`, `crosshair.rs`, `sfx.rs`, `icon.rs`, `presence.rs` | Window/video, room, crosshair, hit sounds, window icon, Discord Rich Presence. |
 | `drill/` | Drills and the run lifecycle (see below). |
-| `metrics/` | Pure aim measurements: `flick_probe` (first-flick landing), `bow` (path straightness). |
+| `metrics/` | Pure aim measurements: `flick_probe` (first-flick landing), `bow` (path straightness), `throughput` (click positions in the task-axis frame, effective throughput TPe). |
 | `replay/` | `format.rs`: the binary format (v3 encoder, v1–v3 decoders), save/load/prune, migration. `recorder.rs`: `Recorder`. `player.rs`: the replay player and tracer. `mod.rs`: `ReplayPlugin` and the handler that saves a finished practice run's replay. |
 | `history.rs` | Results CSV, comparisons, trends. Records each `RunFinished` and announces it as `RunRecorded`. Also defines `LastRun`. |
 | `routine.rs` | Built-in warmups, `Routine`, and the handler for finished routine steps. |

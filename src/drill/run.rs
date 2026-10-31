@@ -5,7 +5,7 @@
 use bevy::{prelude::*, window::WindowFocused};
 
 use super::{DrillKind, DrillSpec, RunStats, TargetAssets, targets};
-use crate::{AppState, settings::Settings};
+use crate::{AppState, metrics::throughput::Click, settings::Settings};
 
 const COUNTDOWN_SECS: f32 = 1.5;
 const READY_ARM_SECS: f32 = 0.6;
@@ -85,9 +85,16 @@ pub struct Run {
     ttk_total: f32,
     best_ttk: f32,
     pub(super) last_kill: f32,
+    /// Aim at the latest kill by a click, where the next flick starts; `None` before the first.
+    pub(super) last_kill_aim: Option<Vec2>,
+    /// Run time of the latest shot (also during the warm-in).
+    pub(super) last_shot: f32,
+    /// Whether a shot was fired since the latest kill.
+    pub(super) shot_since_kill: bool,
     on_target: f32,
     /// First-flick landing ratios (Microflick), see [`FlickProbe`](crate::metrics::flick_probe::FlickProbe).
     landings: Vec<f32>,
+    clicks: Vec<Click>,
     /// Set by Escape/alt-tab; nothing else happens to the run while the state changes.
     aborted: bool,
 }
@@ -113,8 +120,12 @@ impl Run {
             ttk_total: 0.0,
             best_ttk: f32::MAX,
             last_kill: 0.0,
+            last_kill_aim: None,
+            last_shot: f32::NEG_INFINITY,
+            shot_since_kill: false,
             on_target: 0.0,
             landings: Vec::new(),
+            clicks: Vec::new(),
             aborted: false,
         }
     }
@@ -163,6 +174,8 @@ impl Run {
     }
 
     pub(crate) fn shot(&mut self) {
+        self.last_shot = self.elapsed;
+        self.shot_since_kill = true;
         if self.counting() {
             self.shots += 1;
         }
@@ -171,6 +184,7 @@ impl Run {
     /// Records a kill `ttk` seconds after the target appeared (or after the previous kill).
     pub(crate) fn kill(&mut self, ttk: f32) {
         self.last_kill = self.elapsed;
+        self.shot_since_kill = false;
         if self.counting() {
             self.hits += 1;
             self.ttk_total += ttk;
@@ -196,6 +210,12 @@ impl Run {
         }
     }
 
+    pub(crate) fn click(&mut self, click: Click) {
+        if self.counting() {
+            self.clicks.push(click);
+        }
+    }
+
     pub fn stats(&self, settings: &Settings) -> RunStats {
         RunStats {
             kind: self.kind(),
@@ -210,6 +230,7 @@ impl Run {
             best_ttk: self.best_ttk,
             on_target: self.on_target,
             landings: self.landings.clone(),
+            clicks: self.clicks.clone(),
         }
     }
 }
@@ -325,16 +346,29 @@ mod tests {
         run.shot();
         run.expire();
         run.land(1.4);
+        let click = Click {
+            start: Vec2::ZERO,
+            target: Vec2::new(10.0, 0.0),
+            radius: 1.0,
+            size: 1.0,
+            aim: Vec2::new(10.0, 0.0),
+            time: 0.3,
+            hit: true,
+            first: true,
+        };
+        run.click(click);
         run.track_on_target(0.5);
         // After it: one clean kill.
         run.elapsed = 5.0;
         run.shot();
         run.kill(0.4);
         run.land(0.9);
+        run.click(Click { time: 0.4, ..click });
         run.elapsed = 13.0;
         let stats = run.stats(&settings);
         assert_eq!((stats.hits, stats.shots, stats.expired), (1, 1, 0));
         assert_eq!(stats.landings, vec![0.9]);
+        assert_eq!(stats.clicks.iter().map(|c| c.time).collect::<Vec<_>>(), vec![0.4]);
         assert_eq!(stats.on_target, 0.0);
         // Rates use the 10 counted seconds: 1 kill at 100% = 6 kills/min.
         assert!((stats.duration - 10.0).abs() < 1e-5);

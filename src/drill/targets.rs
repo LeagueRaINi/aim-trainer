@@ -10,7 +10,14 @@ use super::{
     geometry::ray_hit,
     kinds::peek,
 };
-use crate::{AppState, camera::PlayerCamera, replay::Recorder, settings::Settings, sfx::HitSounds};
+use crate::{
+    AppState,
+    camera::PlayerCamera,
+    metrics::{flick_probe::angles, throughput::Click},
+    replay::Recorder,
+    settings::Settings,
+    sfx::HitSounds,
+};
 
 /// Fraction of its size a decaying target has left when it expires.
 const DECAY_MIN_SCALE: f32 = 0.35;
@@ -35,6 +42,9 @@ pub(crate) struct Target {
     pub(crate) born: f32,
     /// Decaying targets shrink and expire after this many seconds.
     pub(crate) lifetime: Option<f32>,
+    /// The player's aim (yaw, pitch degrees) when it appeared; `None` for the initial targets,
+    /// which appear before the run is live.
+    pub(crate) spawn_aim: Option<Vec2>,
 }
 
 /// A target that is present but not something to react to yet (an unlit reaction cue). Replays
@@ -70,6 +80,8 @@ pub struct SpawnCtx<'a, 'w, 's> {
     pub(crate) now: f32,
     /// The view direction (straight ahead for the initial targets).
     pub(crate) aim: Vec3,
+    /// Whether the run is live, so `aim` is where the player is actually aiming.
+    pub(crate) live: bool,
     /// Slots taken by live targets (see [`Slot`]).
     pub(crate) occupied: &'a mut Vec<usize>,
     pub(crate) next: &'a mut NextSpawn,
@@ -91,7 +103,7 @@ impl SpawnCtx<'_, '_, '_> {
         let radius = self.radius();
         self.commands.spawn((
             DespawnOnExit(AppState::Playing),
-            Target { base_radius: radius, born: self.now, lifetime },
+            Target { base_radius: radius, born: self.now, lifetime, spawn_aim: self.live.then(|| angles(self.aim)) },
             Mesh3d(self.assets.mesh.clone()),
             MeshMaterial3d(self.assets.idle.clone()),
             Transform::from_translation(position).with_scale(Vec3::splat(radius)),
@@ -179,6 +191,7 @@ pub(super) fn spawn_initial(commands: &mut Commands, assets: &TargetAssets, next
         now: 0.0,
         // Initial targets are placed relative to straight ahead.
         aim: Vec3::NEG_Z,
+        live: false,
         occupied: &mut occupied,
         next,
     };
@@ -203,18 +216,27 @@ pub(super) fn shoot(
     if !def.click_kills || !run.live() || !mouse.just_pressed(MouseButton::Left) {
         return;
     }
-    run.shot();
-
     let origin = camera.translation;
     let aim = camera.forward().as_vec3();
     let blocked_at = blocked_at(def.environment, origin, aim);
-    let Some((entity, target, _, slot)) = targets
+    let hit = targets
         .iter()
         .filter_map(|hit| ray_hit(origin, aim, hit.2.translation, hit.2.scale.x).map(|t| (t, hit)))
         .filter(|(t, _)| *t < blocked_at)
         .min_by(|a, b| a.0.total_cmp(&b.0))
-        .map(|(_, hit)| hit)
-    else {
+        .map(|(_, hit)| hit);
+    // A miss was aimed at the target nearest the crosshair.
+    let aimed = hit.or_else(|| {
+        let off = |position: Vec3| aim.angle_between(position - origin);
+        targets.iter().min_by(|a, b| off(a.2.translation).total_cmp(&off(b.2.translation)))
+    });
+    if let Some((_, target, transform, _)) = aimed
+        && let Some(click) = flick_click(&run, target, transform, origin, aim, hit.is_some())
+    {
+        run.click(click);
+    }
+    run.shot();
+    let Some((entity, target, _, slot)) = hit else {
         recorder.mark_shot(false);
         return;
     };
@@ -223,6 +245,7 @@ pub(super) fn shoot(
     // Gridshot dots wait while you shoot the others, so time them from the previous kill.
     let ttk = if def.ttk_from == TtkFrom::PreviousKill { now - run.last_kill } else { now - target.born };
     run.kill(ttk);
+    run.last_kill_aim = Some(angles(aim));
     killed.write(TargetKilled { aim });
     recorder.mark_shot(true);
     commands.entity(entity).despawn();
@@ -235,10 +258,36 @@ pub(super) fn shoot(
         config: &run.drill.config,
         now,
         aim,
+        live: true,
         occupied: &mut occupied,
         next: &mut next,
     };
     (def.respawn)(&mut ctx, slot.map(|s| s.0));
+}
+
+/// A click aimed at `target` as one of its flick's clicks. The flick started when the target
+/// appeared, or at the previous kill if that was later (Gridshot dots wait while you shoot the
+/// others), as in [`analysis`](crate::analysis). `None` for flicks that started before the run
+/// went live (the initial targets), where the starting aim isn't known.
+fn flick_click(run: &Run, target: &Target, transform: &Transform, origin: Vec3, aim: Vec3, hit: bool) -> Option<Click> {
+    let from_kill = run.last_kill_aim.is_some() && run.last_kill >= target.born;
+    let (started, start) =
+        if from_kill { (run.last_kill, run.last_kill_aim?) } else { (target.born, target.spawn_aim?) };
+    // A shot in the frame the target appeared in came before it (shots are handled first).
+    let first = if from_kill { !run.shot_since_kill } else { run.last_shot <= target.born };
+    let to = transform.translation - origin;
+    let distance = to.length().max(1e-3);
+    let angular = |radius: f32| (radius / distance).atan().to_degrees();
+    Some(Click {
+        start,
+        target: angles(to / distance),
+        radius: angular(transform.scale.x),
+        size: angular(target.base_radius),
+        aim: angles(aim),
+        time: run.elapsed - started,
+        hit,
+        first,
+    })
 }
 
 /// Shrinks decaying targets and expires them (counted as a miss) when their time runs out.
@@ -279,6 +328,7 @@ pub(super) fn decay(
             config: &run.drill.config,
             now,
             aim,
+            live: true,
             occupied: &mut occupied,
             next: &mut next,
         };
@@ -306,8 +356,60 @@ pub(super) fn spawn_pending(
         config: &run.drill.config,
         now,
         aim: camera.forward().as_vec3(),
+        live: true,
         occupied: &mut occupied,
         next: &mut next,
     };
     (run.kind().def().spawn_next)(&mut ctx);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::drill::{DrillKind, DrillSpec, RunPurpose};
+
+    fn target(born: f32, spawn_aim: Option<Vec2>) -> Target {
+        Target { base_radius: 0.2, born, lifetime: None, spawn_aim }
+    }
+
+    #[test]
+    fn flick_clicks_start_at_the_later_of_spawn_and_previous_kill() {
+        let settings = Settings::default();
+        let drill = DrillSpec::builtin(DrillKind::Gridshot, &settings);
+        let mut run = Run::new(drill, 0.4, 30.0, RunPurpose::Practice, String::new());
+        // Straight ahead, 10 m out, shrunk to 0.1 m by decay.
+        let at = Transform::from_xyz(0.0, 0.0, -10.0).with_scale(Vec3::splat(0.1));
+        let aim = Vec3::new(-0.05, 0.0, -10.0).normalize();
+        let click = |run: &Run, target: &Target| flick_click(run, target, &at, Vec3::ZERO, aim, true);
+
+        // An initial target before any kill: where the flick started isn't known.
+        let initial = target(0.0, None);
+        assert_eq!(click(&run, &initial), None);
+
+        // After a kill at 1 s aiming 5 degrees left, the waiting target's flick starts there.
+        run.elapsed = 1.0;
+        run.shot();
+        run.kill(0.3);
+        run.last_kill_aim = Some(Vec2::new(5.0, 0.0));
+        run.elapsed = 1.4;
+        let first = click(&run, &initial).unwrap();
+        assert_eq!((first.start, first.target), (Vec2::new(5.0, 0.0), Vec2::ZERO));
+        assert!((first.time - 0.4).abs() < 1e-6 && first.first && first.hit);
+        assert!((first.aim.x - 0.05f32.atan2(10.0).to_degrees()).abs() < 1e-3);
+        assert!((first.radius - 0.01f32.atan().to_degrees()).abs() < 1e-4);
+        assert!((first.size - 0.02f32.atan().to_degrees()).abs() < 1e-4);
+        // A miss first: the next click is a correction.
+        run.shot();
+        assert!(!click(&run, &initial).unwrap().first);
+
+        // A target that appeared after the kill starts from the aim at its appearance.
+        let later = target(1.2, Some(Vec2::new(-3.0, 2.0)));
+        let second = click(&run, &later).unwrap();
+        assert_eq!(second.start, Vec2::new(-3.0, 2.0));
+        assert!((second.time - 0.2).abs() < 1e-6);
+        // The miss at 1.4 s came after it appeared.
+        assert!(!second.first);
+        // One appearing in the frame of that miss (after the shots) is still unclicked.
+        assert!(click(&run, &target(1.4, Some(Vec2::ZERO))).unwrap().first);
+    }
 }

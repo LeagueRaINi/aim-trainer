@@ -38,6 +38,7 @@ impl Plugin for UiPlugin {
             .add_systems(OnEnter(AppState::Finder), screens::finder::spawn_finder_screen)
             .add_systems(OnEnter(AppState::Routine), screens::routine::spawn_routine_screen)
             .add_systems(Update, screens::finder::draw_smart_chart.run_if(in_state(AppState::Finder)))
+            .add_systems(Update, screens::results::draw_hit_scatter.run_if(in_state(AppState::Results)))
             .add_systems(Update, screens::routine::routine_break.run_if(in_state(AppState::Routine)))
             // Post-run screens live outside the menu, so the unlock timer runs in every state.
             .add_systems(Update, widgets::arm_buttons)

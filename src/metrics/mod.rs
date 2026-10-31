@@ -2,3 +2,4 @@
 
 pub mod bow;
 pub mod flick_probe;
+pub mod throughput;

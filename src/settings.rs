@@ -609,4 +609,66 @@ mod tests {
         assert!(!report.can_save && report.problem.is_some());
         let _ = fs::remove_dir_all(&dir);
     }
+
+    /// The settings `fixtures/settings.ron` was saved from.
+    fn fixture_settings() -> Settings {
+        let mut s = Settings {
+            sens: 1.25,
+            yaw: 0.022,
+            dpi: 1600.0,
+            hfov: 106.26,
+            run_secs: 45.0,
+            target_scale: 0.75,
+            finder_rounds: 9,
+            finder_trial_secs: 30.0,
+            finder_drill: Scenario::HeadLevel,
+            finder_method: FinderMethod::Classic,
+            finder_focus: FinderFocus::Tracking,
+            ..Default::default()
+        };
+        s.targets.color = [255, 60, 70];
+        s.targets.lifetime = 1.5;
+        s.video.display = DisplayMode::Borderless;
+        s.video.aspect = AspectMode::Native;
+        s.video.vsync = true;
+        s.video.fps_cap = 240;
+        s.video.msaa = 2;
+        s.crosshair.color = [0, 255, 0];
+        s.crosshair.center_dot = true;
+        s.crosshair.dot_thickness = 3.0;
+        s.crosshair.inner_lines = false;
+        s.crosshair.line_length = 8.0;
+        s.crosshair.line_thickness = 1.0;
+        s.crosshair.line_offset = 4.0;
+        s.crosshair.outlines = false;
+        s.crosshair.outline_thickness = 2.0;
+        s.crosshair.outline_opacity = 0.75;
+        s.audio.hit_sound = HitSound::Ding;
+        s.audio.volume = 0.25;
+        s.discord.enabled = false;
+        s
+    }
+
+    /// Pins the settings file format: field names, enum variant names and the pretty writer.
+    #[test]
+    fn loads_saved_settings_fixture() {
+        let fixture = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/fixtures/settings.ron"));
+        let dir = temp_dir("settings_fixture");
+        let path = dir.join("settings.ron");
+        fs::write(&path, fixture).unwrap();
+        let (mut loaded, report): (Settings, _) = load_ron(&path);
+        assert!(report.problem.is_none());
+        loaded.sanitize();
+        assert_eq!(loaded, fixture_settings());
+        let written = ron::ser::to_string_pretty(&fixture_settings(), ron::ser::PrettyConfig::default()).unwrap();
+        assert_eq!(written.replace("\r\n", "\n"), fixture.replace("\r\n", "\n"));
+
+        // Files from builds with the arena still carry its key, and lack newer fields.
+        let legacy = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/fixtures/settings_legacy_arena.ron"));
+        fs::write(&path, legacy).unwrap();
+        let (loaded, report): (Settings, _) = load_ron(&path);
+        assert!(report.problem.is_none() && report.can_save);
+        assert_eq!(loaded, Settings { sens: 0.35, ..Settings::default() });
+        let _ = fs::remove_dir_all(&dir);
+    }
 }

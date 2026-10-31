@@ -157,23 +157,7 @@ impl History {
     pub fn record(&mut self, stats: &RunStats, purpose: RunPurpose, settings: &Settings) -> u64 {
         let now = SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |d| d.as_secs());
         let timestamp = self.entries.last().map_or(now, |last| now.max(last.timestamp.saturating_add(1)));
-        let row = format!(
-            "{timestamp},{purpose:?},{},{},{},{},{},{:.3},{:.2},{},{},{:.4},{:.1},{:.2},{},{}",
-            csv_safe(&stats.drill),
-            stats.sens,
-            settings.yaw,
-            settings.dpi,
-            settings.hfov,
-            stats.cm_per_360,
-            stats.duration,
-            stats.hits,
-            stats.shots,
-            stats.accuracy(),
-            stats.avg_kill_ms(),
-            stats.on_target_ratio() * 100.0,
-            stats.score(),
-            stats.scenario.name(),
-        );
+        let row = format_row(timestamp, stats, purpose, settings);
         if let Err(err) = append_row(&row) {
             error!("Failed to write {RESULTS_PATH}: {err}");
         }
@@ -182,6 +166,27 @@ impl History {
         }
         timestamp
     }
+}
+
+/// One CSV row (without the newline) in `HEADER`'s column order.
+fn format_row(timestamp: u64, stats: &RunStats, purpose: RunPurpose, settings: &Settings) -> String {
+    format!(
+        "{timestamp},{purpose:?},{},{},{},{},{},{:.3},{:.2},{},{},{:.4},{:.1},{:.2},{},{}",
+        csv_safe(&stats.drill),
+        stats.sens,
+        settings.yaw,
+        settings.dpi,
+        settings.hfov,
+        stats.cm_per_360,
+        stats.duration,
+        stats.hits,
+        stats.shots,
+        stats.accuracy(),
+        stats.avg_kill_ms(),
+        stats.on_target_ratio() * 100.0,
+        stats.score(),
+        stats.scenario.name(),
+    )
 }
 
 fn append_row(row: &str) -> std::io::Result<()> {
@@ -278,5 +283,70 @@ mod tests {
         assert_eq!(format_date(0), "1970-01-01");
         assert_eq!(format_date(951_782_400), "2000-02-29");
         assert_eq!(format_date(1_793_394_818), "2026-10-30");
+    }
+}
+
+#[cfg(test)]
+mod fixture_tests {
+    use super::*;
+
+    const FIXTURE: &str = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/fixtures/history_rows.csv"));
+
+    /// The runs `fixtures/history_rows.csv` was written from: one per kind, purposes alternating.
+    fn fixture_runs() -> Vec<(u64, RunStats, RunPurpose)> {
+        let settings = Settings::default();
+        Scenario::ALL
+            .into_iter()
+            .enumerate()
+            .map(|(i, kind)| {
+                let f = i as f32;
+                let sens = 0.4 + f * 0.05;
+                let stats = RunStats {
+                    scenario: kind,
+                    drill: if i == 0 { "My, 5x5".into() } else { kind.name().into() },
+                    sens,
+                    cm_per_360: settings.cm_per_360(sens),
+                    duration: 30.0 + f,
+                    hits: 40 + i as u32,
+                    shots: 50 + i as u32,
+                    expired: i as u32,
+                    ttk_total: 20.0 + f,
+                    best_ttk: 0.2,
+                    on_target: 12.5 + f,
+                    landings: vec![],
+                };
+                let purpose = if i % 2 == 0 { RunPurpose::Practice } else { RunPurpose::FinderTrial };
+                (1_793_394_818 + i as u64, stats, purpose)
+            })
+            .collect()
+    }
+
+    /// Pins the CSV row text: column order, number formats, purpose strings, drill names.
+    #[test]
+    fn row_format_fixture() {
+        let rows: Vec<String> =
+            fixture_runs().iter().map(|(t, stats, purpose)| format_row(*t, stats, *purpose, &Settings::default())).collect();
+        assert_eq!(rows, FIXTURE.lines().collect::<Vec<_>>());
+    }
+
+    #[test]
+    fn parses_every_kind_fixture() {
+        let entries: Vec<HistoryEntry> = FIXTURE.lines().map(|line| HistoryEntry::parse(line).unwrap()).collect();
+        let kinds: Vec<Scenario> = entries.iter().map(|e| e.kind).collect();
+        assert_eq!(kinds, Scenario::ALL);
+        for (entry, (t, stats, purpose)) in entries.iter().zip(fixture_runs()) {
+            assert_eq!((entry.timestamp, entry.purpose), (t, purpose));
+            assert_eq!(entry.score, stats.score());
+        }
+        assert_eq!(entries[0].drill, "My  5x5");
+        // Rows from before custom scenarios: 15 columns, the kind is the built-in drill name.
+        for (line, kind) in FIXTURE.lines().zip(Scenario::ALL).skip(1) {
+            let legacy = line.rsplit_once(',').unwrap().0;
+            let entry = HistoryEntry::parse(legacy).unwrap();
+            assert_eq!((entry.kind, entry.drill.as_str()), (kind, kind.name()));
+        }
+        for (name, kind) in [("Head level", Scenario::HeadLevel), ("Peeks", Scenario::Peek)] {
+            assert_eq!(Scenario::from_name(name), Some(kind));
+        }
     }
 }

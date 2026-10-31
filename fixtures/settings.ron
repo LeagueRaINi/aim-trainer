@@ -1,0 +1,43 @@
+(
+    sens: 1.25,
+    yaw: 0.022,
+    dpi: 1600.0,
+    hfov: 106.26,
+    run_secs: 45.0,
+    target_scale: 0.75,
+    finder_rounds: 9,
+    finder_trial_secs: 30.0,
+    finder_drill: HeadLevel,
+    finder_method: Classic,
+    finder_focus: Tracking,
+    targets: (
+        color: (255, 60, 70),
+        lifetime: 1.5,
+    ),
+    video: (
+        display: Borderless,
+        aspect: Native,
+        vsync: true,
+        fps_cap: 240,
+        msaa: 2,
+    ),
+    crosshair: (
+        color: (0, 255, 0),
+        center_dot: true,
+        dot_thickness: 3.0,
+        inner_lines: false,
+        line_length: 8.0,
+        line_thickness: 1.0,
+        line_offset: 4.0,
+        outlines: false,
+        outline_thickness: 2.0,
+        outline_opacity: 0.75,
+    ),
+    audio: (
+        hit_sound: Ding,
+        volume: 0.25,
+    ),
+    discord: (
+        enabled: false,
+    ),
+)

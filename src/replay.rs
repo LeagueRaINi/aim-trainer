@@ -1203,4 +1203,40 @@ mod tests {
         assert_eq!(playback.angles_at(1.0), (0.4, 0.1));
         assert_eq!(playback.shots_until(0.005), (1, 0));
     }
+
+    fn fixture(name: &str) -> Vec<u8> {
+        fs::read(Path::new(env!("CARGO_MANIFEST_DIR")).join("fixtures").join(name)).unwrap()
+    }
+
+    /// Pins the v3 bytes (header, body coding, compression) and the v1/v2 decoders.
+    #[test]
+    fn decodes_saved_fixtures() {
+        let replay = fixture_replay();
+        let v3 = fixture("replay_v3.bin");
+        assert_eq!(replay.encode(), v3);
+        assert!(Replay::decode(&v3).unwrap().matches(&replay));
+        assert_eq!(Replay::decode(&fixture("replay_v2.bin")), Some(replay.clone()));
+        // v1 has no name: the built-in name stands in (the fixture's name is that already).
+        assert_eq!(Replay::decode(&fixture("replay_v1.bin")), Some(replay));
+    }
+
+    /// Replays store the kind as its index in `ALL`.
+    #[test]
+    fn kind_index_is_stable() {
+        assert_eq!(
+            Scenario::ALL.map(Scenario::name),
+            ["Gridshot", "Microflick", "Tracking", "Head level", "Peeks", "Reaction", "Peripheral"]
+        );
+    }
+
+    /// The replay the `fixtures/replay_v*.bin` files were saved from.
+    fn fixture_replay() -> Replay {
+        let frames = vec![
+            ReplayFrame { t: 0.0, yaw: 0.0, pitch: 0.0, shot: Shot::None, targets: vec![(Vec3::new(1.5, 0.25, -10.0), 0.2)] },
+            ReplayFrame { t: 0.004, yaw: -0.0125, pitch: 0.003, shot: Shot::Miss, targets: vec![(Vec3::new(1.4, 0.25, -10.0), 0.2)] },
+            ReplayFrame { t: 0.0085, yaw: -0.025, pitch: 0.006, shot: Shot::Hit, targets: vec![] },
+            ReplayFrame { t: 0.0125, yaw: -0.03, pitch: 0.005, shot: Shot::None, targets: vec![(Vec3::new(-2.0, 0.0, -10.0), 0.2), (Vec3::new(0.5, 1.0, -9.5), 0.15)] },
+        ];
+        Replay { scenario: Scenario::Peek, name: "Peeks".into(), sens: 0.4, duration: 20.0, frames }
+    }
 }

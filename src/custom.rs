@@ -533,4 +533,57 @@ mod tests {
         assert!(dir.join("custom.ron.bak").exists());
         let _ = std::fs::remove_dir_all(&dir);
     }
+
+    /// The content `fixtures/custom.ron` and `fixtures/share_code.txt` were saved from: one
+    /// scenario per kind (Microflick with flick constraints) and a playlist of a built-in and a
+    /// custom step. Returns it with the playlist's id.
+    fn fixture_content() -> (CustomContent, u32) {
+        let mut content = CustomContent::default();
+        let ids: Vec<u32> = Scenario::ALL.into_iter().map(|kind| content.new_scenario(kind)).collect();
+        let micro = content.scenario_mut(ids[1]).unwrap();
+        micro.config.max_flick = 20.0;
+        micro.config.flick_direction = Some(90.0);
+        micro.config.flick_spread = 30.0;
+        micro.duration = 45.0;
+        content.scenario_mut(ids[0]).unwrap().config.grid_cols = 5;
+        let playlist = content.new_playlist();
+        let steps = &mut content.playlist_mut(playlist).unwrap().steps;
+        steps.push(PlaylistStep { drill: DrillRef::Builtin(Scenario::Peripheral), secs: 30.0 });
+        steps.push(PlaylistStep { drill: DrillRef::Custom(ids[1]), secs: 40.0 });
+        (content, playlist)
+    }
+
+    /// Pins the custom file format: field names, kind/`DrillRef` variant names, the writer.
+    #[test]
+    fn loads_saved_custom_fixture() {
+        let fixture = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/fixtures/custom.ron"));
+        let (expected, _) = fixture_content();
+        let mut loaded: CustomContent = ron::from_str(fixture).unwrap();
+        loaded.repair();
+        assert_eq!(loaded, expected);
+        let kinds: Vec<Scenario> = loaded.scenarios.iter().map(|s| s.config.kind).collect();
+        assert_eq!(kinds, Scenario::ALL);
+        let written = ron::ser::to_string_pretty(&expected, ron::ser::PrettyConfig::default()).unwrap();
+        assert_eq!(written.replace("\r\n", "\n"), fixture.replace("\r\n", "\n"));
+    }
+
+    /// Pins the `AIMPL1:` share code format in both directions.
+    #[test]
+    fn imports_share_code_fixture() {
+        let code = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/fixtures/share_code.txt")).trim();
+        let (source, playlist) = fixture_content();
+        assert_eq!(source.export_playlist(playlist).unwrap(), code);
+
+        let mut content = CustomContent::default();
+        let id = content.import_playlist(code).unwrap();
+        let imported = content.playlist(id).unwrap();
+        assert_eq!(imported.name, "My playlist 1");
+        assert_eq!(imported.steps[0], PlaylistStep { drill: DrillRef::Builtin(Scenario::Peripheral), secs: 30.0 });
+        let DrillRef::Custom(custom) = imported.steps[1].drill else { panic!("expected a custom step") };
+        assert_eq!(imported.steps[1].secs, 40.0);
+        let scenario = content.scenario(custom).unwrap();
+        assert_eq!(scenario.name, "My Microflick 1");
+        assert_eq!(scenario.duration, 45.0);
+        assert_eq!(scenario.config, source.scenarios[1].config);
+    }
 }

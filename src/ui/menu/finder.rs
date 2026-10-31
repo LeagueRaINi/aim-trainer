@@ -12,7 +12,7 @@ use super::{MenuTab, main_column, page, side_column};
 use crate::{
     scenario::Scenario,
     settings::{FinderFocus, FinderMethod, SettingField, Settings},
-    ui::{bindings::*, finder::start_finder, theme::*, widgets::*},
+    ui::{bindings::*, screens::finder::start_finder, theme::*, widgets::*},
 };
 
 pub(super) fn finder_page(settings: &Settings) -> impl Scene {

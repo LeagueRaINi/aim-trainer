@@ -1,21 +1,19 @@
-//! Results screen, plus the score presentation shared with the routine screens.
+//! Score presentation shared by the post-run screens, and the way back to the menu.
 
 use bevy::{
-    feathers::{constants::fonts, controls::ButtonVariant, display::label_dim, tokens},
+    feathers::{constants::fonts, display::label_dim, tokens},
     prelude::*,
     ui_widgets::Activate,
 };
 
-use super::{theme::*, widgets::*};
 use crate::{
     AppState,
     finder::Finder,
     history::Comparison,
-    replay::{Replay, watch},
     routine::Routine,
-    scenario::{LastRun, Run, RunPurpose, RunStats, begin_run},
-    settings::Settings,
+    scenario::RunStats,
     smart_finder::SmartFinder,
+    ui::{theme::*, widgets::*},
 };
 
 /// Back to the menu, ending any finder or routine in progress.
@@ -117,63 +115,3 @@ pub fn screen_title(context: impl Into<String>, title: impl Into<String>) -> imp
     }
 }
 
-// ---------------------------------------------------------------------------------------------
-// Results
-// ---------------------------------------------------------------------------------------------
-
-pub fn spawn_results(mut commands: Commands, last: Res<LastRun>, settings: Res<Settings>) {
-    let stats = &last.stats;
-    let kind = stats.scenario.name();
-    let context = if stats.drill == kind { "Results".to_string() } else { format!("Results  ·  {kind}") };
-    let sens = format!("Sensitivity {:.3}  ·  {}", stats.sens, settings.describe_sens(stats.sens));
-    commands
-        .spawn_scene(bsn! {
-            @overlay()
-            Children [
-                @panel()
-                Node { width: px(660) }
-                Children [
-                    @screen_title(context, stats.drill.clone())
-                    --
-                    @score_summary(stats, &last.previous)
-                    --
-                    @label_dim(sens)
-                    --
-                    @actions(bsn_list! {
-                        @button("Retry", ButtonVariant::Primary)
-                        on(retry)
-                        --
-                        @button("Watch replay", ButtonVariant::Normal)
-                        on(watch_last_replay)
-                        --
-                        @button("Menu", ButtonVariant::Normal)
-                        on(go_to_menu)
-                    })
-                ]
-            ]
-        })
-        .insert(DespawnOnExit(AppState::Results));
-}
-
-fn retry(
-    _: On<Activate>,
-    last: Res<LastRun>,
-    settings: Res<Settings>,
-    mut commands: Commands,
-    mut next_state: ResMut<NextState<AppState>>,
-) {
-    let run = Run::new(last.drill.clone(), settings.sens, last.duration, RunPurpose::Practice, last.drill.name.clone());
-    begin_run(&mut commands, &mut next_state, run);
-}
-
-fn watch_last_replay(
-    _: On<Activate>,
-    last: Res<LastRun>,
-    mut commands: Commands,
-    mut next_state: ResMut<NextState<AppState>>,
-) {
-    match Replay::load(last.timestamp) {
-        Some(replay) => watch(&mut commands, &mut next_state, replay, AppState::Results),
-        None => warn!("Replay for this run could not be loaded"),
-    }
-}

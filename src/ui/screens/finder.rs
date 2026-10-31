@@ -12,9 +12,9 @@ use bevy::{
     ui_widgets::Activate,
 };
 
-use super::{
+use crate::ui::{
     charts::*,
-    screens::{go_to_menu, screen_title},
+    screens::score::{go_to_menu, screen_title},
     theme::*,
     widgets::*,
 };

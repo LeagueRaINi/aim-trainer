@@ -15,8 +15,8 @@ use bevy::{
     ui_widgets::Activate,
 };
 
-use super::{
-    screens::{go_to_menu, score_summary, screen_title},
+use crate::ui::{
+    screens::score::{go_to_menu, score_summary, screen_title},
     theme::*,
     widgets::*,
 };

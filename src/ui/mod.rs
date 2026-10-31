@@ -1,13 +1,11 @@
-//! Menu, results and sensitivity-finder screens, built with Bevy Feathers widgets.
+//! Menu, post-run screens and in-game overlays, built with Bevy Feathers widgets.
 
-mod finder;
+mod bindings;
+mod charts;
 mod menu;
-mod routine;
 mod screens;
 pub mod theme;
 pub mod widgets;
-mod bindings;
-mod charts;
 
 use bevy::prelude::*;
 
@@ -24,11 +22,11 @@ impl Plugin for UiPlugin {
             .init_resource::<menu::custom::CustomStatus>()
             .add_systems(OnEnter(AppState::Menu), menu::spawn_menu)
             .add_systems(OnExit(AppState::Menu), menu::custom::clear_status)
-            .add_systems(OnEnter(AppState::Results), screens::spawn_results)
-            .add_systems(OnEnter(AppState::Finder), finder::spawn_finder_screen)
-            .add_systems(OnEnter(AppState::Routine), routine::spawn_routine_screen)
-            .add_systems(Update, finder::draw_smart_chart.run_if(in_state(AppState::Finder)))
-            .add_systems(Update, routine::routine_break.run_if(in_state(AppState::Routine)))
+            .add_systems(OnEnter(AppState::Results), screens::results::spawn_results)
+            .add_systems(OnEnter(AppState::Finder), screens::finder::spawn_finder_screen)
+            .add_systems(OnEnter(AppState::Routine), screens::routine::spawn_routine_screen)
+            .add_systems(Update, screens::finder::draw_smart_chart.run_if(in_state(AppState::Finder)))
+            .add_systems(Update, screens::routine::routine_break.run_if(in_state(AppState::Routine)))
             // Post-run screens live outside the menu, so the unlock timer runs in every state.
             .add_systems(Update, widgets::arm_buttons)
             .add_systems(

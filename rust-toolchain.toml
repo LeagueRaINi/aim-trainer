@@ -1,0 +1,6 @@
+# One compiler for local builds and the release workflow. Nightly for its features (and
+# rustfmt.toml's options); pinned so a broken nightly can't break a build. Bump the date to
+# move to a newer nightly.
+[toolchain]
+channel = "nightly-2026-08-27"
+components = ["rustfmt", "clippy"]

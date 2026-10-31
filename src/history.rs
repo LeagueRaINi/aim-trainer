@@ -1,15 +1,18 @@
 //! Run history: every finished drill is appended to a CSV and kept in memory for comparisons.
+//! Records each [`RunFinished`] and announces it as [`RunRecorded`] for the systems reacting
+//! to finished runs (replay saving, finders, routines, the results screen).
 
 use std::{
     fs::{self, OpenOptions},
     io::Write,
+    path::{Path, PathBuf},
     time::{SystemTime, UNIX_EPOCH},
 };
 
 use bevy::prelude::*;
 
 use crate::{
-    drill::{RunPurpose, RunStats, DrillKind},
+    drill::{DrillKind, DrillSet, DrillSpec, RunFinished, RunPurpose, RunStats},
     settings::Settings,
 };
 
@@ -22,7 +25,46 @@ pub struct HistoryPlugin;
 
 impl Plugin for HistoryPlugin {
     fn build(&self, app: &mut App) {
-        app.insert_resource(History::load());
+        app.insert_resource(History::load(Path::new(RESULTS_PATH)))
+            .add_message::<RunRecorded>()
+            .add_systems(Update, record_finished.in_set(DrillSet::Log));
+    }
+}
+
+/// A finished run, after it was written to the history.
+#[derive(Message, Clone, Debug)]
+pub struct RunRecorded {
+    pub run: RunFinished,
+    /// Earlier practice runs of the same drill, not including this one.
+    pub previous: Comparison,
+    /// History timestamp, which also names the run's replay.
+    pub timestamp: u64,
+}
+
+/// The most recent finished practice run, shown on the results screen.
+#[derive(Resource)]
+pub struct LastRun {
+    pub stats: RunStats,
+    /// Earlier practice runs of the same drill, not including this one.
+    pub previous: Comparison,
+    /// History timestamp, which also identifies the run's replay.
+    pub timestamp: u64,
+    /// What was played, so "Retry" replays the same (possibly custom) drill.
+    pub drill: DrillSpec,
+    pub duration: f32,
+}
+
+/// Writes every finished run to the history (routine steps as practice).
+pub(crate) fn record_finished(
+    mut finished: MessageReader<RunFinished>,
+    mut history: ResMut<History>,
+    settings: Res<Settings>,
+    mut recorded: MessageWriter<RunRecorded>,
+) {
+    for run in finished.read() {
+        let previous = history.compare(&run.stats.drill);
+        let timestamp = history.record(&run.stats, run.purpose.logged_as(), &settings);
+        recorded.write(RunRecorded { run: run.clone(), previous, timestamp });
     }
 }
 
@@ -53,11 +95,7 @@ impl HistoryEntry {
         };
         Some(Self {
             timestamp: cols[0].parse().ok()?,
-            purpose: match cols[1] {
-                "Practice" => RunPurpose::Practice,
-                "FinderTrial" => RunPurpose::FinderTrial,
-                _ => return None,
-            },
+            purpose: RunPurpose::from_csv(cols[1])?,
             drill: cols[2].to_string(),
             kind,
             sens: cols[3].parse().ok()?,
@@ -106,17 +144,20 @@ pub struct Comparison {
     pub recent_count: usize,
 }
 
-#[derive(Resource, Default)]
+#[derive(Resource)]
 pub struct History {
     entries: Vec<HistoryEntry>,
+    /// The CSV file runs are appended to.
+    path: PathBuf,
 }
 
 impl History {
-    fn load() -> Self {
-        let entries = fs::read_to_string(RESULTS_PATH)
+    /// Reads the history kept in the CSV at `path` (empty if there is none yet).
+    pub fn load(path: &Path) -> Self {
+        let entries = fs::read_to_string(path)
             .map(|text| text.lines().skip(1).filter_map(HistoryEntry::parse).collect())
             .unwrap_or_default();
-        Self { entries }
+        Self { entries, path: path.to_path_buf() }
     }
 
     /// Practice runs of a drill (by name), oldest first. Finder trials are excluded since
@@ -158,8 +199,8 @@ impl History {
         let now = SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |d| d.as_secs());
         let timestamp = self.entries.last().map_or(now, |last| now.max(last.timestamp.saturating_add(1)));
         let row = format_row(timestamp, stats, purpose, settings);
-        if let Err(err) = append_row(&row) {
-            error!("Failed to write {RESULTS_PATH}: {err}");
+        if let Err(err) = append_row(&self.path, &row) {
+            error!("Failed to write {}: {err}", self.path.display());
         }
         if let Some(entry) = HistoryEntry::parse(&row) {
             self.entries.push(entry);
@@ -171,7 +212,8 @@ impl History {
 /// One CSV row (without the newline) in `HEADER`'s column order.
 fn format_row(timestamp: u64, stats: &RunStats, purpose: RunPurpose, settings: &Settings) -> String {
     format!(
-        "{timestamp},{purpose:?},{},{},{},{},{},{:.3},{:.2},{},{},{:.4},{:.1},{:.2},{},{}",
+        "{timestamp},{},{},{},{},{},{},{:.3},{:.2},{},{},{:.4},{:.1},{:.2},{},{}",
+        purpose.csv_name(),
         csv_safe(&stats.drill),
         stats.sens,
         settings.yaw,
@@ -189,9 +231,9 @@ fn format_row(timestamp: u64, stats: &RunStats, purpose: RunPurpose, settings: &
     )
 }
 
-fn append_row(row: &str) -> std::io::Result<()> {
-    let needs_header = fs::metadata(RESULTS_PATH).map_or(true, |meta| meta.len() == 0);
-    let mut file = OpenOptions::new().create(true).append(true).open(RESULTS_PATH)?;
+fn append_row(path: &Path, row: &str) -> std::io::Result<()> {
+    let needs_header = fs::metadata(path).map_or(true, |meta| meta.len() == 0);
+    let mut file = OpenOptions::new().create(true).append(true).open(path)?;
     if needs_header {
         writeln!(file, "{HEADER}")?;
     }
@@ -244,7 +286,7 @@ mod tests {
             entry("Practice", "Tracking", 500.0),
             entry("Practice", "Gridshot", 200.0),
         ];
-        let history = History { entries: rows.iter().filter_map(|r| HistoryEntry::parse(r)).collect() };
+        let history = History { entries: rows.iter().filter_map(|r| HistoryEntry::parse(r)).collect(), path: PathBuf::new() };
         let cmp = history.compare("Gridshot");
         assert_eq!(cmp.best, Some(200.0));
         assert_eq!(cmp.recent_avg, Some(150.0));
@@ -255,7 +297,7 @@ mod tests {
     #[test]
     fn recent_average_covers_only_latest_runs() {
         let rows: Vec<String> = (0..15).map(|i| entry("Practice", "Microflick", i as f32)).collect();
-        let history = History { entries: rows.iter().filter_map(|r| HistoryEntry::parse(r)).collect() };
+        let history = History { entries: rows.iter().filter_map(|r| HistoryEntry::parse(r)).collect(), path: PathBuf::new() };
         // Latest 10 scores are 5..=14.
         assert_eq!(history.compare("Microflick").recent_avg, Some(9.5));
     }

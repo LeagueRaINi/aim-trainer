@@ -2,14 +2,15 @@
 
 mod bindings;
 mod charts;
+mod hud;
 mod menu;
-mod screens;
+pub(crate) mod screens;
 pub mod theme;
 pub mod widgets;
 
 use bevy::prelude::*;
 
-use crate::{AppState, settings::Settings};
+use crate::{AppState, drill::DrillSet, settings::Settings};
 
 pub struct UiPlugin;
 
@@ -22,6 +23,9 @@ impl Plugin for UiPlugin {
             .init_resource::<menu::custom::CustomStatus>()
             .add_systems(OnEnter(AppState::Menu), menu::spawn_menu)
             .add_systems(OnExit(AppState::Menu), menu::custom::clear_status)
+            .add_systems(OnEnter(AppState::Playing), hud::spawn_hud)
+            .add_systems(Update, hud::update_hud.after(DrillSet::Finish).run_if(in_state(AppState::Playing)))
+            .add_systems(Update, screens::results::show_results.in_set(DrillSet::Outcome))
             .add_systems(OnEnter(AppState::Results), screens::results::spawn_results)
             .add_systems(OnEnter(AppState::Finder), screens::finder::spawn_finder_screen)
             .add_systems(OnEnter(AppState::Routine), screens::routine::spawn_routine_screen)

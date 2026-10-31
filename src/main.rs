@@ -65,6 +65,8 @@ fn main() {
             sfx::SfxPlugin,
             drill::DrillPlugin,
             replay::ReplayPlugin,
+            smart_finder::FinderPlugin,
+            routine::RoutinePlugin,
             presence::PresencePlugin,
             ui::UiPlugin,
         ));

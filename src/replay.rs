@@ -16,7 +16,8 @@ use bevy::{
 use crate::{
     AppState,
     camera::{Look, apply_look},
-    drill::{DrillKind, TargetAssets, spawn_environment},
+    drill::{DrillKind, DrillSet, RunPurpose, TargetAssets, spawn_environment},
+    history::RunRecorded,
     tracer,
     ui::{
         theme::{DIVIDER, TEXT_ACCENT, TEXT_BAD, TEXT_GOOD, TEXT_STRONG},
@@ -54,9 +55,11 @@ pub struct ReplayPlugin;
 impl Plugin for ReplayPlugin {
     fn build(&self, app: &mut App) {
         app.init_gizmo_group::<TracerGizmos>()
+            .insert_resource(ReplayDir(PathBuf::from(REPLAY_DIR)))
             .add_systems(Startup, (create_marker_assets, configure_tracer, migrate_replays))
             .add_systems(OnEnter(AppState::Replay), spawn_replay_hud)
             .add_systems(OnExit(AppState::Replay), clear_look)
+            .add_systems(Update, save_finished_replay.in_set(DrillSet::Outcome))
             .add_systems(
                 Update,
                 (playback_controls, advance_playback, update_replay_hud, draw_tracer)
@@ -64,6 +67,18 @@ impl Plugin for ReplayPlugin {
                     .before(apply_look)
                     .run_if(in_state(AppState::Replay)),
             );
+    }
+}
+
+/// Where finished runs' replays are saved.
+#[derive(Resource)]
+pub struct ReplayDir(pub PathBuf);
+
+/// Saves the replay of every run logged as practice, named by its history timestamp.
+pub(crate) fn save_finished_replay(mut recorded: MessageReader<RunRecorded>, mut recorder: ResMut<Recorder>, dir: Res<ReplayDir>) {
+    for recorded in recorded.read().filter(|r| r.run.purpose.logged_as() == RunPurpose::Practice) {
+        let stats = &recorded.run.stats;
+        recorder.finish(stats.kind, &stats.drill, stats.sens, stats.duration).save(&dir.0, recorded.timestamp);
     }
 }
 
@@ -102,7 +117,11 @@ pub struct Replay {
 
 impl Replay {
     fn path(timestamp: u64) -> PathBuf {
-        PathBuf::from(REPLAY_DIR).join(format!("{timestamp}.replay"))
+        Self::path_in(Path::new(REPLAY_DIR), timestamp)
+    }
+
+    fn path_in(dir: &Path, timestamp: u64) -> PathBuf {
+        dir.join(format!("{timestamp}.replay"))
     }
 
     pub fn exists(timestamp: u64) -> bool {
@@ -113,9 +132,9 @@ impl Replay {
         Self::decode(&fs::read(Self::path(timestamp)).ok()?)
     }
 
-    /// Timestamps of every saved replay, oldest first.
-    fn saved_stamps() -> Vec<u64> {
-        let Ok(dir) = fs::read_dir(REPLAY_DIR) else { return Vec::new() };
+    /// Timestamps of every replay saved in `dir`, oldest first.
+    fn saved_stamps(dir: &Path) -> Vec<u64> {
+        let Ok(dir) = fs::read_dir(dir) else { return Vec::new() };
         let mut stamps: Vec<u64> = dir
             .filter_map(|entry| entry.ok()?.path().file_stem()?.to_str()?.parse().ok())
             .collect();
@@ -126,7 +145,7 @@ impl Replay {
     /// The newest saved replays (newest first, at most `limit`) of the given drill kinds. Only
     /// the header byte is checked before decoding, so other drills' replays cost a file read.
     pub fn recent(kinds: &[DrillKind], limit: usize) -> Vec<Self> {
-        Self::saved_stamps()
+        Self::saved_stamps(Path::new(REPLAY_DIR))
             .into_iter()
             .rev()
             .filter_map(|stamp| fs::read(Self::path(stamp)).ok())
@@ -136,17 +155,17 @@ impl Replay {
             .collect()
     }
 
-    /// Saves under the run's history timestamp and prunes the oldest replays.
-    pub fn save(&self, timestamp: u64) {
-        let result = fs::create_dir_all(REPLAY_DIR).and_then(|_| fs::write(Self::path(timestamp), self.encode()));
+    /// Saves in `dir` under the run's history timestamp and prunes the oldest replays there.
+    pub fn save(&self, dir: &Path, timestamp: u64) {
+        let result = fs::create_dir_all(dir).and_then(|_| fs::write(Self::path_in(dir, timestamp), self.encode()));
         if let Err(err) = result {
             return error!("Failed to save replay: {err}");
         }
-        let stamps = Self::saved_stamps();
+        let stamps = Self::saved_stamps(dir);
         let excess = stamps.len().saturating_sub(KEEP_REPLAYS);
         // Never the replay just saved, even if the clock went backwards and it looks oldest.
         for old in stamps[..excess].iter().filter(|&&old| old != timestamp) {
-            let _ = fs::remove_file(Self::path(*old));
+            let _ = fs::remove_file(Self::path_in(dir, *old));
         }
     }
 

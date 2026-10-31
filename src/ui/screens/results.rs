@@ -8,13 +8,33 @@ use bevy::{
 
 use crate::{
     AppState,
+    drill::{Run, RunPurpose, begin_run},
+    history::{LastRun, RunRecorded},
     replay::{Replay, watch},
-    drill::{LastRun, Run, RunPurpose, begin_run},
     settings::Settings,
     ui::widgets::*,
 };
 
 use super::score::*;
+
+/// A finished practice run goes to the results screen.
+pub(crate) fn show_results(
+    mut commands: Commands,
+    mut recorded: MessageReader<RunRecorded>,
+    mut next_state: ResMut<NextState<AppState>>,
+) {
+    for recorded in recorded.read().filter(|r| r.run.purpose == RunPurpose::Practice) {
+        let run = &recorded.run;
+        commands.insert_resource(LastRun {
+            stats: run.stats.clone(),
+            previous: recorded.previous.clone(),
+            timestamp: recorded.timestamp,
+            drill: run.drill.clone(),
+            duration: run.duration,
+        });
+        next_state.set(AppState::Results);
+    }
+}
 
 pub fn spawn_results(mut commands: Commands, last: Res<LastRun>, settings: Res<Settings>) {
     let stats = &last.stats;

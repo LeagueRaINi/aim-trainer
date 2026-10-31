@@ -25,7 +25,8 @@ use crate::{
     AppState,
     finder::Finder,
     routine::Routine,
-    drill::{LastRun, Run, RunPurpose},
+    drill::{Run, RunPurpose},
+    history::LastRun,
     settings::Settings,
     smart_finder::SmartFinder,
 };

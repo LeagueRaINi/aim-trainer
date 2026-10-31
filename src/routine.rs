@@ -5,10 +5,33 @@ use bevy::prelude::*;
 
 use crate::{
     AppState,
-    history::Comparison,
-    drill::{DrillSpec, Run, RunPurpose, RunStats, DrillKind, begin_run},
+    drill::{DrillKind, DrillSet, DrillSpec, Run, RunPurpose, RunStats, begin_run},
+    history::{Comparison, RunRecorded},
     settings::Settings,
 };
+
+pub struct RoutinePlugin;
+
+impl Plugin for RoutinePlugin {
+    fn build(&self, app: &mut App) {
+        app.add_systems(Update, routine_step_finished.in_set(DrillSet::Outcome));
+    }
+}
+
+/// A finished routine step is stored with its comparison; then on to the break screen.
+pub(crate) fn routine_step_finished(
+    mut recorded: MessageReader<RunRecorded>,
+    routine: Option<ResMut<Routine>>,
+    mut next_state: ResMut<NextState<AppState>>,
+) {
+    let mut routine = routine;
+    for recorded in recorded.read().filter(|r| r.run.purpose == RunPurpose::Routine) {
+        if let Some(routine) = routine.as_mut() {
+            routine.record(recorded.run.stats.clone(), recorded.previous.clone());
+        }
+        next_state.set(AppState::Routine);
+    }
+}
 
 pub struct RoutinePlan {
     pub name: &'static str,

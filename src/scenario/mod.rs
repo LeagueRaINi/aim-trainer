@@ -440,6 +440,7 @@ fn record_frame(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn tick_run(
     mut commands: Commands,
     time: Res<Time>,

@@ -26,6 +26,7 @@ fn pixel_scale(window: &Window, ui_scale: &UiScale) -> f32 {
     window.scale_factor() * ui_scale.0
 }
 
+#[allow(clippy::type_complexity)]
 /// A system that shows the in-game crosshair for as long as `state` is active.
 fn crosshair_overlay(
     state: AppState,

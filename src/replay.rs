@@ -822,6 +822,7 @@ fn configure_tracer(mut store: ResMut<GizmoConfigStore>) {
     config.depth_bias = -1.0;
 }
 
+#[allow(clippy::too_many_arguments)]
 fn advance_playback(
     time: Res<Time>,
     mut playback: ResMut<Playback>,

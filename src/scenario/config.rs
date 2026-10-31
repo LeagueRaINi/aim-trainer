@@ -303,8 +303,7 @@ mod tests {
 
     #[test]
     fn builtin_uses_global_size_and_decay_only_where_it_applies() {
-        let mut settings = Settings::default();
-        settings.target_scale = 0.8;
+        let mut settings = Settings { target_scale: 0.8, ..Default::default() };
         settings.targets.lifetime = 1.5;
         assert_eq!(DrillConfig::builtin(Scenario::Microflick, &settings).lifetime, 1.5);
         assert_eq!(DrillConfig::builtin(Scenario::Tracking, &settings).lifetime, 0.0);

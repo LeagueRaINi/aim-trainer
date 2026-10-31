@@ -752,7 +752,7 @@ fn median(values: &mut [f32]) -> Option<f32> {
     }
     values.sort_unstable_by(f32::total_cmp);
     let mid = values.len() / 2;
-    Some(if values.len() % 2 == 0 { (values[mid - 1] + values[mid]) * 0.5 } else { values[mid] })
+    Some(if values.len().is_multiple_of(2) { (values[mid - 1] + values[mid]) * 0.5 } else { values[mid] })
 }
 
 /// The `q` quantile (nearest rank) of non-empty `values`.

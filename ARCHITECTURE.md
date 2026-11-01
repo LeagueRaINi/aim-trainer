@@ -153,11 +153,14 @@ BSN rules:
 
 ## Releases
 
-Releases are signed offline: installed copies only stage a download whose `aim_trainer.exe.zst.sig` verifies with the public key built into them (`signing::PUBLIC_KEY`). The private key is the maintainer's, in `%USERPROFILE%\.aim_trainer\release_signing.key` (the 32-byte Ed25519 seed as 64 hex digits and a newline); it is never in the repository or in CI.
+Releases are built and signed on the maintainer's machine: installed copies only stage a download whose `aim_trainer.exe.zst.sig` verifies with the public key built into them (`signing::PUBLIC_KEY`). The private key is the maintainer's: a file holding the 32-byte Ed25519 seed as 64 hex digits, kept outside the repository and passed to the release tool (`--key <file>`, or `AIM_TRAINER_RELEASE_KEY`).
 
-1. Bump `version` in `Cargo.toml`, commit and push.
-2. Push a matching tag: `git tag v1.2.0 && git push origin v1.2.0`. Only `v<major>.<minor>.<patch>` tags run `.github/workflows/release.yml`, and it refuses a tag that doesn't match the version.
-3. The workflow's build job (read-only token, no stored git credentials) runs `cargo fmt --check`, clippy and the tests, builds the exe and packs it with `zstd -19`. Its publish job (the only one with a write token; it runs no repository code) creates a **draft** release with `aim_trainer.exe` (for manual downloads) and `aim_trainer.exe.zst` (for the updater). Drafts are invisible to `releases/latest`, so installed copies don't see it yet.
-4. From the repository, with the GitHub CLI (`gh`) logged in, run `cargo run --bin release -- v1.2.0`. `src/bin/release.rs` (not part of the game) downloads the draft's `.zst`, signs it with the key file, checks the signature against `signing::PUBLIC_KEY` the way installed copies do, uploads `aim_trainer.exe.zst.sig` and publishes the draft.
+1. Bump `version` in `Cargo.toml` (and `Cargo.lock`, via any build), commit and push.
+2. Tag that commit and push the tag: `git tag v1.2.0 && git push origin v1.2.0`. Only `v<major>.<minor>.<patch>` tags count: installed copies ignore pre-releases.
+3. From the repository, with the GitHub CLI (`gh`) logged in, run `cargo run --bin release --features release-tool -- --key <key file> v1.2.0` (`src/bin/release.rs`, not part of the game; the feature builds zstd's encoder for it only). It:
+   - refuses a tag that isn't pushed (or differs from GitHub's), one already published, or one whose `Cargo.toml` version differs (the exe reports that version; a mismatch would make installs update on every start);
+   - checks the tag out into a fresh worktree, so local edits never ship, and there runs `cargo fmt --check`, clippy (`--all-features`), the tests and `cargo build --release --locked`, with the toolchain from `rust-toolchain.toml` and a target directory shared between releases (`target/release-tool`);
+   - packs the exe with zstd level 19, unpacks it with `ruzstd` like the updater and compares, signs the `.zst` with the key file and checks the signature against `signing::PUBLIC_KEY`;
+   - uploads `aim_trainer.exe` (for manual downloads), `aim_trainer.exe.zst` (for the updater) and `aim_trainer.exe.zst.sig` to a **draft** release, then publishes it, so `releases/latest` never shows it unsigned.
 
-GitHub records each asset's SHA-256 digest on upload; `update.rs` checks it first, then the signature. A release without a valid signature is never staged. Actions in the workflow are pinned to commit SHAs (with the version in a comment); to update one, take the commit of its new tag from `git ls-remote https://github.com/<owner>/<repo> refs/tags/<tag>` (the `^{}` line for annotated tags).
+GitHub records each asset's SHA-256 digest on upload; `update.rs` checks it first, then the signature. A release without a valid signature is never staged.

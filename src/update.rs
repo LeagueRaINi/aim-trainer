@@ -31,7 +31,7 @@ use crate::settings::Settings;
 use crate::signing;
 
 const LATEST_RELEASE: &str = "https://api.github.com/repos/LeagueRaINi/aim-trainer/releases/latest";
-/// The release asset with the Windows exe, zstd-compressed (see `.github/workflows/release.yml`).
+/// The release asset with the Windows exe, zstd-compressed (see `src/bin/release.rs`).
 const ASSET: &str = "aim_trainer.exe.zst";
 /// The release key's signature of `ASSET` (see `src/bin/release.rs`).
 const SIGNATURE_ASSET: &str = "aim_trainer.exe.zst.sig";

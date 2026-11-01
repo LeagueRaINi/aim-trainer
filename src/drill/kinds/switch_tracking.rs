@@ -2,17 +2,17 @@
 //! breaks it, and a new one appears elsewhere. Tracking with a target switch after every kill.
 
 use std::borrow::Cow;
-use std::f32::consts::TAU;
 
 use bevy::prelude::*;
 
 use super::microflick::flick_position;
 use crate::camera::{PlayerCamera, ViewCone};
 use crate::drill::def::{Category, DecayRule, DrillDef, Environment, TtkFrom, no_respawn, no_spawn_next};
-use crate::drill::geometry::{CEILING_PITCH, FLOOR_PITCH, TARGET_DISTANCE, direction, random_range, ray_hit};
+use crate::drill::geometry::{CEILING_PITCH, FLOOR_PITCH, TARGET_DISTANCE, direction, ray_hit};
 use crate::drill::params::ParamId;
 use crate::drill::stats::ScoreModel;
 use crate::drill::targets::{NextSpawn, SpawnCtx, Target, TargetAssets};
+use crate::drill::wander::Wander;
 use crate::drill::{DrillConfig, DrillSet, Run};
 use crate::metrics::flick_probe::angles;
 use crate::settings::Settings;
@@ -71,14 +71,7 @@ fn blurb(config: &DrillConfig) -> Cow<'static, str> {
 struct Wanderer {
     /// Where it is (yaw, pitch).
     at: Vec2,
-    /// Degrees per second.
-    velocity: Vec2,
-    /// The velocity it is easing towards.
-    target: Vec2,
-    /// Seconds until the next heading.
-    turn_in: f32,
-    /// Time constant of the easing: half the time until the next heading.
-    ease: f32,
+    wander: Wander,
     /// Seconds of tracking left before it breaks.
     left: f32,
 }
@@ -87,14 +80,6 @@ struct Wanderer {
 fn area(config: &DrillConfig) -> (Vec2, Vec2) {
     let low = Vec2::new(-config.yaw_range, (-config.pitch_range).max(FLOOR_PITCH));
     (low, Vec2::new(config.yaw_range, config.pitch_range.min(CEILING_PITCH).max(low.y)))
-}
-
-/// A random heading at a random speed (m/s at the target distance) in degrees/s, leaning back
-/// towards the middle of the area the further `home` (-1 to 1 per axis) says the dot strayed.
-fn heading(config: &DrillConfig, home: Vec2) -> Vec2 {
-    let speed = (random_range(config.strafe_min, config.strafe_max) / TARGET_DISTANCE).atan().to_degrees();
-    let wander = Vec2::from_angle(fastrand::f32() * TAU);
-    (wander + home * 1.2).normalize_or(wander) * speed
 }
 
 fn spawn_initial(ctx: &mut SpawnCtx) {
@@ -107,50 +92,26 @@ fn spawn_initial(ctx: &mut SpawnCtx) {
 fn spawn_dot(ctx: &mut SpawnCtx) {
     let at = angles(flick_position(ctx.aim, &ctx.view, ctx.margin(), ctx.config));
     let (low, high) = area(ctx.config);
-    let at = at.clamp(low, high);
-    let (velocity, turn_in) = (heading(ctx.config, Vec2::ZERO), random_range(ctx.config.turn_min, ctx.config.turn_max));
-    let wanderer =
-        Wanderer { at, velocity, target: velocity, turn_in, ease: turn_in * 0.5, left: ctx.config.track_time };
-    ctx.spawn_target(position(at), None).insert(wanderer);
+    let wanderer = Wanderer { at: at.clamp(low, high), wander: Wander::new(ctx.config), left: ctx.config.track_time };
+    ctx.spawn_target(position(wanderer.at), None).insert(wanderer);
 }
 
 fn position(at: Vec2) -> Vec3 {
     direction(at.x.to_radians(), at.y.to_radians()) * TARGET_DISTANCE
 }
 
-/// Moves every dot, easing towards a heading that changes now and then and leans back into the
-/// area; a dot reaching its edge slides along it.
+/// Moves every dot around the area.
 fn wander(time: Res<Time>, run: Res<Run>, mut dots: Query<(&mut Wanderer, &mut Transform)>) {
     if !run.live() {
         return;
     }
     let config = &run.drill.config;
     let (low, high) = area(config);
-    let (middle, half) = ((low + high) * 0.5, ((high - low) * 0.5).max(Vec2::splat(1e-3)));
     let dt = time.delta_secs();
     for (mut dot, mut transform) in &mut dots {
-        dot.turn_in -= dt;
-        if dot.turn_in <= 0.0 {
-            dot.target = heading(config, (middle - dot.at) / half);
-            dot.turn_in = random_range(config.turn_min, config.turn_max);
-            dot.ease = dot.turn_in * 0.5;
-        }
-        let follow = 1.0 - (-dt / dot.ease.max(1e-3)).exp();
-        dot.velocity = dot.velocity + (dot.target - dot.velocity) * follow;
-        let mut at = dot.at + dot.velocity * dt;
-        for axis in 0..2 {
-            if at[axis] < low[axis] {
-                at[axis] = low[axis];
-                dot.velocity[axis] = dot.velocity[axis].max(0.0);
-                dot.target[axis] = dot.target[axis].abs();
-            } else if at[axis] > high[axis] {
-                at[axis] = high[axis];
-                dot.velocity[axis] = dot.velocity[axis].min(0.0);
-                dot.target[axis] = -dot.target[axis].abs();
-            }
-        }
-        dot.at = at;
-        transform.translation = position(at);
+        let Wanderer { at, wander, .. } = &mut *dot;
+        wander.step(at, low, high, dt, config);
+        transform.translation = position(*at);
     }
 }
 
@@ -229,9 +190,10 @@ mod tests {
     use super::*;
     use crate::drill::{DrillKind, DrillSpec, RunPurpose};
 
+    /// A dot that doesn't move (only `track_and_break` runs), with `left` seconds to go.
     fn dot(left: f32) -> (Wanderer, Target, MeshMaterial3d<StandardMaterial>) {
-        let still =
-            Wanderer { at: Vec2::ZERO, velocity: Vec2::ZERO, target: Vec2::ZERO, turn_in: 99.0, ease: 1.0, left };
+        let wander = Wander::new(&DrillConfig::defaults(DrillKind::SwitchTracking));
+        let still = Wanderer { at: Vec2::ZERO, wander, left };
         (still, Target { base_radius: 0.35, born: 0.0, lifetime: None, spawn_aim: None }, MeshMaterial3d::default())
     }
 

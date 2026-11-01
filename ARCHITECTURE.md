@@ -42,6 +42,8 @@ drill/
   targets.rs    TargetAssets, Target, Dormant, Slot, NextSpawn, SpawnCtx,
                 generic shoot / decay / spawn_pending, TargetKilled / TargetExpired
   geometry.rs   TARGET_DISTANCE, direction, random picks, ray tests
+  wander.rs     Wander: smooth random drifting inside a box that bounces off its edges
+                (Moving gridshot, Switch tracking)
   kinds/        one module per drill: DEF, its components and systems, register()
 ```
 

@@ -12,6 +12,7 @@ pub mod params;
 mod run;
 pub mod stats;
 mod targets;
+mod wander;
 
 use bevy::prelude::*;
 pub use config::{ADAPTIVE_TIME_LIMIT, DrillConfig, DrillSpec, SECS_RANGE, VARIANT_SEPARATOR};

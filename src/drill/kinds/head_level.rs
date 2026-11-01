@@ -9,7 +9,7 @@ use crate::drill::stats::ScoreModel;
 
 pub const DEF: DrillDef = DrillDef {
     name: "Head level",
-    blurb: "Head-sized dots, always at head height.",
+    blurb: |_| "Head-sized dots, always at head height.".into(),
     category: Category::Tactical,
     base_radius: 0.14,
     decay: DecayRule::Global,
@@ -21,6 +21,7 @@ pub const DEF: DrillDef = DrillDef {
     classic_finder: true,
     flick_analysis: true,
     adaptive: true,
+    endless: false,
     params: &[ParamId::YawRange, ParamId::MinFlick],
     tune_defaults: tune,
     spawn_initial: spawn_flick,

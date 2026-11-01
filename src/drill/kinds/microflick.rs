@@ -22,7 +22,7 @@ const CONSTRAINED_TRIES: usize = 32;
 
 pub const DEF: DrillDef = DrillDef {
     name: "Microflick",
-    blurb: "One small dot at a time. Flick precision.",
+    blurb: |_| "One small dot at a time. Flick precision.".into(),
     category: Category::Aim,
     base_radius: 0.2,
     decay: DecayRule::Global,
@@ -34,6 +34,7 @@ pub const DEF: DrillDef = DrillDef {
     classic_finder: true,
     flick_analysis: true,
     adaptive: true,
+    endless: false,
     params: &[ParamId::YawRange, ParamId::PitchRange, ParamId::MinFlick],
     tune_defaults: no_tuning,
     spawn_initial: spawn_flick,

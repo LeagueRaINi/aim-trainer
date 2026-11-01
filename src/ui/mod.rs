@@ -1,9 +1,11 @@
 //! Menu, post-run screens and in-game overlays, built with Bevy Feathers widgets.
 
 mod bindings;
+pub(crate) mod capture;
 mod charts;
 mod hud;
 mod menu;
+mod preview;
 mod replay_hud;
 pub(crate) mod screens;
 pub mod theme;
@@ -19,7 +21,8 @@ pub struct UiPlugin;
 
 impl Plugin for UiPlugin {
     fn build(&self, app: &mut App) {
-        app.init_resource::<menu::MenuTab>()
+        app.add_plugins((preview::PreviewPlugin, capture::CapturePlugin))
+            .init_resource::<menu::MenuTab>()
             .init_resource::<menu::history::HistoryView>()
             .init_resource::<menu::custom::CustomSelection>()
             .init_resource::<menu::custom::PlaylistDraft>()
@@ -56,6 +59,7 @@ impl Plugin for UiPlugin {
                     menu::custom::rebuild_custom,
                     menu::custom::init_name_inputs,
                     menu::custom::sync_item_names,
+                    menu::custom::sync_scenario_blurbs,
                     menu::custom::sync_status,
                     menu::update_discord_status,
                     menu::update_update_status,

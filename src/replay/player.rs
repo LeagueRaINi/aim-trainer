@@ -6,7 +6,7 @@ use bevy::prelude::*;
 use super::format::{Replay, Shot};
 use crate::AppState;
 use crate::camera::Look;
-use crate::drill::{TargetAssets, spawn_environment};
+use crate::drill::{FacesEye, TargetAssets, facing_eye, spawn_environment};
 use crate::metrics::bow;
 
 const SPEEDS: [f32; 5] = [0.1, 0.25, 0.5, 1.0, 2.0];
@@ -225,7 +225,8 @@ pub(crate) fn advance_playback(
     let frame = &playback.replay.frames[playback.frame_at(now)];
     let mut pool = targets.iter_mut();
     for &(center, radius) in &frame.targets {
-        let transform = Transform::from_translation(center).with_scale(Vec3::splat(radius));
+        let transform =
+            Transform::from_translation(center).with_rotation(facing_eye(center)).with_scale(Vec3::splat(radius));
         match pool.next() {
             Some((mut existing, mut visibility)) => {
                 *existing = transform;
@@ -238,6 +239,7 @@ pub(crate) fn advance_playback(
                     Mesh3d(target_assets.mesh.clone()),
                     MeshMaterial3d(target_assets.idle.clone()),
                     transform,
+                    FacesEye,
                 ));
             },
         }

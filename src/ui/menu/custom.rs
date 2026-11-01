@@ -16,10 +16,11 @@ use bevy::prelude::*;
 use bevy::text::{EditableText, TextEdit, TextEditChange};
 use bevy::ui_widgets::{Activate, ValueChange};
 
+use super::MAIN_COLUMN_W;
 use crate::AppState;
 use crate::custom::{CustomContent, DrillRef, MAX_NAME_CHARS, PlaylistStep};
 use crate::drill::params::{ParamId, ParamSpec};
-use crate::drill::{ADAPTIVE_TIME_LIMIT, DrillKind, DrillSpec, Run, RunPurpose, SECS_RANGE, begin_run};
+use crate::drill::{ADAPTIVE_TIME_LIMIT, DrillConfig, DrillKind, DrillSpec, Run, RunPurpose, SECS_RANGE, begin_run};
 use crate::routine::start_routine;
 use crate::settings::Settings;
 use crate::ui::bindings::*;
@@ -164,9 +165,7 @@ impl EditorField {
 pub fn custom_lists_column() -> impl Scene {
     let new_buttons: Vec<_> = DrillKind::ALL.into_iter().map(new_scenario_button).collect();
     bsn! {
-        @scroll_column()
-        Node { width: px(470), row_gap: px(SPACE_L), flex_shrink: 0.0 }
-        Children [
+        @scroll_column(bsn_list! {
             @card("My scenarios", bsn_list! {
                 @column() Node { row_gap: px(SPACE_XS) } ScenarioList
                 --
@@ -195,15 +194,17 @@ pub fn custom_lists_column() -> impl Scene {
                 @label_dim("")
                 StatusText
             })
-        ]
+        })
+        // As wide as the other pages' main column, plus the scrollbar gutter.
+        Node { width: px(MAIN_COLUMN_W + SCROLLBAR_GUTTER), flex_shrink: 0.0 }
     }
 }
 
+/// The editor scrolls on its own, so long scenarios and playlists stay reachable.
 pub fn custom_editor_column() -> impl Scene {
     bsn! {
-        @surface()
-        Node { flex_grow: 1.0, flex_basis: px(0), align_self: AlignSelf::FlexStart }
-        CustomEditor
+        @scroll_column(bsn_list! { @surface() CustomEditor })
+        Node { flex_grow: 1.0, flex_basis: px(0), min_width: px(0) }
     }
 }
 
@@ -361,8 +362,8 @@ pub fn rebuild_custom(
                 commands.spawn_scene(overline("Edit scenario")).insert(ChildOf(editor));
                 spawn_name_input(&mut commands, editor, Editing::Scenario(id));
                 commands
-                    .spawn_scene(label_dim(format!("Based on {}: {}", kind.name(), kind.blurb())))
-                    .insert(ChildOf(editor));
+                    .spawn_scene(label_dim(based_on(&scenario.config)))
+                    .insert((ChildOf(editor), ScenarioBlurb(id)));
                 if let Some(mode) = scenario.config.adaptive() {
                     let note = format!(
                         "Adaptive ({}): each target's size adapts to you, so Size is ignored, and a target counts if hit within Lifetime ({:.1} s when 0).",
@@ -431,6 +432,15 @@ pub fn rebuild_custom(
 /// Names shown in the lists; kept in sync while typing without rebuilding.
 #[derive(Component, Clone, Copy, Default)]
 pub struct ItemName(Editing);
+
+/// The editor's description of the scenario being edited; follows its parameters without
+/// rebuilding (Gridshot's names its grid).
+#[derive(Component, Clone, Copy)]
+pub struct ScenarioBlurb(u32);
+
+fn based_on(config: &DrillConfig) -> String {
+    format!("Based on {}: {}", config.kind.name(), config.blurb())
+}
 
 fn spawn_name_input(commands: &mut Commands, parent: Entity, editing: Editing) {
     commands
@@ -594,6 +604,21 @@ pub fn sync_item_names(content: Res<CustomContent>, mut labels: Query<(&ItemName
             && text.0 != name
         {
             text.0 = name.to_string();
+        }
+    }
+}
+
+/// Keeps the editor's scenario description in sync with parameter edits.
+pub fn sync_scenario_blurbs(content: Res<CustomContent>, mut labels: Query<(&ScenarioBlurb, &mut Text)>) {
+    if !content.is_changed() {
+        return;
+    }
+    for (ScenarioBlurb(id), mut text) in &mut labels {
+        if let Some(scenario) = content.scenario(*id) {
+            let blurb = based_on(&scenario.config);
+            if text.0 != blurb {
+                text.0 = blurb;
+            }
         }
     }
 }

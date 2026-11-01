@@ -3,6 +3,7 @@
 use std::f32::consts::FRAC_PI_2;
 
 use bevy::input::mouse::AccumulatedMouseMotion;
+use bevy::light::cluster::ClusterConfig;
 use bevy::prelude::*;
 use bevy::window::{CursorGrabMode, CursorOptions};
 
@@ -55,6 +56,8 @@ fn spawn_camera(mut commands: Commands, settings: Res<Settings>) {
         IsDefaultUiCamera,
         Projection::from(PerspectiveProjection { fov: settings.vfov_rad(), ..default() }),
         Transform::IDENTITY,
+        // Only directional and ambient light (see `level`), which are never clustered.
+        ClusterConfig::None,
     ));
 }
 

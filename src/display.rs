@@ -71,8 +71,12 @@ fn present_mode(vsync: bool) -> PresentMode {
 
 /// Clears the whole window to black underneath the (possibly smaller) game viewport,
 /// which produces the black bars.
+#[derive(Component)]
+struct BarCamera;
+
 fn spawn_bar_camera(mut commands: Commands) {
     commands.spawn((
+        BarCamera,
         Camera2d,
         Camera { order: -1, clear_color: ClearColorConfig::Custom(Color::BLACK), ..default() },
         Msaa::Off,
@@ -141,7 +145,8 @@ fn fitted_rect(size: UVec2, aspect: f32) -> Option<(UVec2, UVec2)> {
 fn fit_viewport(
     settings: Res<Settings>,
     window: Single<&Window, With<PrimaryWindow>>,
-    mut camera: Single<&mut Camera, With<PlayerCamera>>,
+    mut camera: Single<&mut Camera, (With<PlayerCamera>, Without<BarCamera>)>,
+    mut bar_camera: Single<&mut Camera, With<BarCamera>>,
     mut ui_scale: ResMut<UiScale>,
 ) {
     let size = window.physical_size();
@@ -157,11 +162,18 @@ fn fit_viewport(
         camera.viewport =
             wanted.map(|(physical_position, physical_size)| Viewport { physical_position, physical_size, ..default() });
     }
+    // The bar camera is a whole extra render pass: only run it when there are bars to draw.
+    let bars = wanted.is_some();
+    if bar_camera.is_active != bars {
+        bar_camera.is_active = bars;
+    }
 
     // Keep menus the same relative size at 1440p/4K, and shrink them (down to a limit) when
-    // the logical viewport is shorter than the design height.
+    // the logical viewport is shorter than the design height; the UI size setting then shrinks
+    // them further (the layout already fills the design height, so it can't grow).
     let viewport_height = wanted.map_or(size.y, |(_, fitted)| fitted.y) as f32;
-    let scale = (viewport_height / window.scale_factor() / UI_DESIGN_HEIGHT).max(MIN_UI_SCALE);
+    let fit = (viewport_height / window.scale_factor() / UI_DESIGN_HEIGHT).max(MIN_UI_SCALE);
+    let scale = fit * settings.video.ui_scale;
     if (ui_scale.0 - scale).abs() > 1e-3 {
         ui_scale.0 = scale;
     }

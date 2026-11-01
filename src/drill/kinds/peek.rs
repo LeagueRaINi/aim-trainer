@@ -1,25 +1,32 @@
-//! Peeks: targets swing out from behind cover, hold briefly and retreat. Owns the cover box
-//! (the [`Environment::Cover`] scenery), which replays of this drill show too.
+//! Peeks: hold one corner. Enemies swing out from behind a wall on the left, at random depths,
+//! speeds and widths, hold briefly and fall back. Owns the wall (the [`Environment::Cover`]
+//! scenery), which replays of this drill show too.
 
 use bevy::prelude::*;
 
 use crate::AppState;
 use crate::drill::def::{Category, DecayRule, DrillDef, Environment, TtkFrom, no_tuning};
-use crate::drill::geometry::{TARGET_DISTANCE, random_range, random_sign, ray_box};
+use crate::drill::geometry::{random_range, ray_box};
 use crate::drill::params::ParamId;
 use crate::drill::stats::ScoreModel;
 use crate::drill::targets::{NextSpawn, SpawnCtx, TargetAssets};
 use crate::drill::{DrillSet, Run};
 
-/// Peek cover: a box between the player and the target plane. Targets start hidden behind it.
-pub(crate) const COVER_MIN: Vec3 = Vec3::new(-1.5, -2.5, -8.75);
-pub(crate) const COVER_MAX: Vec3 = Vec3::new(1.5, 0.9, -8.25);
-/// Peeking targets start (and end) at this |x|, fully hidden behind the cover.
-const PEEK_HIDDEN_X: f32 = 1.2;
+/// The wall on the left whose right edge is the held corner, a few metres in front of every
+/// peek. Its back right edge (x = `COVER_MAX.x`, z = `COVER_MIN.z`) is what the eye sees past.
+pub(crate) const COVER_MIN: Vec3 = Vec3::new(-14.0, -2.5, -6.25);
+pub(crate) const COVER_MAX: Vec3 = Vec3::new(-0.6, 3.0, -5.75);
+/// Depths (m) peeks happen at: close and far swings look and move differently on screen.
+const DEPTH: (f32, f32) = (7.0, 14.0);
+/// How far past the corner (m, at the peek's depth) an enemy swings out: from a shoulder to a
+/// wide swing.
+const SWING: (f32, f32) = (0.3, 2.2);
+/// Pause between peeks (s), long enough to be unpredictable.
+const GAP: (f32, f32) = (0.6, 2.2);
 
 pub const DEF: DrillDef = DrillDef {
     name: "Peeks",
-    blurb: "Hold an angle: enemies swing out of cover.",
+    blurb: |_| "Hold one corner: enemies swing out at random depths, speeds and widths.".into(),
     category: Category::Tactical,
     base_radius: 0.2,
     decay: DecayRule::None,
@@ -31,6 +38,7 @@ pub const DEF: DrillDef = DrillDef {
     classic_finder: false,
     flick_analysis: false,
     adaptive: false,
+    endless: false,
     params: &[ParamId::PeekSpeedMin, ParamId::PeekSpeedMax, ParamId::HoldMin, ParamId::HoldMax],
     tune_defaults: no_tuning,
     spawn_initial,
@@ -51,8 +59,10 @@ enum PeekPhase {
 
 #[derive(Component)]
 struct PeekMove {
-    side: f32,
     speed: f32,
+    /// x where the enemy is fully behind the wall; it falls back to here.
+    hidden_x: f32,
+    /// x where its swing out stops.
     out_x: f32,
     phase: PeekPhase,
 }
@@ -74,28 +84,35 @@ pub(crate) fn cover_hit(origin: Vec3, dir: Vec3) -> Option<f32> {
 }
 
 fn spawn_initial(ctx: &mut SpawnCtx) {
-    ctx.next.0 = Some(0.6);
+    ctx.next.0 = Some(random_range(GAP.0, GAP.1));
 }
 
 /// The next peek comes after a pause.
 fn respawn(ctx: &mut SpawnCtx, _: Option<usize>) {
-    ctx.next.0 = Some(ctx.now + random_range(0.5, 1.4));
+    ctx.next.0 = Some(ctx.now + random_range(GAP.0, GAP.1));
 }
 
-/// A peek from a random side, starting hidden behind the cover.
+/// x of the corner as seen from the eye, at `depth` metres.
+fn corner_x(depth: f32) -> f32 {
+    COVER_MAX.x * depth / -COVER_MIN.z
+}
+
+/// An enemy at a random depth, around head height, just behind the corner.
 fn spawn_next(ctx: &mut SpawnCtx) {
-    let side = random_sign();
-    let position = Vec3::new(side * PEEK_HIDDEN_X, 0.0, -TARGET_DISTANCE);
+    let depth = random_range(DEPTH.0, DEPTH.1);
+    let corner = corner_x(depth);
+    let hidden_x = corner - ctx.radius() - 0.05;
     let peek = PeekMove {
-        side,
         speed: random_range(ctx.config.peek_speed_min, ctx.config.peek_speed_max),
-        out_x: random_range(2.6, 3.6),
+        hidden_x,
+        out_x: corner + random_range(SWING.0, SWING.1),
         phase: PeekPhase::Out,
     };
+    let position = Vec3::new(hidden_x, random_range(-0.15, 0.15), -depth);
     ctx.spawn_target(position, None).insert(peek);
 }
 
-/// Peeks swing out from behind the cover, hold briefly, then retreat. Retreating to safety
+/// Enemies swing out from behind the corner, hold briefly, then fall back. Getting back to cover
 /// counts as a miss.
 fn move_peeks(
     mut commands: Commands,
@@ -113,8 +130,8 @@ fn move_peeks(
         let x = &mut transform.translation.x;
         match peek.phase {
             PeekPhase::Out => {
-                *x += peek.side * peek.speed * dt;
-                if x.abs() >= peek.out_x {
+                *x = (*x + peek.speed * dt).min(peek.out_x);
+                if *x >= peek.out_x {
                     peek.phase = PeekPhase::Hold(random_range(hold_min, hold_max));
                 }
             },
@@ -122,11 +139,11 @@ fn move_peeks(
                 peek.phase = if left > dt { PeekPhase::Hold(left - dt) } else { PeekPhase::Back };
             },
             PeekPhase::Back => {
-                *x -= peek.side * peek.speed * dt;
-                if x.abs() <= PEEK_HIDDEN_X {
+                *x -= peek.speed * dt;
+                if *x <= peek.hidden_x {
                     run.expire();
                     commands.entity(entity).despawn();
-                    next.0 = Some(run.elapsed + random_range(0.5, 1.4));
+                    next.0 = Some(run.elapsed + random_range(GAP.0, GAP.1));
                 }
             },
         }
@@ -137,15 +154,20 @@ fn move_peeks(
 mod tests {
     use super::*;
 
+    /// The wall hides an enemy waiting behind the corner at every depth (all of it, at the
+    /// largest size the editor allows), and stops shots at it; past the corner it is in the open.
     #[test]
-    fn cover_blocks_rays_through_it_only() {
-        // Straight ahead goes through the cover.
-        assert!(cover_hit(Vec3::ZERO, Vec3::NEG_Z).is_some());
-        // Aiming at a peek past the edge clears it.
-        let past_edge = Vec3::new(2.5, 0.0, -TARGET_DISTANCE).normalize();
-        assert!(cover_hit(Vec3::ZERO, past_edge).is_none());
-        // A hidden peek position is behind the cover.
-        let hidden = Vec3::new(PEEK_HIDDEN_X + 0.16, 0.0, -TARGET_DISTANCE).normalize();
-        assert!(cover_hit(Vec3::ZERO, hidden).is_some());
+    fn wall_hides_waiting_enemies_only() {
+        let radius = DEF.base_radius * ParamId::Size.spec().soft.1;
+        for depth in [DEPTH.0, 10.0, DEPTH.1] {
+            let hidden = Vec3::new(corner_x(depth) - radius - 0.05, 0.0, -depth);
+            for edge in [hidden + Vec3::X * radius, hidden - Vec3::X * radius, hidden + Vec3::Y * radius] {
+                assert!(cover_hit(Vec3::ZERO, edge.normalize()).is_some(), "depth {depth}: {edge} visible");
+            }
+            let out = Vec3::new(corner_x(depth) + SWING.0 + radius, 0.0, -depth);
+            assert!(cover_hit(Vec3::ZERO, out.normalize()).is_none(), "depth {depth}: swung out but blocked");
+        }
+        // Straight ahead is the open lane being held.
+        assert!(cover_hit(Vec3::ZERO, Vec3::NEG_Z).is_none());
     }
 }

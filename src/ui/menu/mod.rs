@@ -53,7 +53,21 @@ pub enum MenuTab {
 }
 
 impl MenuTab {
-    fn name(self) -> &'static str {
+    /// Every page, in tab order.
+    pub const ALL: [MenuTab; 10] = [
+        MenuTab::Play,
+        MenuTab::Finder,
+        MenuTab::Custom,
+        MenuTab::Sensitivity,
+        MenuTab::Crosshair,
+        MenuTab::Video,
+        MenuTab::Audio,
+        MenuTab::History,
+        MenuTab::Insights,
+        MenuTab::Online,
+    ];
+
+    pub(in crate::ui) fn name(self) -> &'static str {
         match self {
             MenuTab::Play => "Play",
             MenuTab::Finder => "Finder",
@@ -137,7 +151,13 @@ pub fn spawn_menu(mut commands: Commands, settings: Res<Settings>, load_problems
                     Children [ @history::history_body() ]
                     --
                     @page(MenuTab::Insights)
-                    insights::InsightsBody
+                    Children [
+                        @scroll_column(bsn_list! {
+                            Node { flex_direction: FlexDirection::Row, column_gap: px(SPACE_L), align_items: AlignItems::Start }
+                            insights::InsightsBody
+                        })
+                        Node { flex_grow: 1.0 }
+                    ]
                 ]
             ]
         })
@@ -154,32 +174,13 @@ fn load_note(files: &[&str]) -> String {
 
 /// Segmented tab strip; the active tab is filled with the accent color.
 fn tab_bar() -> impl Scene {
+    let tabs: Vec<_> = MenuTab::ALL.into_iter().map(tab_button).collect();
     bsn! {
         @row()
         Node { padding: px(SPACE_XS), column_gap: px(SPACE_XS), border_radius: BorderRadius::all(px(8)) }
         ThemeBackgroundColor(tokens::PANE_BODY_BG)
         Propagate::<ThemeContext>(ThemeContext(SurfaceLevel::Higher))
-        Children [
-            @tab_button(MenuTab::Play)
-            --
-            @tab_button(MenuTab::Finder)
-            --
-            @tab_button(MenuTab::Custom)
-            --
-            @tab_button(MenuTab::Sensitivity)
-            --
-            @tab_button(MenuTab::Crosshair)
-            --
-            @tab_button(MenuTab::Video)
-            --
-            @tab_button(MenuTab::Audio)
-            --
-            @tab_button(MenuTab::History)
-            --
-            @tab_button(MenuTab::Insights)
-            --
-            @tab_button(MenuTab::Online)
-        ]
+        Children [ {tabs} ]
     }
 }
 

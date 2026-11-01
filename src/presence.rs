@@ -193,7 +193,7 @@ fn describe(
                         ("Finding their sensitivity".to_string(), run.title.clone(), Badge::Finder)
                     },
                 };
-                let line = if run.time_left().is_some() { line } else { format!("{line} · getting ready") };
+                let line = if run.live() { line } else { format!("{line} · getting ready") };
                 (details, line, run.time_left(), Some(badge))
             },
             None => ("Playing".into(), String::new(), None, None),

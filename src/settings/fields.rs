@@ -28,6 +28,7 @@ pub enum SettingField {
     ColorG,
     ColorB,
     TargetLifetime,
+    UiScale,
 }
 
 /// How a field is shown and limited. Ranges are in displayed units.
@@ -52,7 +53,7 @@ impl FieldSpec {
 }
 
 impl SettingField {
-    pub const ALL: [SettingField; 20] = [
+    pub const ALL: [SettingField; 21] = [
         SettingField::Sens,
         SettingField::Yaw,
         SettingField::Dpi,
@@ -73,6 +74,7 @@ impl SettingField {
         SettingField::ColorG,
         SettingField::ColorB,
         SettingField::TargetLifetime,
+        SettingField::UiScale,
     ];
 
     pub fn spec(self) -> FieldSpec {
@@ -102,6 +104,9 @@ impl SettingField {
             SettingField::ColorG => channel("G"),
             SettingField::ColorB => channel("B"),
             SettingField::TargetLifetime => spec("Target decay (s)", 2, 0.1, (0.0, 3.0), (0.0, 10.0)),
+            SettingField::UiScale => {
+                FieldSpec { scale: 100.0, ..spec("UI size (%)", 0, 5.0, (50.0, 100.0), (50.0, 100.0)) }
+            },
         }
     }
 
@@ -129,6 +134,7 @@ impl SettingField {
             SettingField::ColorG => crosshair.color[1] as f32,
             SettingField::ColorB => crosshair.color[2] as f32,
             SettingField::TargetLifetime => settings.targets.lifetime,
+            SettingField::UiScale => settings.video.ui_scale,
         }
     }
 
@@ -156,6 +162,7 @@ impl SettingField {
             SettingField::ColorG => crosshair.color[1] = value as u8,
             SettingField::ColorB => crosshair.color[2] = value as u8,
             SettingField::TargetLifetime => settings.targets.lifetime = value,
+            SettingField::UiScale => settings.video.ui_scale = value,
         }
     }
 

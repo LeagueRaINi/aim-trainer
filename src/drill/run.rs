@@ -5,7 +5,7 @@
 use bevy::prelude::*;
 use bevy::window::WindowFocused;
 
-use super::{DrillKind, DrillSpec, RunStats, TargetAssets, targets};
+use super::{DrillKind, DrillSpec, RunStats, SECS_RANGE, TargetAssets, targets};
 use crate::AppState;
 use crate::camera::{PlayerCamera, ViewCone};
 use crate::metrics::throughput::Click;
@@ -101,12 +101,19 @@ pub struct Run {
     clicks: Vec<Click>,
     /// Set by Escape/alt-tab; nothing else happens to the run while the state changes.
     aborted: bool,
+    /// Set by the drill when it is over before its time (Survival out of lives).
+    ended: bool,
 }
 
 impl Run {
+    /// A run of `duration` seconds; endless drills (see [`DrillDef::endless`]) instead run until
+    /// they end themselves, capped at the longest drill length.
+    ///
+    /// [`DrillDef::endless`]: super::def::DrillDef::endless
     pub fn new(drill: DrillSpec, sens: f32, duration: f32, purpose: RunPurpose, title: String) -> Self {
         let mut drill = drill;
         drill.config.sanitize();
+        let duration = if drill.config.kind.def().endless { SECS_RANGE.1 } else { duration };
         Self {
             drill,
             sens,
@@ -131,12 +138,20 @@ impl Run {
             landings: Vec::new(),
             clicks: Vec::new(),
             aborted: false,
+            ended: false,
         }
     }
 
     /// The first `secs` of live time play normally but don't count toward the stats.
     pub fn with_warm_in(mut self, secs: f32) -> Self {
         self.scoring_from = secs;
+        self
+    }
+
+    /// The run past its ready gate and countdown, for drill tests.
+    #[cfg(test)]
+    pub(crate) fn started(mut self) -> Self {
+        self.phase = Phase::Live;
         self
     }
 
@@ -167,9 +182,10 @@ impl Run {
         self.phase == Phase::Live && !self.aborted
     }
 
-    /// Seconds left while the run is live; `None` before the start (ready gate, countdown).
+    /// Seconds left while the run is live; `None` before the start (ready gate, countdown) and
+    /// for endless drills, which have no set end.
     pub fn time_left(&self) -> Option<f32> {
-        self.live().then(|| (self.duration - self.elapsed).max(0.0))
+        (self.live() && !self.kind().def().endless).then(|| (self.duration - self.elapsed).max(0.0))
     }
 
     /// Whether events count toward the stats (warm-in is over).
@@ -200,6 +216,16 @@ impl Run {
         if self.counting() {
             self.expired += 1;
         }
+    }
+
+    /// Targets that got away (counted ones, like the stats).
+    pub fn expired(&self) -> u32 {
+        self.expired
+    }
+
+    /// Ends the run at the next [`tick_run`], before its time is up.
+    pub(crate) fn end(&mut self) {
+        self.ended = true;
     }
 
     pub(crate) fn track_on_target(&mut self, dt: f32) {
@@ -317,7 +343,7 @@ pub(super) fn tick_run(
         return;
     }
     run.elapsed += time.delta_secs();
-    if run.elapsed < run.duration {
+    if run.elapsed < run.duration && !run.ended {
         return;
     }
     finished.write(RunFinished {
@@ -328,15 +354,21 @@ pub(super) fn tick_run(
     });
 }
 
+/// Present while runs must survive the window losing focus: the screenshot tour drives the game
+/// in the background, so alt-tabbing away must not abort its runs.
+#[derive(Resource)]
+pub struct KeepRunsOnFocusLoss;
+
 /// Escape or alt-tab abandons the run without recording it. Runs before everything else, so the
 /// rest of the frame's systems (including `tick_run`) see the run as no longer live.
 pub(super) fn abort_run(
     keys: Res<ButtonInput<KeyCode>>,
     mut focus: MessageReader<WindowFocused>,
+    keep_on_focus_loss: Option<Res<KeepRunsOnFocusLoss>>,
     mut run: ResMut<Run>,
     mut next_state: ResMut<NextState<AppState>>,
 ) {
-    let lost_focus = focus.read().any(|event| !event.focused);
+    let lost_focus = focus.read().any(|event| !event.focused) && keep_on_focus_loss.is_none();
     if run.aborted || (!keys.just_pressed(KeyCode::Escape) && !lost_focus) {
         return;
     }

@@ -16,10 +16,11 @@ mod targets;
 use bevy::prelude::*;
 pub use config::{ADAPTIVE_TIME_LIMIT, DrillConfig, DrillSpec, SECS_RANGE, VARIANT_SEPARATOR};
 pub use kind::DrillKind;
-pub use run::{Phase, Run, RunFinished, RunPurpose, begin_run};
+pub use run::{KeepRunsOnFocusLoss, Phase, Run, RunFinished, RunPurpose, begin_run};
 pub use stats::RunStats;
+pub(crate) use targets::facing_eye;
 use targets::{Dormant, Target, TargetExpired, TargetKilled};
-pub use targets::{TargetAssets, spawn_environment};
+pub use targets::{FacesEye, TargetAssets, spawn_environment};
 
 use crate::AppState;
 use crate::camera::{ActiveSens, Look, apply_look, mouse_look};
@@ -64,7 +65,9 @@ impl Plugin for DrillPlugin {
             .add_message::<TargetExpired>()
             .add_message::<RunFinished>()
             .add_systems(Startup, targets::create_target_assets)
-            .add_systems(Update, targets::sync_target_colors.run_if(resource_changed::<Settings>))
+            .add_systems(Update, targets::sync_target_look.run_if(resource_changed::<Settings>))
+            // After every drill (and the replay player) has moved its targets this frame.
+            .add_systems(PostUpdate, targets::face_eye.before(TransformSystems::Propagate))
             .add_systems(
                 OnEnter(AppState::Playing),
                 (targets::spawn_static, |mut commands: Commands| commands.insert_resource(Recorder::default())),

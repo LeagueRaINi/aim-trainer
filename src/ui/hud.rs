@@ -7,6 +7,7 @@ use bevy::diagnostic::{DiagnosticsStore, FrameTimeDiagnosticsPlugin};
 use bevy::feathers::constants::fonts;
 use bevy::feathers::tokens;
 use bevy::prelude::*;
+use bevy::text::{FontFeatureTag, FontFeatures};
 
 use crate::AppState;
 use crate::drill::adaptive::AdaptiveRun;
@@ -32,6 +33,12 @@ pub(super) enum HudField {
 #[derive(Component, Clone, Copy, Default)]
 pub(super) struct ReadyCard;
 
+/// Minimum widths of the HUD bar's changing segments: room for "600.0s", "Kills 123   Lives 10 /
+/// 10" and "1234 fps   Esc to quit".
+const TIME_W: f32 = 100.0;
+const DETAIL_W: f32 = 230.0;
+const INFO_W: f32 = 140.0;
+
 pub(super) fn spawn_hud(mut commands: Commands) {
     commands
         .spawn_scene(bsn! {
@@ -44,18 +51,28 @@ pub(super) fn spawn_hud(mut commands: Commands) {
                     --
                     @vertical_divider()
                     --
-                    Node { min_width: px(72), justify_content: JustifyContent::Center }
-                    Children [ @styled("", fonts::BOLD, 26.0, TEXT_STRONG) HudField::Time ]
+                    // Each changing segment gets room for its usual widest value, so the bar
+                    // keeps its size as numbers grow (9 → 10 hits, 99 → 100 fps).
+                    Node { min_width: px(TIME_W), justify_content: JustifyContent::Center }
+                    Children [ @styled("", fonts::BOLD, 26.0, TEXT_STRONG) TextFont { font_features: {tabular()} } HudField::Time ]
                     --
                     @vertical_divider()
                     --
-                    @styled("", fonts::REGULAR, 16.0, TEXT_STRONG)
-                    HudField::Detail
+                    Node { min_width: px(DETAIL_W), justify_content: JustifyContent::Center }
+                    Children [
+                        @styled("", fonts::REGULAR, 16.0, TEXT_STRONG)
+                        TextFont { font_features: {tabular()} }
+                        HudField::Detail
+                    ]
                     --
                     @vertical_divider()
                     --
-                    @styled("", fonts::REGULAR, 12.0, tokens::TEXT_DIM)
-                    HudField::Info
+                    Node { min_width: px(INFO_W), justify_content: JustifyContent::Center }
+                    Children [
+                        @styled("", fonts::REGULAR, 12.0, tokens::TEXT_DIM)
+                        TextFont { font_features: {tabular()} }
+                        HudField::Info
+                    ]
                 ]
             ]
         })
@@ -88,9 +105,16 @@ pub(super) fn spawn_hud(mut commands: Commands) {
     commands
         .spawn_scene(bsn! {
             @hud_anchor(percent(28))
-            Children [ @styled("", fonts::BOLD, 96.0, TEXT_STRONG) HudField::Countdown ]
+            Children [ @styled("", fonts::BOLD, 96.0, TEXT_STRONG) TextFont { font_features: {tabular()} } HudField::Countdown ]
         })
         .insert(DespawnOnExit(AppState::Playing));
+}
+
+/// Equal-width digits for text that changes every frame: Fira Sans' default digits differ in
+/// width, so a changing number (the FPS, the timer) resizes its line, and the centred HUD bar
+/// shifts with it.
+fn tabular() -> FontFeatures {
+    [FontFeatureTag::TABULAR_FIGURES].into()
 }
 
 pub(super) fn update_hud(
@@ -106,12 +130,14 @@ pub(super) fn update_hud(
     for (field, mut text) in &mut fields {
         let wanted: Cow<str> = match field {
             HudField::Title | HudField::ReadyTitle => Cow::Borrowed(&run.title),
+            // Endless drills (Survival) count up: the time survived.
+            HudField::Time if run.kind().def().endless => Cow::Owned(format!("{:.1}s", run.elapsed())),
             HudField::Time => Cow::Owned(format!("{:.1}s", (run.duration - run.elapsed()).max(0.0))),
             HudField::Detail if !run.counting() => {
                 Cow::Owned(format!("Warm-in {:.1}s (not scored)", run.warm_in_left()))
             },
             HudField::Detail => {
-                let detail = run.kind().def().score.hud_detail(&run.live_stats(&settings));
+                let detail = run.kind().def().score.hud_detail(&run.live_stats(&settings), &run.drill.config);
                 match adaptive.estimate().filter(|_| adaptive_mode.is_some()) {
                     Some(e) if e.trials > 0 => Cow::Owned(format!(
                         "{detail}   ·   θ75 {:.2}° ({:.2}–{:.2})   ·   {}/{} in time",
@@ -130,7 +156,7 @@ pub(super) fn update_hud(
                     mode.blurb(),
                     run.drill.config.time_limit()
                 )),
-                None => Cow::Borrowed(run.kind().blurb()),
+                None => run.drill.config.blurb(),
             },
             HudField::Countdown => match run.phase() {
                 Phase::Countdown => Cow::Owned(format!("{}", run.countdown().ceil() as u32)),

@@ -57,7 +57,7 @@ pub fn spawn_results(
     let stats = &last.stats;
     let kind = stats.kind.name();
     let context = if stats.drill == kind { "Results".to_string() } else { format!("Results  ·  {kind}") };
-    let sens = format!("Sensitivity {:.3}  ·  {}", stats.sens, settings.describe_sens(stats.sens));
+    let sens = format!("Sensitivity {:.3}  |  {}", stats.sens, settings.describe_sens(stats.sens));
     // Flick drills: where the clicks landed, once there are any measured flicks.
     let clicked = throughput::measured(&stats.clicks).next().is_some();
     let precision_display = if clicked { Display::Flex } else { Display::None };

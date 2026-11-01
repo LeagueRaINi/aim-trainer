@@ -1,15 +1,15 @@
 //! Play page: built-in drills by category, their adaptive modes and the warmup routines.
 
 use bevy::feathers::controls::ButtonVariant;
-use bevy::feathers::display::{label, label_dim};
+use bevy::feathers::display::label_dim;
 use bevy::prelude::*;
 use bevy::ui_widgets::Activate;
 
-use super::{MenuTab, main_column, page, side_column};
+use super::{MAIN_COLUMN_W, MenuTab, page};
 use crate::AppState;
 use crate::drill::adaptive::MEASURE_SECS;
 use crate::drill::def::{Category, DecayRule};
-use crate::drill::{ADAPTIVE_TIME_LIMIT, DrillKind, DrillSpec, Run, RunPurpose, begin_run};
+use crate::drill::{ADAPTIVE_TIME_LIMIT, DrillConfig, DrillKind, DrillSpec, Run, RunPurpose, begin_run};
 use crate::metrics::quest::QuestMode;
 use crate::routine::{ROUTINES, Routine, start_routine};
 use crate::settings::{SettingField, Settings};
@@ -49,14 +49,17 @@ fn adaptive_run(kind: DrillKind, mode: QuestMode, settings: &Settings) -> Run {
     Run::new(drill, settings.sens, secs, RunPurpose::Practice, title)
 }
 
-/// One category of built-in drills: a small heading and a row per drill.
-fn category_section(category: Category) -> impl Scene {
-    let rows: Vec<_> =
-        DrillKind::ALL.into_iter().filter(|kind| kind.def().category == category).map(drill_row).collect();
+/// One card per category, its drills as tiles two to a row: more drills only add rows, and the
+/// column scrolls once they outgrow the menu.
+fn category_card(category: Category) -> impl Scene {
+    let tiles: Vec<_> =
+        DrillKind::ALL.into_iter().filter(|kind| kind.def().category == category).map(drill_tile).collect();
     bsn! {
-        @column()
-        Node { row_gap: px(SPACE_S) }
-        Children [ @overline(category.title()) -- {rows} ]
+        @card(category.title(), bsn_list! {
+            @wrap_row()
+            Node { column_gap: px(SPACE_S), align_items: AlignItems::Stretch }
+            Children [ {tiles} ]
+        })
     }
 }
 
@@ -67,29 +70,23 @@ fn decay_note() -> String {
     format!("Decay: targets shrink and count as a miss if not hit in time ({}). 0 = off.", kinds.join(", "))
 }
 
-/// What the adaptive buttons do and where they are, in three lines at the card width.
+/// What the adaptive buttons do.
 fn adaptive_note() -> String {
     format!(
-        "Measure / Train under a drill start adaptive mode: targets resize to your limit and must be hit in the decay time ({ADAPTIVE_TIME_LIMIT} s with decay off). Measure runs {MEASURE_SECS:.0} s, Train the drill length. θ75 = radius you hit 75% of the time; lower is better."
+        "Measure / Train on a drill start adaptive mode: targets resize to your limit and must be hit in the decay time ({ADAPTIVE_TIME_LIMIT} s with decay off). Measure runs {MEASURE_SECS:.0} s, Train the drill length. θ75 = radius you hit 75% of the time; lower is better."
     )
 }
 
 pub(super) fn play_page(settings: &Settings) -> impl Scene {
-    let sections: Vec<_> = Category::ALL.into_iter().map(category_section).collect();
+    let cards: Vec<_> = Category::ALL.into_iter().map(category_card).collect();
     bsn! {
         @page(MenuTab::Play)
         Children [
-            @main_column()
-            Children [
-                @card("Drills", bsn_list! {
-                    {sections}
-                    --
-                    @label_dim(adaptive_note())
-                })
-            ]
+            // Wider by the scrollbar gutter, so two tiles still fit side by side while it shows.
+            @scroll_column(bsn_list! { {cards} })
+            Node { width: px(MAIN_COLUMN_W + SCROLLBAR_GUTTER), flex_shrink: 0.0 }
             --
-            @side_column()
-            Children [
+            @scroll_column(bsn_list! {
                 @card("Warmup routines", bsn_list! {
                     @routine_button(0)
                     --
@@ -106,48 +103,44 @@ pub(super) fn play_page(settings: &Settings) -> impl Scene {
                     @number_field(SettingField::TargetLifetime, settings)
                     --
                     @label_dim(decay_note())
-                    --
-                    @label("Target color")
-                    --
-                    @target_color_choices()
                 })
-            ]
+                --
+                @card("Adaptive mode", bsn_list! { @label_dim(adaptive_note()) })
+            })
+            Node { flex_grow: 1.0, flex_basis: px(0) }
         ]
     }
 }
 
-/// Width of the drill buttons; adaptive rows indent past it so they sit under the blurb.
-const DRILL_BUTTON_W: f32 = 140.0;
+/// Two tiles and the gap between them fill a card on the main column.
+const TILE_W: f32 = (MAIN_COLUMN_W - 2.0 * SPACE_L - SPACE_S) / 2.0 - 1.0;
 
-/// A drill's play button and blurb, plus its adaptive modes if it has them.
-fn drill_row(kind: DrillKind) -> impl Scene {
+/// A drill's play button and blurb, plus its adaptive modes if it has them (at the bottom, so
+/// tiles side by side line up).
+fn drill_tile(kind: DrillKind) -> impl Scene {
     let adaptive: Vec<_> = kind.def().adaptive.then(|| adaptive_row(kind)).into_iter().collect();
     bsn! {
-        @column()
-        Node { row_gap: px(SPACE_XS) }
+        @tile()
+        Node { width: px(TILE_W), row_gap: px(SPACE_S), padding: px(SPACE_M) }
         Children [
-            @row()
-            Node { column_gap: px(SPACE_M) }
-            Children [
-                @button(kind.name(), ButtonVariant::Normal)
-                Node { width: px(DRILL_BUTTON_W), flex_shrink: 0.0 }
-                PlayButton(kind)
-                on(play)
-                --
-                @label_dim(kind.blurb())
-            ]
+            @button(kind.name(), ButtonVariant::Normal)
+            PlayButton(kind)
+            on(play)
+            --
+            @label_dim(DrillConfig::defaults(kind).blurb())
+            Node { flex_grow: 1.0 }
             --
             {adaptive}
         ]
     }
 }
 
-/// A drill's adaptive modes as a slim row under its play button.
+/// A drill's adaptive modes as a slim row at the bottom of its tile.
 fn adaptive_row(kind: DrillKind) -> impl Scene {
     let (measure, train) = (QuestMode::Measure, QuestMode::Train);
     bsn! {
         @row()
-        Node { column_gap: px(SPACE_S), align_items: AlignItems::Center, margin: UiRect::left(px(DRILL_BUTTON_W + SPACE_M)) }
+        Node { column_gap: px(SPACE_S) }
         Children [
             @overline("Adaptive")
             --

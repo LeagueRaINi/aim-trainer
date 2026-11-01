@@ -12,7 +12,7 @@ use crate::drill::{DrillSet, Run};
 
 pub const DEF: DrillDef = DrillDef {
     name: "Tracking",
-    blurb: "Keep the crosshair on a strafing dot.",
+    blurb: |_| "Keep the crosshair on a strafing dot.".into(),
     category: Category::Aim,
     base_radius: 0.45,
     decay: DecayRule::None,
@@ -24,6 +24,7 @@ pub const DEF: DrillDef = DrillDef {
     classic_finder: true,
     flick_analysis: false,
     adaptive: false,
+    endless: false,
     params: &[ParamId::StrafeMin, ParamId::StrafeMax, ParamId::TurnMin, ParamId::TurnMax, ParamId::Lane],
     tune_defaults: no_tuning,
     spawn_initial,

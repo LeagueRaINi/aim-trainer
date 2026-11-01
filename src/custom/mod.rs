@@ -104,6 +104,13 @@ impl CustomContent {
             scenario.duration = clean_secs(scenario.duration);
             scenario.config.sanitize();
         }
+        // A scenario saved before a built-in drill of the same name existed (e.g. "Survival")
+        // would share its history: give it a free name.
+        let shadowing: Vec<u32> = self.scenarios.iter().filter(|s| builtin_name(&s.name)).map(|s| s.id).collect();
+        for id in shadowing {
+            let name = self.unique_name(&self.scenario(id).expect("listed above").name);
+            self.scenario_mut(id).expect("listed above").name = name;
+        }
         for step in self.playlists.iter_mut().flat_map(|p| &mut p.steps) {
             step.secs = clean_secs(step.secs);
         }
@@ -266,6 +273,19 @@ mod tests {
         assert_eq!(content.scenario(a).unwrap().name, "5x5 wide");
     }
 
+    /// A scenario saved under a name a later built-in drill took (here "Survival") is renamed
+    /// on load, keeping its id, so the two histories stay apart.
+    #[test]
+    fn loading_renames_scenarios_that_shadow_new_builtins() {
+        let mut content = CustomContent::default();
+        let id = content.new_scenario(DrillKind::Gridshot);
+        content.scenario_mut(id).unwrap().name = "Survival".into();
+        content.repair();
+        let name = &content.scenario(id).unwrap().name;
+        assert!(!builtin_name(name), "{name}");
+        assert!(name.starts_with("Survival"), "{name}");
+    }
+
     #[test]
     fn deleting_a_scenario_removes_it_from_playlists() {
         let mut content = CustomContent::default();
@@ -380,7 +400,8 @@ mod tests {
 
     /// The content `fixtures/custom.ron` (saved by v1.0.0) and `fixtures/share_code.txt` were
     /// saved from: one scenario per kind (Microflick with flick constraints) and a playlist of a
-    /// built-in and a custom step. Returns it with the playlist's id.
+    /// built-in and a custom step. Returns it with the playlist's id. The Gridshot scenario
+    /// spells out its grid: v1.0.0's Gridshot defaults (3 rows, 7° apart) have changed since.
     pub(super) fn fixture_content() -> (CustomContent, u32) {
         let mut content = CustomContent::default();
         let ids: Vec<u32> = DrillKind::fixture_kinds().iter().map(|&kind| content.new_scenario(kind)).collect();
@@ -389,7 +410,8 @@ mod tests {
         micro.config.flick_direction = Some(90.0);
         micro.config.flick_spread = 30.0;
         micro.duration = 45.0;
-        content.scenario_mut(ids[0]).unwrap().config.grid_cols = 5;
+        let grid = &mut content.scenario_mut(ids[0]).unwrap().config;
+        (grid.size, grid.grid_cols, grid.grid_rows, grid.grid_spacing, grid.grid_active) = (1.0, 5, 3, 7.0, 3);
         let playlist = content.new_playlist();
         let steps = &mut content.playlist_mut(playlist).unwrap().steps;
         steps.push(PlaylistStep { drill: DrillRef::Builtin(DrillKind::Peripheral), secs: 30.0 });

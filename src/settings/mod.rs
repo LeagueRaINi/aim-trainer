@@ -50,11 +50,112 @@ pub struct VideoSettings {
     pub fps_cap: u32,
     /// MSAA sample count: 1 (off), 2, 4 or 8.
     pub msaa: u32,
+    /// The room the drills are played in.
+    pub scene: SceneTheme,
+    /// The gun model shown while playing.
+    pub weapon: WeaponModel,
+    /// Which side of the screen the gun is held on.
+    pub weapon_side: WeaponSide,
+    /// Size of menus and HUD relative to filling the screen's height with their 1280x720
+    /// layout, 0.5..=1 (shown in percent).
+    pub ui_scale: f32,
 }
 
 impl Default for VideoSettings {
     fn default() -> Self {
-        Self { display: DisplayMode::Windowed, aspect: AspectMode::Lock16x9, vsync: false, fps_cap: 0, msaa: 4 }
+        Self {
+            display: DisplayMode::Windowed,
+            aspect: AspectMode::Lock16x9,
+            vsync: false,
+            fps_cap: 0,
+            msaa: 4,
+            scene: SceneTheme::Slate,
+            weapon: WeaponModel::Off,
+            weapon_side: WeaponSide::Right,
+            ui_scale: 1.0,
+        }
+    }
+}
+
+/// Look of the room around the targets.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum SceneTheme {
+    /// Slate-grey tiled room.
+    #[default]
+    Slate,
+    /// Near-black room with faint lines: nothing but the targets stands out.
+    Midnight,
+    /// Bright grey room.
+    Light,
+    /// No walls or ceiling: a tiled floor under a dark sky.
+    Void,
+    /// Open air: a floor under a blue sky.
+    Sky,
+}
+
+impl SceneTheme {
+    pub const ALL: [SceneTheme; 5] =
+        [SceneTheme::Slate, SceneTheme::Midnight, SceneTheme::Light, SceneTheme::Void, SceneTheme::Sky];
+
+    pub fn name(self) -> &'static str {
+        match self {
+            SceneTheme::Slate => "Slate",
+            SceneTheme::Midnight => "Midnight",
+            SceneTheme::Light => "Light",
+            SceneTheme::Void => "Void",
+            SceneTheme::Sky => "Sky",
+        }
+    }
+}
+
+/// The first-person gun model shown while playing (see `viewmodel`).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum WeaponModel {
+    /// No gun: an unobstructed view.
+    #[default]
+    Off,
+    /// A compact low-poly pistol.
+    Pistol,
+    /// A low-poly assault rifle.
+    Rifle,
+}
+
+impl WeaponModel {
+    pub const ALL: [WeaponModel; 3] = [WeaponModel::Off, WeaponModel::Pistol, WeaponModel::Rifle];
+
+    pub fn name(self) -> &'static str {
+        match self {
+            WeaponModel::Off => "Off",
+            WeaponModel::Pistol => "Pistol",
+            WeaponModel::Rifle => "Rifle",
+        }
+    }
+}
+
+/// The side of the screen the gun is held on, like the games' left-handed option.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum WeaponSide {
+    Left,
+    #[default]
+    Right,
+}
+
+impl WeaponSide {
+    pub const ALL: [WeaponSide; 2] = [WeaponSide::Left, WeaponSide::Right];
+
+    pub fn name(self) -> &'static str {
+        match self {
+            WeaponSide::Left => "Left",
+            WeaponSide::Right => "Right",
+        }
+    }
+
+    /// +1 on the right, -1 on the left: the factor that mirrors a right-hand layout.
+    pub fn sign(self) -> f32 {
+        match self {
+            WeaponSide::Left => -1.0,
+            WeaponSide::Right => 1.0,
+        }
     }
 }
 
@@ -134,11 +235,43 @@ pub struct TargetSettings {
     /// Seconds before a target expires and counts as a miss; 0 disables decay.
     /// Applies to built-in drills whose decay rule is `Global` (see `drill::def::DecayRule`).
     pub lifetime: f32,
+    pub style: TargetStyle,
 }
 
 impl Default for TargetSettings {
     fn default() -> Self {
-        Self { color: TARGET_COLORS[0].1, lifetime: 0.0 }
+        Self { color: TARGET_COLORS[0].1, lifetime: 0.0, style: TargetStyle::Flat }
+    }
+}
+
+/// How targets are shaded.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum TargetStyle {
+    /// One flat color: the clearest outline.
+    #[default]
+    Flat,
+    /// Lit like a matte ball.
+    Shaded,
+    /// Lit with a sharp highlight.
+    Glossy,
+    /// Rings around a centre dot, facing you.
+    Bullseye,
+    /// Glowing, with a soft halo.
+    Glow,
+}
+
+impl TargetStyle {
+    pub const ALL: [TargetStyle; 5] =
+        [TargetStyle::Flat, TargetStyle::Shaded, TargetStyle::Glossy, TargetStyle::Bullseye, TargetStyle::Glow];
+
+    pub fn name(self) -> &'static str {
+        match self {
+            TargetStyle::Flat => "Flat",
+            TargetStyle::Shaded => "Shaded",
+            TargetStyle::Glossy => "Glossy",
+            TargetStyle::Bullseye => "Bullseye",
+            TargetStyle::Glow => "Glow",
+        }
     }
 }
 

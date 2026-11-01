@@ -1,4 +1,6 @@
-//! Hit sounds, synthesized at startup so the game ships without asset files.
+//! Hit sounds, synthesized at startup so the game ships without asset files. Every one is short
+//! and leaves headroom: kills can come 150 ms apart (Gridshot), and a sound still ringing when
+//! the next starts smears and, summed, clips.
 
 use std::f32::consts::TAU;
 use std::sync::Arc;
@@ -18,7 +20,7 @@ impl Plugin for SfxPlugin {
     }
 }
 
-#[derive(Resource)]
+#[derive(Resource, Default)]
 pub struct HitSounds {
     tick: Handle<AudioSource>,
     pop: Handle<AudioSource>,
@@ -40,23 +42,34 @@ impl HitSounds {
 
 fn create_sounds(mut commands: Commands, mut sources: ResMut<Assets<AudioSource>>) {
     let mut add = |samples: Vec<f32>| sources.add(AudioSource { bytes: Arc::from(wav(&samples)) });
-    commands.insert_resource(HitSounds {
-        tick: add(synth(0.05, |t| {
-            // Bright, very short click: what most shooters use for body hits. Scaled so the two
-            // partials (which peak together around 1 ms) never clip.
-            0.75 * ((TAU * 3200.0 * t).sin() * (-t * 110.0).exp() + 0.5 * (TAU * 5100.0 * t).sin() * (-t * 220.0).exp())
-        })),
-        pop: add(synth(0.12, |t| {
-            // Falling pitch "bubble pop"; phase is the integral of 250 + 900·e^(−25t) Hz.
-            let phase = TAU * (250.0 * t + 900.0 / 25.0 * (1.0 - (-25.0 * t).exp()));
-            phase.sin() * (-t * 32.0).exp()
-        })),
-        ding: add(synth(0.45, |t| {
-            ((TAU * 1568.0 * t).sin() + 0.45 * (TAU * 2349.0 * t).sin() + 0.2 * (TAU * 3136.0 * t).sin())
-                * (-t * 11.0).exp()
-                * 0.6
-        })),
-    });
+    commands.insert_resource(HitSounds { tick: add(tick()), pop: add(pop()), ding: add(ding()) });
+}
+
+/// Bright, very short click: what most shooters use for body hits. Scaled so the two partials
+/// (which peak together around 1 ms) never clip.
+fn tick() -> Vec<f32> {
+    synth(0.05, |t| {
+        0.75 * ((TAU * 3200.0 * t).sin() * (-t * 110.0).exp() + 0.5 * (TAU * 5100.0 * t).sin() * (-t * 220.0).exp())
+    })
+}
+
+/// A quick drop in pitch, like a bubble bursting: phase is the integral of 650 + 1400·e^(−90t) Hz,
+/// so the sweep is over in about 30 ms and nothing low is left to boom.
+fn pop() -> Vec<f32> {
+    synth(0.07, |t| {
+        let phase = TAU * (650.0 * t + 1400.0 / 90.0 * (1.0 - (-90.0 * t).exp()));
+        0.7 * phase.sin() * (-t * 75.0).exp()
+    })
+}
+
+/// A short, high bell: two partials a fifth apart plus a bright inharmonic one that dies first.
+/// Damped to silence within ~150 ms, so successive dings don't beat against each other.
+fn ding() -> Vec<f32> {
+    synth(0.16, |t| {
+        let ring = (TAU * 2637.0 * t).sin() + 0.4 * (TAU * 3951.0 * t).sin();
+        let strike = 0.3 * (TAU * 6850.0 * t).sin() * (-t * 90.0).exp();
+        0.45 * (ring * (-t * 30.0).exp() + strike)
+    })
 }
 
 /// Samples `f` for `secs`, with a 1 ms fade-in and a 5 ms fade-out so playback never starts or
@@ -93,4 +106,26 @@ fn wav(samples: &[f32]) -> Vec<u8> {
         out.extend_from_slice(&((sample.clamp(-1.0, 1.0) * i16::MAX as f32) as i16).to_le_bytes());
     }
     out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Kills 150 ms apart: each sound has died away (−30 dB) by the next, and the sounds played
+    /// back to back never sum past full scale.
+    #[test]
+    fn sounds_fit_rapid_kills() {
+        let gap = (0.15 * SAMPLE_RATE as f32) as usize;
+        let peak = |samples: &[f32]| samples.iter().fold(0.0f32, |peak, s| peak.max(s.abs()));
+        for (name, samples) in [("tick", tick()), ("pop", pop()), ("ding", ding())] {
+            let (loudest, tail) = (peak(&samples), peak(samples.get(gap..).unwrap_or_default()));
+            assert!(tail <= loudest * 10f32.powf(-30.0 / 20.0), "{name} still at {tail} of {loudest} after 150 ms");
+            let mut mix = vec![0.0; 3 * gap + samples.len()];
+            for start in [0, gap, 2 * gap] {
+                mix[start..start + samples.len()].iter_mut().zip(&samples).for_each(|(m, s)| *m += s);
+            }
+            assert!(peak(&mix) <= 1.0, "{name} clips at {} when repeated", peak(&mix));
+        }
+    }
 }

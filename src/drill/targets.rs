@@ -2,8 +2,13 @@
 //! [`DrillDef`](super::def::DrillDef) hooks, click shooting, decay and delayed spawns.
 //! Per-drill behaviour lives in [`super::kinds`].
 
+use bevy::asset::RenderAssetUsages;
+use bevy::camera::Hdr;
 use bevy::ecs::system::EntityCommands;
+use bevy::image::ImageSampler;
+use bevy::post_process::bloom::{Bloom, BloomPrefilter};
 use bevy::prelude::*;
+use bevy::render::render_resource::{Extent3d, TextureDimension, TextureFormat};
 
 use super::def::{Environment, TtkFrom};
 use super::geometry::{TARGET_DISTANCE, ray_hit};
@@ -15,7 +20,7 @@ use crate::metrics::flick_probe::angles;
 use crate::metrics::quest::RADIUS_RANGE;
 use crate::metrics::throughput::Click;
 use crate::replay::Recorder;
-use crate::settings::Settings;
+use crate::settings::{Settings, TargetStyle};
 use crate::sfx::HitSounds;
 
 /// Fraction of its size a decaying target has left when it expires.
@@ -33,6 +38,10 @@ pub struct TargetAssets {
     pub(crate) cover_mesh: Handle<Mesh>,
     pub(crate) cover_material: Handle<StandardMaterial>,
 }
+
+/// Turns its target's pole (the bullseye's centre) to the eye at the origin every frame.
+#[derive(Component, Clone, Copy, Default)]
+pub struct FacesEye;
 
 #[derive(Component)]
 pub(crate) struct Target {
@@ -124,13 +133,89 @@ impl SpawnCtx<'_, '_, '_> {
             Target { base_radius: radius, born: self.now, lifetime, spawn_aim: self.live.then(|| angles(self.aim)) },
             Mesh3d(self.assets.mesh.clone()),
             MeshMaterial3d(self.assets.idle.clone()),
-            Transform::from_translation(position).with_scale(Vec3::splat(radius)),
+            Transform::from_translation(position).with_rotation(facing_eye(position)).with_scale(Vec3::splat(radius)),
+            FacesEye,
         ))
     }
 }
 
 fn unlit(color: Color) -> StandardMaterial {
     StandardMaterial { base_color: color, unlit: true, ..default() }
+}
+
+/// A target's material in `color`, shaded as `style` says (`images` holds a bullseye's rings).
+fn target_material(color: Color, style: TargetStyle, images: &mut Assets<Image>) -> StandardMaterial {
+    match style {
+        TargetStyle::Flat => unlit(color),
+        TargetStyle::Shaded => {
+            StandardMaterial { base_color: color, perceptual_roughness: 0.75, reflectance: 0.2, ..default() }
+        },
+        TargetStyle::Glossy => StandardMaterial {
+            base_color: color,
+            perceptual_roughness: 0.12,
+            reflectance: 0.7,
+            clearcoat: 1.0,
+            clearcoat_perceptual_roughness: 0.05,
+            ..default()
+        },
+        TargetStyle::Bullseye => {
+            StandardMaterial { base_color_texture: Some(images.add(bullseye_texture(color))), ..unlit(Color::WHITE) }
+        },
+        // Emissive (which unlit materials ignore) and brighter than white, so the camera's bloom
+        // (on while this style is chosen) gives it a halo.
+        TargetStyle::Glow => {
+            StandardMaterial { base_color: color, emissive: LinearRgba::from(color) * 2.5, ..default() }
+        },
+    }
+}
+
+/// The rotation that turns a target at `position` so its +Z pole (where Bevy's UV sphere starts
+/// its texture rows) faces the eye at the origin.
+pub(crate) fn facing_eye(position: Vec3) -> Quat {
+    Quat::from_rotation_arc(Vec3::Z, -position.normalize_or(Vec3::NEG_Z))
+}
+
+/// Keeps moving targets' bullseyes facing the eye.
+pub fn face_eye(mut targets: Query<&mut Transform, With<FacesEye>>) {
+    for mut transform in &mut targets {
+        let rotation = facing_eye(transform.translation);
+        if !transform.rotation.abs_diff_eq(rotation, 1e-5) {
+            transform.rotation = rotation;
+        }
+    }
+}
+
+/// A dot in `color`, a near-white ring and an outer ring in `color` (so the outline matches the
+/// other styles), as seen from the +Z pole of a UV sphere: texture row `v` is the latitude,
+/// whose projected distance from the centre (in radii) is `sin(v·π)`. Each row averages a few
+/// samples, so the ring edges are smooth.
+fn bullseye_texture(color: Color) -> Image {
+    const ROWS: u32 = 256;
+    const SAMPLES: u32 = 8;
+    /// Projected radii (in target radii) where the white ring starts and ends.
+    const RING: (f32, f32) = (0.32, 0.64);
+    let ring = color.to_linear();
+    let white = ring.mix(&LinearRgba::WHITE, 0.82);
+    let mut pixels = Vec::with_capacity((ROWS * 4) as usize);
+    for row in 0..ROWS {
+        let white_part = (0..SAMPLES)
+            .filter(|s| {
+                let v = (row as f32 + (*s as f32 + 0.5) / SAMPLES as f32) / ROWS as f32;
+                (RING.0..RING.1).contains(&(v * std::f32::consts::PI).sin())
+            })
+            .count() as f32
+            / SAMPLES as f32;
+        pixels.extend_from_slice(&Color::from(ring.mix(&white, white_part)).to_srgba().to_u8_array());
+    }
+    let mut image = Image::new(
+        Extent3d { width: 1, height: ROWS, depth_or_array_layers: 1 },
+        TextureDimension::D2,
+        pixels,
+        TextureFormat::Rgba8UnormSrgb,
+        RenderAssetUsages::RENDER_WORLD,
+    );
+    image.sampler = ImageSampler::linear();
+    image
 }
 
 fn target_color(settings: &Settings) -> Color {
@@ -147,12 +232,15 @@ pub(super) fn create_target_assets(
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
+    mut images: ResMut<Assets<Image>>,
     settings: Res<Settings>,
 ) {
+    let (style, idle, hot) = (settings.targets.style, target_color(&settings), hot_color(&settings));
     commands.insert_resource(TargetAssets {
-        mesh: meshes.add(Sphere::new(1.0)),
-        idle: materials.add(unlit(target_color(&settings))),
-        hot: materials.add(unlit(hot_color(&settings))),
+        // UV sphere: its texture rows run pole to pole, which the bullseye relies on.
+        mesh: meshes.add(Sphere::new(1.0).mesh().uv(32, 18)),
+        idle: materials.add(target_material(idle, style, &mut images)),
+        hot: materials.add(target_material(hot, style, &mut images)),
         wait: materials.add(unlit(Color::srgb(0.35, 0.37, 0.42))),
         cover_mesh: meshes.add(Cuboid::from_size(peek::COVER_MAX - peek::COVER_MIN)),
         cover_material: materials.add(StandardMaterial {
@@ -163,16 +251,35 @@ pub(super) fn create_target_assets(
     });
 }
 
-pub(super) fn sync_target_colors(
+/// Applies a new target color or style to the shared materials, and turns the 3D cameras' bloom
+/// (the player's and the settings preview's) on for the glowing style only: it costs a render
+/// pass.
+pub(super) fn sync_target_look(
+    mut commands: Commands,
     settings: Res<Settings>,
     assets: Res<TargetAssets>,
     mut materials: ResMut<Assets<StandardMaterial>>,
+    mut images: ResMut<Assets<Image>>,
+    cameras: Query<(Entity, Has<Bloom>), With<Camera3d>>,
+    mut applied: Local<Option<([u8; 3], TargetStyle)>>,
 ) {
+    let look = (settings.targets.color, settings.targets.style);
+    if *applied == Some(look) {
+        return;
+    }
+    *applied = Some(look);
     for (handle, color) in [(&assets.idle, target_color(&settings)), (&assets.hot, hot_color(&settings))] {
-        if let Some(mut material) = materials.get_mut(handle)
-            && material.base_color != color
-        {
-            material.base_color = color;
+        if let Some(mut material) = materials.get_mut(handle) {
+            *material = target_material(color, look.1, &mut images);
+        }
+    }
+    let glow = look.1 == TargetStyle::Glow;
+    for (camera, has_bloom) in &cameras {
+        if glow && !has_bloom {
+            let prefilter = BloomPrefilter { threshold: 1.0, threshold_softness: 0.3 };
+            commands.entity(camera).insert((Hdr, Bloom { prefilter, ..Bloom::NATURAL }));
+        } else if !glow && has_bloom {
+            commands.entity(camera).remove::<(Bloom, Hdr)>();
         }
     }
 }
@@ -404,6 +511,23 @@ mod tests {
 
     fn target(born: f32, spawn_aim: Option<Vec2>) -> Target {
         Target { base_radius: 0.2, born, lifetime: None, spawn_aim }
+    }
+
+    /// The bullseye's centre (texture row 0 of the target mesh) points at the eye wherever the
+    /// target is; otherwise its rings show as stripes.
+    #[test]
+    fn bullseye_centre_faces_the_eye() {
+        use bevy::mesh::VertexAttributeValues;
+        let mesh = Sphere::new(1.0).mesh().uv(32, 18);
+        let Some(VertexAttributeValues::Float32x3(positions)) = mesh.attribute(Mesh::ATTRIBUTE_POSITION) else {
+            panic!("positions")
+        };
+        let Some(VertexAttributeValues::Float32x2(uvs)) = mesh.attribute(Mesh::ATTRIBUTE_UV_0) else { panic!("uvs") };
+        let centre = Vec3::from(positions[uvs.iter().position(|uv| uv[1] == 0.0).unwrap()]);
+        for at in [Vec3::new(0.0, 0.0, -10.0), Vec3::new(4.0, 2.5, -9.0), Vec3::new(-8.0, -2.0, -3.0)] {
+            let facing = facing_eye(at) * centre;
+            assert!(facing.angle_between(-at) < 1e-3, "{at}: centre points along {facing}");
+        }
     }
 
     #[test]

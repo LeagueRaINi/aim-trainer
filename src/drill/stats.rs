@@ -1,7 +1,7 @@
 //! A finished (or running) drill's statistics and how each [`ScoreModel`] turns them into a
 //! score and the stats shown with it.
 
-use super::DrillKind;
+use super::{DrillConfig, DrillKind};
 use crate::metrics::throughput::{self, Click};
 
 #[derive(Clone, Debug)]
@@ -84,6 +84,10 @@ pub enum ScoreModel {
     Tracking,
     /// 100 000 / average reaction ms, weighted by accuracy.
     Reaction,
+    /// Accuracy-weighted kills (x100): the longer you last, the more you get.
+    Survival,
+    /// Kills per minute (x100), each earned by holding the crosshair on a moving target.
+    Switch,
 }
 
 /// A per-run value shown as a history column.
@@ -101,6 +105,8 @@ impl ScoreModel {
             ScoreModel::Reaction if stats.hits == 0 => 0.0,
             ScoreModel::Reaction => (100_000.0 / stats.avg_kill_ms() * stats.accuracy()).round(),
             ScoreModel::Flick => (stats.hits as f32 * 100.0 * stats.accuracy() * 60.0 / stats.duration).round(),
+            ScoreModel::Survival => (stats.hits as f32 * 100.0 * stats.accuracy()).round(),
+            ScoreModel::Switch => (stats.hits as f32 * 100.0 * 60.0 / stats.duration).round(),
         }
     }
 
@@ -128,15 +134,40 @@ impl ScoreModel {
                 }
                 list
             },
+            ScoreModel::Survival => vec![
+                ("Survived", format!("{:.1} s", stats.duration)),
+                ("Kills", stats.hits.to_string()),
+                ("Lives lost", stats.expired.to_string()),
+                ("Accuracy", format!("{:.1}%", stats.accuracy() * 100.0)),
+                ("Avg kill", format!("{:.0} ms", stats.avg_kill_ms())),
+            ],
+            ScoreModel::Switch => vec![
+                ("Kills", stats.hits.to_string()),
+                ("Kills / s", format!("{:.2}", stats.hits as f32 / stats.duration)),
+                ("Avg kill", format!("{:.0} ms", stats.avg_kill_ms())),
+                ("Best kill", format!("{best_ms:.0} ms")),
+                ("On target", format!("{:.1}%", stats.on_target_ratio() * 100.0)),
+            ],
         }
     }
 
-    /// The live stat line in the in-game HUD.
-    pub fn hud_detail(self, stats: &RunStats) -> String {
+    /// The live stat line in the in-game HUD, for a run of `config`.
+    pub fn hud_detail(self, stats: &RunStats, config: &DrillConfig) -> String {
         match self {
             ScoreModel::Tracking => format!("On target {:.1}%", stats.on_target_ratio() * 100.0),
             ScoreModel::Reaction => format!("Hits {}   Avg {:.0} ms", stats.hits, stats.avg_kill_ms()),
             ScoreModel::Flick => format!("Hits {}   Acc {:.0}%", stats.hits, stats.accuracy() * 100.0),
+            ScoreModel::Survival => {
+                format!(
+                    "Kills {}   Lives {} / {}",
+                    stats.hits,
+                    config.lives.saturating_sub(stats.expired),
+                    config.lives
+                )
+            },
+            ScoreModel::Switch => {
+                format!("Kills {}   On target {:.0}%", stats.hits, stats.on_target_ratio() * 100.0)
+            },
         }
     }
 
@@ -145,7 +176,10 @@ impl ScoreModel {
         match self {
             ScoreModel::Tracking => &[("On target", HistoryStat::OnTarget)],
             ScoreModel::Reaction => &[("Accuracy", HistoryStat::Accuracy), ("Avg ms", HistoryStat::KillMs)],
-            ScoreModel::Flick => &[("Accuracy", HistoryStat::Accuracy), ("ms / kill", HistoryStat::KillMs)],
+            ScoreModel::Flick | ScoreModel::Survival => {
+                &[("Accuracy", HistoryStat::Accuracy), ("ms / kill", HistoryStat::KillMs)]
+            },
+            ScoreModel::Switch => &[("On target", HistoryStat::OnTarget), ("ms / kill", HistoryStat::KillMs)],
         }
     }
 }

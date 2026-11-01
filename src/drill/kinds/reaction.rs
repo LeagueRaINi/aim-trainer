@@ -19,7 +19,7 @@ const REACTION_WINDOW: f32 = 1.0;
 
 pub const DEF: DrillDef = DrillDef {
     name: "Reaction",
-    blurb: "Click the instant the dot lights up.",
+    blurb: |_| "Click the instant the dot lights up.".into(),
     category: Category::Eyes,
     base_radius: 0.5,
     decay: DecayRule::None,
@@ -31,6 +31,7 @@ pub const DEF: DrillDef = DrillDef {
     classic_finder: false,
     flick_analysis: false,
     adaptive: false,
+    endless: false,
     params: &[ParamId::DelayMin, ParamId::DelayMax],
     tune_defaults: no_tuning,
     spawn_initial,

@@ -46,9 +46,8 @@ pub struct HistoryBody;
 /// The History page's content, scrolling once many drills or a long summary outgrow the menu.
 pub fn history_body() -> impl Scene {
     bsn! {
-        @scroll_column()
-        Node { flex_grow: 1.0, row_gap: px(SPACE_M) }
-        HistoryBody
+        @scroll_column(bsn_list! { @column() Node { row_gap: px(SPACE_M) } HistoryBody })
+        Node { flex_grow: 1.0 }
     }
 }
 

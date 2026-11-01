@@ -56,7 +56,11 @@ pub(super) fn finder_page(settings: &Settings) -> impl Scene {
                 @card("How it works", bsn_list! {
                     @subheading("Smart")
                     --
-                    @label_dim("6 to 12 blind trials between 0.6x and 1.6x your sens: first both ends and your own in random order, then wherever a statistical model of your performance (a Gaussian process that also factors out warm-up) expects to learn most. Each trial plays the Smart focus drills at the same sens (Balanced: Microflick + Tracking, Flicking: Gridshot + Microflick, Tracking: Tracking), the first 3 s of each unscored. After each trial you rate how it felt. It stops once your best range (every sens likely within 3% of your best) settles; your current sens is kept if it's in that range, and only a clear trend in where your flicks and clicks land can move the pick inside it.")
+                    @label_dim("6 to 12 blind trials between 0.6x and 1.6x your sens: first both ends and your own in random order, then wherever a statistical model of your performance (a Gaussian process that also factors out warm-up) expects to learn most.")
+                    --
+                    @label_dim("Each trial plays the Smart focus drills at the same sens (Balanced: Microflick + Tracking, Flicking: Gridshot + Microflick, Tracking: Tracking), the first 3 s of each unscored. After each trial you rate how it felt.")
+                    --
+                    @label_dim("It stops once your best range (every sens likely within 3% of your best) settles; your current sens is kept if it's in that range, and only a clear trend in where your flicks and clicks land can move the pick inside it.")
                     --
                     @subheading("Classic")
                     Node { margin: UiRect::top(px(SPACE_S)) }

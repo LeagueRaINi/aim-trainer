@@ -1,10 +1,13 @@
 //! Tunable drill parameters. Built-in drills use the defaults (plus the global target size and
 //! decay settings); custom scenarios store their own copy.
 
+use std::borrow::Cow;
+
 use serde::{Deserialize, Serialize};
 
 use super::DrillKind;
 use super::def::DecayRule;
+use super::kinds::gridshot::MAX_GRID_HEIGHT;
 use super::params::ParamId;
 use crate::metrics::quest::QuestMode;
 use crate::settings::Settings;
@@ -59,12 +62,48 @@ pub struct DrillConfig {
     // Reaction
     pub delay_min: f32,
     pub delay_max: f32,
+    // Survival. Written only when not at their defaults, so files and share codes saved before
+    // they existed (all at the defaults) stay byte-identical.
+    /// Targets that may reach the player before the run ends.
+    #[serde(skip_serializing_if = "is_default_lives")]
+    pub lives: u32,
+    /// Speed targets start approaching at, m/s; it rises as the run goes on.
+    #[serde(skip_serializing_if = "is_default_approach_speed")]
+    pub approach_speed: f32,
+    /// Seconds between new targets at the start; it shrinks as the run goes on.
+    #[serde(skip_serializing_if = "is_default_spawn_interval")]
+    pub spawn_interval: f32,
+    // Switch tracking. Written only when not at its default, like the Survival fields.
+    /// Seconds the crosshair has to stay on a target to kill it.
+    #[serde(skip_serializing_if = "is_default_track_time")]
+    pub track_time: f32,
     // Adaptive (drills whose `DrillDef::adaptive` is set)
     /// QUEST+ picks every target's size (see [`crate::metrics::quest`]) and a target counts as a
     /// hit only if killed within [`time_limit`](Self::time_limit); `None` = fixed size. Written
     /// only when set, so files and share codes without it stay byte-identical.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub adaptive: Option<QuestMode>,
+}
+
+const DEFAULT_LIVES: u32 = 3;
+const DEFAULT_APPROACH_SPEED: f32 = 2.0;
+const DEFAULT_SPAWN_INTERVAL: f32 = 1.2;
+const DEFAULT_TRACK_TIME: f32 = 0.5;
+
+fn is_default_lives(lives: &u32) -> bool {
+    *lives == DEFAULT_LIVES
+}
+
+fn is_default_approach_speed(speed: &f32) -> bool {
+    *speed == DEFAULT_APPROACH_SPEED
+}
+
+fn is_default_spawn_interval(interval: &f32) -> bool {
+    *interval == DEFAULT_SPAWN_INTERVAL
+}
+
+fn is_default_track_time(secs: &f32) -> bool {
+    *secs == DEFAULT_TRACK_TIME
 }
 
 impl Default for DrillConfig {
@@ -103,21 +142,34 @@ impl DrillConfig {
             hold_max: 0.8,
             delay_min: 0.9,
             delay_max: 2.6,
+            // Four seconds from appearing to arriving, a new one every 1.2 s: easy at first.
+            lives: DEFAULT_LIVES,
+            approach_speed: DEFAULT_APPROACH_SPEED,
+            spawn_interval: DEFAULT_SPAWN_INTERVAL,
+            // Half a second on target: long enough to need real tracking, short enough to keep
+            // switching.
+            track_time: DEFAULT_TRACK_TIME,
             adaptive: None,
         };
         (kind.def().tune_defaults)(&mut config);
         config
     }
 
-    /// A built-in drill: defaults plus the global target size and (where it applies) decay.
-    /// Use [`DrillSpec::builtin`] to also get the matching history name.
+    /// A built-in drill: defaults plus the global target size (scaling the drill's own default
+    /// size) and (where it applies) decay. Use [`DrillSpec::builtin`] to also get the matching
+    /// history name.
     pub fn builtin(kind: DrillKind, settings: &Settings) -> Self {
         let mut config = Self::defaults(kind);
-        config.size = settings.target_scale;
+        config.size *= settings.target_scale;
         if kind.def().decay == DecayRule::Global {
             config.lifetime = settings.targets.lifetime;
         }
         config
+    }
+
+    /// One line describing this config (see [`DrillDef::blurb`](super::def::DrillDef)).
+    pub fn blurb(&self) -> Cow<'static, str> {
+        (self.kind.def().blurb)(self)
     }
 
     pub fn supports_decay(&self) -> bool {
@@ -159,6 +211,12 @@ impl DrillConfig {
         // At least one free cell is needed so a kill can respawn somewhere new.
         let cells = self.grid_cols * self.grid_rows;
         self.grid_active = self.grid_active.min(cells.saturating_sub(1).max(1));
+        // Every row between floor and ceiling: the spacing (in the editor's 0.5° steps) shrinks
+        // to fit a tall grid.
+        if self.grid_rows > 1 {
+            let fits = (MAX_GRID_HEIGHT / (self.grid_rows - 1) as f32 * 2.0).floor() * 0.5;
+            self.grid_spacing = self.grid_spacing.min(fits);
+        }
         self.min_flick = self.min_flick.min(self.yaw_range.max(self.pitch_range));
         if self.max_flick > 0.0 {
             self.max_flick = self.max_flick.max(self.min_flick);
@@ -193,8 +251,8 @@ impl DrillSpec {
         if config.lifetime != defaults.lifetime {
             name += &format!("{VARIANT_SEPARATOR}decay {:.1}s", config.lifetime);
         }
-        if (config.size - defaults.size).abs() > 1e-3 {
-            name += &format!("{VARIANT_SEPARATOR}size {}x", (config.size * 100.0).round() / 100.0);
+        if (settings.target_scale - 1.0).abs() > 1e-3 {
+            name += &format!("{VARIANT_SEPARATOR}size {}x", (settings.target_scale * 100.0).round() / 100.0);
         }
         Self { name, config }
     }
@@ -318,7 +376,10 @@ mod tests {
         assert_eq!(DrillConfig::builtin(DrillKind::Tracking, &settings).lifetime, 0.0);
         // Peripheral always decays on its own schedule.
         assert_eq!(DrillConfig::builtin(DrillKind::Peripheral, &settings).lifetime, 1.1);
-        assert_eq!(DrillConfig::builtin(DrillKind::Gridshot, &settings).size, 0.8);
+        // The global size scales each drill's own default size.
+        assert_eq!(DrillConfig::builtin(DrillKind::Microflick, &settings).size, 0.8);
+        let gridshot = DrillConfig::defaults(DrillKind::Gridshot).size;
+        assert!((DrillConfig::builtin(DrillKind::Gridshot, &settings).size - gridshot * 0.8).abs() < 1e-6);
     }
 
     #[test]

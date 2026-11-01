@@ -9,8 +9,10 @@ use super::{MenuTab, main_column, page, side_column};
 use crate::crosshair::CrosshairPreview;
 use crate::settings::{CrosshairSettings, SettingField, Settings};
 use crate::ui::bindings::*;
-use crate::ui::theme::*;
 use crate::ui::widgets::*;
+
+/// Height of the preview box; with the Outlines card below it the column fits the menu.
+const PREVIEW_H: f32 = 200.0;
 
 pub(super) fn crosshair_page(settings: &Settings) -> impl Scene {
     bsn! {
@@ -30,53 +32,50 @@ pub(super) fn crosshair_page(settings: &Settings) -> impl Scene {
                     })
                 })
                 --
-                @row()
-                Node { align_items: AlignItems::Start, column_gap: px(SPACE_L) }
-                Children [
-                    @card("Center dot & lines", bsn_list! {
-                        @on_off_row("Center dot", Choice::CenterDot(true), Choice::CenterDot(false))
-                        --
-                        @number_field(SettingField::DotThickness, settings)
-                        --
-                        @on_off_row("Inner lines", Choice::InnerLines(true), Choice::InnerLines(false))
-                        --
-                        @number_field(SettingField::LineLength, settings)
-                        --
-                        @number_field(SettingField::LineThickness, settings)
-                        --
-                        @number_field(SettingField::LineOffset, settings)
-                    })
-                    Node { flex_grow: 1.0, flex_basis: px(0) }
+                @card("Center dot & lines", bsn_list! {
+                    @on_off_row("Center dot", Choice::CenterDot(true), Choice::CenterDot(false))
                     --
-                    @card("Outlines", bsn_list! {
-                        @on_off_row("Outlines", Choice::Outlines(true), Choice::Outlines(false))
-                        --
-                        @number_field(SettingField::OutlineThickness, settings)
-                        --
-                        @number_field(SettingField::OutlineOpacity, settings)
-                    })
-                    Node { flex_grow: 1.0, flex_basis: px(0) }
-                ]
+                    @number_field(SettingField::DotThickness, settings)
+                    --
+                    @on_off_row("Inner lines", Choice::InnerLines(true), Choice::InnerLines(false))
+                    --
+                    @number_field(SettingField::LineLength, settings)
+                    --
+                    @number_field(SettingField::LineThickness, settings)
+                    --
+                    @number_field(SettingField::LineOffset, settings)
+                })
             ]
             --
             @side_column()
             Children [
                 @card("Preview", bsn_list! {
                     Node {
-                        height: px(220),
+                        height: px(PREVIEW_H),
                         border_radius: BorderRadius::all(px(6)),
                     }
                     BackgroundColor(Color::srgb_u8(44, 47, 56))
                     CrosshairPreview
                     --
-                    @label_dim("Actual pixel size.")
-                    --
-                    @actions(bsn_list! {
+                    @row()
+                    Children [
+                        @label_dim("Actual pixel size.")
+                        --
+                        @spacer()
+                        --
                         @button("Reset to Valorant default", ButtonVariant::Normal)
                         on(|_: On<Activate>, mut settings: ResMut<Settings>| {
                             settings.crosshair = CrosshairSettings::default();
                         })
-                    })
+                    ]
+                })
+                --
+                @card("Outlines", bsn_list! {
+                    @on_off_row("Outlines", Choice::Outlines(true), Choice::Outlines(false))
+                    --
+                    @number_field(SettingField::OutlineThickness, settings)
+                    --
+                    @number_field(SettingField::OutlineOpacity, settings)
                 })
             ]
         ]

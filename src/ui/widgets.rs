@@ -5,7 +5,7 @@
 
 use bevy::app::Propagate;
 use bevy::feathers::constants::fonts;
-use bevy::feathers::controls::{ButtonVariant, FeathersButton};
+use bevy::feathers::controls::{ButtonVariant, FeathersButton, FeathersScrollbar, ScrollbarGutter};
 use bevy::feathers::display::{caption, label};
 use bevy::feathers::theme::{
     SurfaceLevel, ThemeBackgroundColor, ThemeBorderColor, ThemeContext, ThemeTextColor, ThemeToken,
@@ -14,7 +14,7 @@ use bevy::feathers::tokens;
 use bevy::input_focus::tab_navigation::TabGroup;
 use bevy::prelude::*;
 use bevy::text::{FontSourceTemplate, FontWeight};
-use bevy::ui_widgets::ScrollArea;
+use bevy::ui_widgets::{ControlOrientation, ScrollArea};
 
 use super::theme::*;
 
@@ -107,13 +107,47 @@ pub fn column() -> impl Scene {
     }
 }
 
-/// A column that scrolls with the mouse wheel once its content is taller than the space its
-/// parent gives it, so long lists stay inside the fixed-size menu.
-pub fn scroll_column() -> impl Scene {
+/// Room on the right of a [`scroll_column`] for its scrollbar, while it shows.
+pub const SCROLLBAR_GUTTER: f32 = 14.0;
+
+/// `content` in a column that scrolls with the mouse wheel once it is taller than the space its
+/// parent gives it, so long lists stay inside the fixed-size menu. A scrollbar shows (and can
+/// be dragged) while it overflows, so it is clear there is more. Size the column by patching
+/// this node; `content` sits in an inner column `SPACE_L` apart.
+pub fn scroll_column(content: impl SceneList) -> impl Scene {
     bsn! {
-        @column()
-        Node { overflow: Overflow::scroll_y(), min_height: px(0) }
-        ScrollArea
+        Node {
+            display: Display::Flex,
+            flex_direction: FlexDirection::Column,
+            min_height: px(0),
+            padding: UiRect::right(px(SCROLLBAR_GUTTER)),
+        }
+        ScrollbarGutter(px(SCROLLBAR_GUTTER))
+        Children [
+            #scroller
+            Node {
+                display: Display::Flex,
+                flex_direction: FlexDirection::Column,
+                flex_grow: 1.0,
+                min_height: px(0),
+                row_gap: px(SPACE_L),
+                overflow: Overflow::scroll_y(),
+            }
+            ScrollArea
+            Children [ {content} ]
+            --
+            @FeathersScrollbar {
+                @target: #scroller,
+                @orientation: {ControlOrientation::Vertical}
+            }
+            Node {
+                position_type: PositionType::Absolute,
+                right: px(2),
+                top: px(0),
+                bottom: px(0),
+                width: px(6),
+            }
+        ]
     }
 }
 

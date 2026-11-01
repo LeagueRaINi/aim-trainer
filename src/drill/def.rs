@@ -2,6 +2,8 @@
 //! menus, the custom editor, history, analysis, replays) asks the definition instead of
 //! matching on the kind.
 
+use std::borrow::Cow;
+
 use super::DrillConfig;
 use super::params::ParamId;
 use super::stats::ScoreModel;
@@ -12,8 +14,9 @@ pub struct DrillDef {
     /// Persisted: the built-in drill's history name, the CSV `kind` column and the lookup for
     /// old rows without one. Never change it.
     pub name: &'static str,
-    /// One line shown on the play page, the ready card and the custom editor.
-    pub blurb: &'static str,
+    /// One line shown on the play page, the ready card and the custom editor, describing the
+    /// given config (custom scenarios show their own numbers).
+    pub blurb: fn(&DrillConfig) -> Cow<'static, str>,
     /// Which play-page card it is listed under.
     pub category: Category,
     /// Target radius in meters at size 1.0.
@@ -37,6 +40,9 @@ pub struct DrillDef {
     /// Offers an adaptive mode (QUEST+ target sizes, see [`DrillConfig::adaptive`]). Needs one
     /// click-killed target at a time that can expire.
     pub adaptive: bool,
+    /// Runs until the drill ends it (`Run::end`) rather than for the drill length, so scores
+    /// don't depend on the length setting; the HUD timer counts up.
+    pub endless: bool,
     /// The custom editor's fields for this kind, after the length, size and (if it decays)
     /// lifetime.
     pub params: &'static [ParamId],

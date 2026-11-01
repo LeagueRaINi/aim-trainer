@@ -14,8 +14,8 @@ use super::widgets::*;
 use crate::drill::DrillKind;
 use crate::settings::fields::FieldSpec;
 use crate::settings::{
-    AspectMode, CROSSHAIR_COLORS, DisplayMode, FinderFocus, FinderMethod, HitSound, PRESETS, SettingField, Settings,
-    TARGET_COLORS,
+    AspectMode, CROSSHAIR_COLORS, DisplayMode, FinderFocus, FinderMethod, HitSound, PRESETS, SceneTheme, SettingField,
+    Settings, TARGET_COLORS, TargetStyle, WeaponModel, WeaponSide,
 };
 use crate::sfx::HitSounds;
 
@@ -44,6 +44,10 @@ pub enum Choice {
     Outlines(bool),
     Discord(bool),
     AutoUpdate(bool),
+    TargetStyle(TargetStyle),
+    Scene(SceneTheme),
+    Weapon(WeaponModel),
+    WeaponSide(WeaponSide),
 }
 
 impl Default for Choice {
@@ -71,6 +75,10 @@ impl Choice {
             Choice::Outlines(on) => settings.crosshair.outlines = on,
             Choice::Discord(on) => settings.discord.enabled = on,
             Choice::AutoUpdate(on) => settings.updates.auto = on,
+            Choice::TargetStyle(style) => settings.targets.style = style,
+            Choice::Scene(theme) => settings.video.scene = theme,
+            Choice::Weapon(model) => settings.video.weapon = model,
+            Choice::WeaponSide(side) => settings.video.weapon_side = side,
         }
     }
 
@@ -92,6 +100,10 @@ impl Choice {
             Choice::Outlines(on) => settings.crosshair.outlines == on,
             Choice::Discord(on) => settings.discord.enabled == on,
             Choice::AutoUpdate(on) => settings.updates.auto == on,
+            Choice::TargetStyle(style) => settings.targets.style == style,
+            Choice::Scene(theme) => settings.video.scene == theme,
+            Choice::Weapon(model) => settings.video.weapon == model,
+            Choice::WeaponSide(side) => settings.video.weapon_side == side,
         }
     }
 }
@@ -143,6 +155,46 @@ pub fn target_color_choices() -> impl Scene {
             @swatch_choice(TARGET_COLORS[5].0, TARGET_COLORS[5].1, Choice::TargetColor(5))
         ]
     }
+}
+
+/// Choices for the target shading.
+pub fn target_style_choices() -> impl Scene {
+    let [a, b, c, d, e] = TargetStyle::ALL;
+    bsn! {
+        @wrap_row()
+        Children [
+            @choice(a.name(), Choice::TargetStyle(a)) -- @choice(b.name(), Choice::TargetStyle(b)) --
+            @choice(c.name(), Choice::TargetStyle(c)) -- @choice(d.name(), Choice::TargetStyle(d)) --
+            @choice(e.name(), Choice::TargetStyle(e))
+        ]
+    }
+}
+
+/// Choices for the room around the targets.
+pub fn scene_choices() -> impl Scene {
+    let [a, b, c, d, e] = SceneTheme::ALL;
+    bsn! {
+        @wrap_row()
+        Children [
+            @choice(a.name(), Choice::Scene(a)) -- @choice(b.name(), Choice::Scene(b)) --
+            @choice(c.name(), Choice::Scene(c)) -- @choice(d.name(), Choice::Scene(d)) --
+            @choice(e.name(), Choice::Scene(e))
+        ]
+    }
+}
+
+/// Choices for the weapon shown in drills.
+pub fn weapon_choices() -> impl SceneList {
+    let [a, b, c] = WeaponModel::ALL;
+    bsn_list! {
+        @choice(a.name(), Choice::Weapon(a)) -- @choice(b.name(), Choice::Weapon(b)) -- @choice(c.name(), Choice::Weapon(c))
+    }
+}
+
+/// Choices for the side the weapon is held on.
+pub fn weapon_side_choices() -> impl SceneList {
+    let [left, right] = WeaponSide::ALL;
+    bsn_list! { @choice(left.name(), Choice::WeaponSide(left)) -- @choice(right.name(), Choice::WeaponSide(right)) }
 }
 
 /// Swatch choices for Valorant's crosshair colors.

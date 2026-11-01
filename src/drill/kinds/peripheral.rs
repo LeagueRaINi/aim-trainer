@@ -12,7 +12,7 @@ use crate::drill::targets::SpawnCtx;
 
 pub const DEF: DrillDef = DrillDef {
     name: "Peripheral",
-    blurb: "Brief dots far off-center. Spot + flick.",
+    blurb: |_| "Brief dots far off-center. Spot + flick.".into(),
     category: Category::Eyes,
     base_radius: 0.2,
     decay: DecayRule::Own,
@@ -24,6 +24,7 @@ pub const DEF: DrillDef = DrillDef {
     classic_finder: false,
     flick_analysis: true,
     adaptive: false,
+    endless: false,
     params: &[ParamId::YawRange, ParamId::PitchRange, ParamId::MinFlick],
     tune_defaults: tune,
     spawn_initial,

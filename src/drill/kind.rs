@@ -18,11 +18,14 @@ pub enum DrillKind {
     Peek,
     Reaction,
     Peripheral,
+    MovingGridshot,
+    Survival,
+    SwitchTracking,
 }
 
 impl DrillKind {
     /// Order matters: replays store the index. Only ever append.
-    pub const ALL: [DrillKind; 7] = [
+    pub const ALL: [DrillKind; 10] = [
         DrillKind::Gridshot,
         DrillKind::Microflick,
         DrillKind::Tracking,
@@ -30,6 +33,9 @@ impl DrillKind {
         DrillKind::Peek,
         DrillKind::Reaction,
         DrillKind::Peripheral,
+        DrillKind::MovingGridshot,
+        DrillKind::Survival,
+        DrillKind::SwitchTracking,
     ];
 
     /// The drill's description. This is the only per-kind `match`.
@@ -42,6 +48,9 @@ impl DrillKind {
             DrillKind::Peek => &kinds::peek::DEF,
             DrillKind::Reaction => &kinds::reaction::DEF,
             DrillKind::Peripheral => &kinds::peripheral::DEF,
+            DrillKind::MovingGridshot => &kinds::moving_gridshot::DEF,
+            DrillKind::Survival => &kinds::survival::DEF,
+            DrillKind::SwitchTracking => &kinds::switch_tracking::DEF,
         }
     }
 
@@ -52,10 +61,6 @@ impl DrillKind {
     /// Display name; also the history CSV identifier (see [`DrillDef::name`]).
     pub fn name(self) -> &'static str {
         self.def().name
-    }
-
-    pub fn blurb(self) -> &'static str {
-        self.def().blurb
     }
 
     /// The kinds the save-format fixtures (`fixtures/`) were written with: every kind that

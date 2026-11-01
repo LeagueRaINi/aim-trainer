@@ -208,7 +208,7 @@ fn spawn_findings(commands: &mut Commands, parent: Entity, analysis: &Analysis) 
 
 /// One row per distance band.
 fn spawn_band_table(commands: &mut Commands, parent: Entity, analysis: &Analysis) {
-    const LABEL_W: f32 = 80.0;
+    const LABEL_W: f32 = 66.0;
     const VALUE_W: f32 = 60.0;
     let table = section(commands, parent, "By distance");
     let rows = commands

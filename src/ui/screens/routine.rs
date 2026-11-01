@@ -35,7 +35,7 @@ pub fn spawn_routine_screen(mut commands: Commands, routine: Res<Routine>, time:
         Some(step) => {
             let context = format!("{}  ·  Step {} / {total}", routine.name, routine.next + 1);
             let title = format!("Next: {}", step.drill.name);
-            let next = format!("{:.0} s  ·  {}", step.secs, step.drill.config.kind.blurb());
+            let next = format!("{:.0} s  ·  {}", step.secs, step.drill.config.blurb());
             let pips: Vec<_> = (0..total)
                 .map(|index| {
                     progress_pip(match index.cmp(&routine.next) {

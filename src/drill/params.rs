@@ -30,6 +30,10 @@ pub enum ParamId {
     HoldMax,
     DelayMin,
     DelayMax,
+    Lives,
+    ApproachSpeed,
+    SpawnInterval,
+    TrackTime,
 }
 
 /// How a parameter is shown and limited.
@@ -45,7 +49,7 @@ pub struct ParamSpec {
 }
 
 impl ParamId {
-    pub const ALL: [ParamId; 22] = [
+    pub const ALL: [ParamId; 26] = [
         ParamId::Size,
         ParamId::Lifetime,
         ParamId::GridCols,
@@ -68,6 +72,10 @@ impl ParamId {
         ParamId::HoldMax,
         ParamId::DelayMin,
         ParamId::DelayMax,
+        ParamId::Lives,
+        ParamId::ApproachSpeed,
+        ParamId::SpawnInterval,
+        ParamId::TrackTime,
     ];
 
     pub fn spec(self) -> ParamSpec {
@@ -97,6 +105,10 @@ impl ParamId {
             ParamId::HoldMax => spec("Hold max (s)", 2, 0.05, (0.0, 1.5), (0.0, 3.0)),
             ParamId::DelayMin => spec("Cue delay min (s)", 2, 0.1, (0.2, 5.0), (0.2, 10.0)),
             ParamId::DelayMax => spec("Cue delay max (s)", 2, 0.1, (0.2, 5.0), (0.2, 10.0)),
+            ParamId::Lives => spec("Lives", 0, 1.0, (1.0, 10.0), (1.0, 99.0)),
+            ParamId::ApproachSpeed => spec("Approach speed (m/s)", 1, 0.5, (0.5, 8.0), (0.1, 20.0)),
+            ParamId::SpawnInterval => spec("Time between targets (s)", 2, 0.1, (0.3, 3.0), (0.1, 10.0)),
+            ParamId::TrackTime => spec("Time on target to kill (s)", 2, 0.05, (0.1, 2.0), (0.05, 10.0)),
         }
     }
 
@@ -125,6 +137,10 @@ impl ParamId {
             ParamId::HoldMax => config.hold_max,
             ParamId::DelayMin => config.delay_min,
             ParamId::DelayMax => config.delay_max,
+            ParamId::Lives => config.lives as f32,
+            ParamId::ApproachSpeed => config.approach_speed,
+            ParamId::SpawnInterval => config.spawn_interval,
+            ParamId::TrackTime => config.track_time,
         }
     }
 
@@ -160,6 +176,10 @@ impl ParamId {
             ParamId::HoldMax => config.hold_max = value,
             ParamId::DelayMin => config.delay_min = value,
             ParamId::DelayMax => config.delay_max = value,
+            ParamId::Lives => config.lives = value.round() as u32,
+            ParamId::ApproachSpeed => config.approach_speed = value,
+            ParamId::SpawnInterval => config.spawn_interval = value,
+            ParamId::TrackTime => config.track_time = value,
         }
     }
 

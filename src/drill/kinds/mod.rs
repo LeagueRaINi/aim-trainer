@@ -7,9 +7,12 @@ use bevy::prelude::*;
 pub mod gridshot;
 pub mod head_level;
 pub mod microflick;
+pub mod moving_gridshot;
 pub mod peek;
 pub mod peripheral;
 pub mod reaction;
+pub mod survival;
+pub mod switch_tracking;
 pub mod tracking;
 
 /// Adds every drill's own systems.
@@ -18,4 +21,7 @@ pub(super) fn register(app: &mut App) {
     tracking::register(app);
     peek::register(app);
     reaction::register(app);
+    moving_gridshot::register(app);
+    survival::register(app);
+    switch_tracking::register(app);
 }

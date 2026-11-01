@@ -1,6 +1,6 @@
 [package]
 name = "aim_trainer"
-version = "1.0.0"
+version = "1.1.0"
 edition = "2024"
 # `src/bin/release.rs` is the maintainer's release-signing tool, not part of the game.
 default-run = "aim_trainer"

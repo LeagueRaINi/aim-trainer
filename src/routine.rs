@@ -40,13 +40,14 @@ pub struct RoutinePlan {
 pub const ROUTINES: [RoutinePlan; 3] = [
     RoutinePlan {
         name: "Valorant warmup",
-        blurb: "Eyes, flicks, head-level placement, tracking, then peeks. ~4 min.",
+        blurb: "Flicks, head-level placement, head taps, a strafing bot, peeks, then counter-strafing. ~4 min.",
         steps: &[
-            (DrillKind::Peripheral, 30.0),
-            (DrillKind::Microflick, 45.0),
-            (DrillKind::HeadLevel, 45.0),
-            (DrillKind::Tracking, 30.0),
-            (DrillKind::Peek, 60.0),
+            (DrillKind::Microflick, 30.0),
+            (DrillKind::HeadLevel, 30.0),
+            (DrillKind::HeadTaps, 45.0),
+            (DrillKind::StrafingBot, 45.0),
+            (DrillKind::Peek, 45.0),
+            (DrillKind::CounterStrafe, 45.0),
         ],
     },
     RoutinePlan {
@@ -92,11 +93,32 @@ pub struct Routine {
     /// Index of the next step to play.
     pub next: usize,
     pub results: Vec<StepResult>,
+    /// What the routine was started for, so whatever keeps track of it (the benchmark log, the
+    /// weekly plan) knows the routine is its own.
+    pub origin: RoutineOrigin,
+}
+
+/// Where a routine comes from.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum RoutineOrigin {
+    /// A warmup or custom playlist.
+    #[default]
+    Free,
+    /// The benchmark (see [`crate::training::benchmark`]).
+    Benchmark,
+    /// The weekly plan's session for this local day (see [`crate::training::plan`]).
+    Plan(i64),
 }
 
 impl Routine {
     pub fn new(name: String, blurb: String, steps: Vec<RoutineStep>) -> Self {
-        Self { name, blurb, steps, next: 0, results: Vec::new() }
+        Self { name, blurb, steps, next: 0, results: Vec::new(), origin: RoutineOrigin::Free }
+    }
+
+    /// The routine, marked as started for `origin`.
+    pub fn with_origin(mut self, origin: RoutineOrigin) -> Self {
+        self.origin = origin;
+        self
     }
 
     pub fn from_plan(plan: &RoutinePlan, settings: &Settings) -> Self {
@@ -110,7 +132,7 @@ impl Routine {
 
     /// The same routine from the start, for "run again".
     pub fn restarted(&self) -> Self {
-        Self::new(self.name.clone(), self.blurb.clone(), self.steps.clone())
+        Self::new(self.name.clone(), self.blurb.clone(), self.steps.clone()).with_origin(self.origin)
     }
 
     pub fn finished(&self) -> bool {

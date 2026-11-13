@@ -74,6 +74,8 @@ pub struct HistoryEntry {
     pub kind: DrillKind,
     pub sens: f32,
     pub cm_per_360: f32,
+    /// Shots (or rounds of held fire) that counted.
+    pub shots: u32,
     pub accuracy: f32,
     pub avg_kill_ms: f32,
     pub on_target_pct: f32,
@@ -96,6 +98,7 @@ impl HistoryEntry {
             kind,
             sens: cols[3].parse().ok()?,
             cm_per_360: cols[7].parse().ok()?,
+            shots: cols[10].parse().ok()?,
             accuracy: cols[11].parse().ok()?,
             avg_kill_ms: cols[12].parse().ok()?,
             on_target_pct: cols[13].parse().ok()?,
@@ -354,6 +357,10 @@ mod fixture_tests {
                     on_target: 12.5 + f,
                     landings: vec![],
                     clicks: vec![],
+                    rating: None,
+                    // Tracking's accuracy is its rounds that hit: the same number as `hits` here,
+                    // which the fixture's row was written from.
+                    rounds_hit: 40 + i as u32,
                 };
                 let purpose = if i % 2 == 0 { RunPurpose::Practice } else { RunPurpose::FinderTrial };
                 (1_793_394_818 + i as u64, stats, purpose)

@@ -10,7 +10,7 @@ use crate::drill::def::{Category, DecayRule, DrillDef, Environment, TtkFrom, no_
 use crate::drill::params::ParamId;
 use crate::drill::stats::ScoreModel;
 use crate::drill::targets::SpawnCtx;
-use crate::drill::{DrillConfig, DrillSet, Run};
+use crate::drill::{DrillConfig, DrillKind, DrillSet, Run};
 
 /// Distance from the eye (m) at which an approaching dot costs a life.
 const REACH_DISTANCE: f32 = 2.0;
@@ -106,7 +106,8 @@ fn approach(
             transform.translation = transform.translation.normalize() * distance;
         }
     }
-    if run.expired() >= run.drill.config.lives {
+    // Only Survival has lives: targets that got away in another drill must not end its run.
+    if run.kind() == DrillKind::Survival && run.expired() >= run.drill.config.lives {
         run.end();
     }
 }
@@ -119,7 +120,7 @@ mod tests {
 
     use super::*;
     use crate::drill::run::{RunFinished, tick_run};
-    use crate::drill::{DrillKind, DrillSpec, RunPurpose};
+    use crate::drill::{DrillSpec, RunPurpose};
     use crate::settings::Settings;
 
     /// Dots that get close cost a life each; losing the last one finishes the run early, with
@@ -150,5 +151,29 @@ mod tests {
         assert_eq!(finished.len(), 1);
         assert!(finished[0].stats.duration < 1.0, "survived {} s", finished[0].stats.duration);
         assert!(app.world().get::<Transform>(far).unwrap().translation.z > -10.0);
+    }
+
+    /// Every config carries the default number of lives, but only Survival plays with them: a
+    /// drill whose targets can get away (missed peeks, ignored cues, decayed dots) runs its full
+    /// length however many do.
+    #[test]
+    fn targets_that_got_away_only_end_survival() {
+        let drill = DrillSpec::builtin(DrillKind::Peek, &Settings::default());
+        let lives = drill.config.lives;
+        let mut run = Run::new(drill, 0.4, 60.0, RunPurpose::Practice, String::new()).started();
+        for _ in 0..lives + 2 {
+            run.expire();
+        }
+        let mut app = App::new();
+        app.add_plugins(MinimalPlugins)
+            .insert_resource(TimeUpdateStrategy::ManualDuration(Duration::from_millis(100)))
+            .insert_resource(Settings::default())
+            .insert_resource(run)
+            .add_message::<RunFinished>()
+            .add_systems(Update, (approach, tick_run).chain());
+        for _ in 0..5 {
+            app.update();
+        }
+        assert!(app.world().resource::<Messages<RunFinished>>().is_empty(), "ended early");
     }
 }

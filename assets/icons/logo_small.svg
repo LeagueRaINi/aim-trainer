@@ -1,27 +1,33 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <!-- Aim Trainer app icon, small variant (16-48 px): the mark of logo.svg, full-bleed, with a flat apex
+       two pixels wide instead of a point. This file is the 32 px drawing in half-pixel units (and the 64 px
+       taskbar image, which Windows scales down): every horizontal edge is on an even unit, and the legs
+       rise 2 for every 1 across, so both legs get the same pixel pattern.
+       16, 24 and 48 px cannot share this grid (a unit would be 1/4, 3/8 and 3/4 px), so the icon at those
+       sizes is this drawing redone in whole pixels. In pixels of each size, with x centre = size / 2:
+
+         size  tile rx  rim  apex (flat 2 wide)  baseline  feet (outer x)  leg width  dot centre y  dot r
+          16    3.5      1    y 2                 y 13      1.5 and 14.5    3          12            1
+          24    5.25     1    y 3                 y 20      2.5 and 21.5    4          17            2
+          32    7        1    y 3                 y 27      3 and 29        5.5        23            3      (this file)
+          48    10.5     1    y 5                 y 41      5 and 43        8          35            4.5
+
+       Leg width is measured along the baseline; the inner apex follows from it (y 6, 9, 12 and 19).
+       Colours as in logo.svg. -->
   <defs>
-    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0" stop-color="#232833"/>
-      <stop offset="1" stop-color="#101318"/>
-    </linearGradient>
-    <radialGradient id="orb" cx="0.38" cy="0.32" r="0.75">
-      <stop offset="0" stop-color="#8ff0ff"/>
-      <stop offset="0.45" stop-color="#1ad9ff"/>
-      <stop offset="1" stop-color="#0a8fc0"/>
-    </radialGradient>
-    <radialGradient id="glow" cx="0.5" cy="0.5" r="0.5">
-      <stop offset="0" stop-color="#1ad9ff" stop-opacity="0.55"/>
-      <stop offset="1" stop-color="#1ad9ff" stop-opacity="0"/>
-    </radialGradient>
-    <linearGradient id="trail" x1="0" y1="1" x2="1" y2="0">
-      <stop offset="0" stop-color="#5cdc85" stop-opacity="0"/>
-      <stop offset="1" stop-color="#5cdc85" stop-opacity="1"/>
+    <linearGradient id="tile" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#FFFFFF"/>
+      <stop offset="1" stop-color="#EBEEF4"/>
     </linearGradient>
   </defs>
-  <rect x="0" y="0" width="64" height="64" rx="13" fill="url(#bg)"/>
-  <circle cx="32" cy="32" r="16" fill="url(#orb)"/>
-  <g stroke="#ffffff" stroke-width="5" stroke-linecap="round">
-    <path d="M32 5 V 11 M32 53 V 59 M5 32 H 11 M53 32 H 59"/>
-  </g>
-  <circle cx="32" cy="32" r="3.5" fill="#ffffff"/>
+
+  <!-- tile and rim -->
+  <rect width="64" height="64" rx="14" fill="url(#tile)"/>
+  <rect x="1" y="1" width="62" height="62" rx="13" fill="none" stroke="#C3CAD6" stroke-width="2"/>
+
+  <!-- the A -->
+  <path d="M30 6H34L58 54H47L32 24L17 54H6Z" fill="#0B0E13"/>
+
+  <!-- point of aim -->
+  <circle cx="32" cy="46" r="6" fill="#0D9DC9"/>
 </svg>

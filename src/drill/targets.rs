@@ -12,8 +12,8 @@ use bevy::render::render_resource::{Extent3d, TextureDimension, TextureFormat};
 
 use super::def::{Environment, TtkFrom};
 use super::geometry::{TARGET_DISTANCE, ray_hit};
-use super::kinds::peek;
-use super::{DrillConfig, Run};
+use super::kinds::{counter_strafe, peek};
+use super::{DrillConfig, Run, range};
 use crate::AppState;
 use crate::camera::{PlayerCamera, ViewCone};
 use crate::metrics::flick_probe::angles;
@@ -39,7 +39,7 @@ pub struct TargetAssets {
     pub(crate) cover_material: Handle<StandardMaterial>,
 }
 
-/// Turns its target's pole (the bullseye's centre) to the eye at the origin every frame.
+/// Turns its target's pole (the bullseye's centre) to the eye every frame.
 #[derive(Component, Clone, Copy, Default)]
 pub struct FacesEye;
 
@@ -144,7 +144,7 @@ fn unlit(color: Color) -> StandardMaterial {
 }
 
 /// A target's material in `color`, shaded as `style` says (`images` holds a bullseye's rings).
-fn target_material(color: Color, style: TargetStyle, images: &mut Assets<Image>) -> StandardMaterial {
+pub(super) fn target_material(color: Color, style: TargetStyle, images: &mut Assets<Image>) -> StandardMaterial {
     match style {
         TargetStyle::Flat => unlit(color),
         TargetStyle::Shaded => {
@@ -169,16 +169,22 @@ fn target_material(color: Color, style: TargetStyle, images: &mut Assets<Image>)
     }
 }
 
-/// The rotation that turns a target at `position` so its +Z pole (where Bevy's UV sphere starts
-/// its texture rows) faces the eye at the origin.
+/// The rotation that turns a target at `position` (relative to the eye) so its +Z pole (where
+/// Bevy's UV sphere starts its texture rows) faces the eye.
 pub(crate) fn facing_eye(position: Vec3) -> Quat {
     Quat::from_rotation_arc(Vec3::Z, -position.normalize_or(Vec3::NEG_Z))
 }
 
-/// Keeps moving targets' bullseyes facing the eye.
-pub fn face_eye(mut targets: Query<&mut Transform, With<FacesEye>>) {
+/// Keeps moving targets' bullseyes facing the eye: the player camera, wherever a drill has moved
+/// it (the origin everywhere else).
+#[allow(clippy::type_complexity)]
+pub fn face_eye(
+    eye: Option<Single<&Transform, (With<PlayerCamera>, Without<FacesEye>)>>,
+    mut targets: Query<&mut Transform, With<FacesEye>>,
+) {
+    let eye = eye.map_or(Vec3::ZERO, |eye| eye.translation);
     for mut transform in &mut targets {
-        let rotation = facing_eye(transform.translation);
+        let rotation = facing_eye(transform.translation - eye);
         if !transform.rotation.abs_diff_eq(rotation, 1e-5) {
             transform.rotation = rotation;
         }
@@ -218,7 +224,7 @@ fn bullseye_texture(color: Color) -> Image {
     image
 }
 
-fn target_color(settings: &Settings) -> Color {
+pub(super) fn target_color(settings: &Settings) -> Color {
     let [r, g, b] = settings.targets.color;
     Color::srgb_u8(r, g, b)
 }
@@ -289,14 +295,17 @@ pub fn spawn_environment(commands: &mut Commands, assets: &TargetAssets, environ
     match environment {
         Environment::Open => {},
         Environment::Cover => peek::spawn_cover(commands, assets, state),
+        Environment::Range | Environment::Pillar => range::spawn(commands, environment, state),
     }
 }
 
 /// How far along the ray a shot is stopped by the scenery (`f32::MAX` if it isn't).
-fn blocked_at(environment: Environment, origin: Vec3, aim: Vec3) -> f32 {
+pub(super) fn blocked_at(environment: Environment, origin: Vec3, aim: Vec3) -> f32 {
     match environment {
         Environment::Open => f32::MAX,
         Environment::Cover => peek::cover_hit(origin, aim).unwrap_or(f32::MAX),
+        Environment::Range => f32::MAX,
+        Environment::Pillar => counter_strafe::pillar_hit(origin, aim).unwrap_or(f32::MAX),
     }
 }
 

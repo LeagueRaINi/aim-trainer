@@ -1,7 +1,12 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
-  <circle cx="256" cy="256" r="248" fill="#2f6fe0"/>
-  <circle cx="256" cy="256" r="248" fill="none" stroke="#000" stroke-opacity="0.18" stroke-width="10"/>
-  <g fill="none" stroke="#ffffff" stroke-width="34" stroke-linecap="round" stroke-linejoin="round">
-    <path d="M256 104 V 196 M256 316 V 408 M104 256 H 196 M316 256 H 408"/>
-    <circle cx="256" cy="256" r="16" fill="#ffffff" stroke="none"/></g>
+  <!-- Discord Rich Presence badge "Practicing": a bullseye.
+       One of five (practice, routine, finder, replay, results) that share this construction: a disc in a
+       colour of the UI palette (src/ui/theme.rs; this one is cyan), a 14% ink rim, and an ink glyph inside the
+       r 148 keyline circle, drawn with 44-unit strokes, round caps and joins, and softened corners on fills. -->
+  <circle cx="256" cy="256" r="256" fill="#4CC9F0"/>
+  <circle cx="256" cy="256" r="246" fill="none" stroke="#0B0E13" stroke-opacity="0.14" stroke-width="20"/>
+  <g fill="none" stroke="#0B0E13" stroke-width="44" stroke-linecap="round" stroke-linejoin="round">
+    <circle cx="256" cy="256" r="126"/>
+    <circle cx="256" cy="256" r="42" fill="#0B0E13" stroke="none"/>
+  </g>
 </svg>

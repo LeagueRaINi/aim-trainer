@@ -4,6 +4,7 @@
 
 mod adaptive_log;
 mod analysis;
+mod calm_log;
 mod camera;
 mod crosshair;
 mod custom;
@@ -16,12 +17,14 @@ mod level;
 mod metrics;
 mod persist;
 mod presence;
+mod reaction_log;
 mod replay;
 mod routine;
 mod settings;
 mod sfx;
 mod signing;
 #[cfg(test)] mod test_util;
+mod training;
 mod ui;
 mod update;
 mod viewmodel;
@@ -50,6 +53,19 @@ pub enum AppState {
     Routine,
 }
 
+/// Whether the drill being played is running. Exists only in [`AppState::Playing`]; re-entering
+/// `Playing` (a restart, a finder trial's next part) keeps its value.
+#[derive(SubStates, Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+#[source(AppState = AppState::Playing)]
+pub enum PlayState {
+    #[default]
+    Running,
+    /// The pause menu is up (Escape, or the window lost focus): the drill stands still.
+    Paused,
+    /// Counting down back into a live run; the drill still stands still.
+    Resuming,
+}
+
 fn main() {
     let updater = update::Updater::default();
     // An update staged by an earlier run goes in before anything else; the new exe takes over.
@@ -72,6 +88,7 @@ fn main() {
     ))
     .insert_resource(ui::theme::ui_theme())
     .init_state::<AppState>()
+    .add_sub_state::<PlayState>()
     .add_plugins((
         persist::PersistPlugin { value: settings, report: settings_load },
         history::HistoryPlugin,
@@ -92,9 +109,12 @@ fn main() {
     // Outside the tuple above, which is at Bevy's 15-plugin limit.
     .add_plugins((
         adaptive_log::AdaptiveLogPlugin,
+        reaction_log::ReactionLogPlugin,
         update::UpdatePlugin(updater.clone()),
         viewmodel::ViewmodelPlugin,
         SingleThreadedSchedules,
+        calm_log::CalmLogPlugin,
+        training::TrainingPlugin,
     ));
     app.run();
     // Everything is saved by now, so a restarted exe reads the latest settings.

@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
+  <!-- Aim Trainer logo for Discord (Rich Presence art asset `logo`, 1024 px). Discord crops to a circle or
+       a rounded square, so the tile of logo.svg becomes a full-bleed opaque background and the mark is
+       logo.svg's at 5/6 size, placed so that its apex and both feet stay inside the round crop. -->
+  <defs>
+    <linearGradient id="tile" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#FFFFFF"/>
+      <stop offset="1" stop-color="#EBEEF4"/>
+    </linearGradient>
+  </defs>
+  <rect width="1024" height="1024" fill="url(#tile)"/>
+  <path d="M512 136L832 776H685L512 430L339 776H192Z" fill="#0B0E13"/>
+  <circle cx="512" cy="669" r="80" fill="#0D9DC9"/>
+</svg>

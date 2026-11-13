@@ -1,8 +1,15 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
-  <circle cx="256" cy="256" r="248" fill="#e0a51c"/>
-  <circle cx="256" cy="256" r="248" fill="none" stroke="#000" stroke-opacity="0.18" stroke-width="10"/>
-  <g fill="none" stroke="#ffffff" stroke-width="34" stroke-linecap="round" stroke-linejoin="round">
-    <path d="M176 120 H 336 V 212 C 336 262 300 296 256 296 C 212 296 176 262 176 212 Z" fill="#ffffff"/>
-    <path d="M176 152 H 128 C 128 214 150 240 186 246 M336 152 H 384 C 384 214 362 240 326 246"/>
-    <path d="M256 296 V 352 M196 392 H 316 M216 352 H 296" /></g>
+  <!-- Discord Rich Presence badge "Looking at results": the bars of a score chart.
+       One of five (practice, routine, finder, replay, results) that share this construction: a disc in a
+       colour of the UI palette (src/ui/theme.rs; this one is gold), a 14% ink rim, and an ink glyph inside the
+       r 148 keyline circle, drawn with 44-unit strokes, round caps and joins, and softened corners on fills. -->
+  <circle cx="256" cy="256" r="256" fill="#F8C74A"/>
+  <circle cx="256" cy="256" r="246" fill="none" stroke="#0B0E13" stroke-opacity="0.14" stroke-width="20"/>
+  <g fill="none" stroke="#0B0E13" stroke-width="44" stroke-linecap="round" stroke-linejoin="round">
+    <g fill="#0B0E13" stroke="none">
+      <rect x="124" y="232" width="64" height="160" rx="14"/>
+      <rect x="224" y="120" width="64" height="272" rx="14"/>
+      <rect x="324" y="288" width="64" height="104" rx="14"/>
+    </g>
+  </g>
 </svg>

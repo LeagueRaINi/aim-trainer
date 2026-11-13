@@ -1,19 +1,18 @@
 //! Video page: display mode, aspect, VSync, MSAA and the FPS cap; the targets' style and color;
 //! and the scene, with a live preview of all three.
 
-use bevy::feathers::display::{label, label_dim};
 use bevy::prelude::*;
 
-use super::{MenuTab, main_column, page};
+use super::{MenuTab, main_column, note_card, page};
 use crate::settings::{AspectMode, DisplayMode, SettingField, Settings};
 use crate::ui::bindings::*;
 use crate::ui::preview::PreviewView;
+use crate::ui::theme::*;
 use crate::ui::widgets::*;
 
 pub(super) fn video_page(settings: &Settings) -> impl Scene {
     bsn! {
-        @page(MenuTab::Video)
-        Children [
+        @page(MenuTab::Video, bsn_list! {
             @main_column()
             Children [
                 @card("Display", bsn_list! {
@@ -46,6 +45,12 @@ pub(super) fn video_page(settings: &Settings) -> impl Scene {
                     @number_field(SettingField::FpsCap, settings)
                     --
                     @number_field(SettingField::UiScale, settings)
+                    --
+                    @number_field_hint(
+                        SettingField::LatencyOffset,
+                        "Display + mouse delay, taken off Reaction test times. Gaming setups: 10-30 ms. 0 = off.",
+                        settings
+                    )
                 })
                 --
                 @card("Targets", bsn_list! {
@@ -55,19 +60,19 @@ pub(super) fn video_page(settings: &Settings) -> impl Scene {
                     --
                     @target_color_choices()
                     --
-                    @label_dim("Glow adds a bloom pass, which costs some FPS.")
+                    @small("Glow adds a bloom pass, which costs some FPS.")
                 })
             ]
             --
             @scroll_column(bsn_list! {
-                @card("Scene", bsn_list! {
+                @card("Scene preview", bsn_list! {
                     // The image fills a 16:9 box rather than sizing it, so its 640 px don't widen
                     // the column.
                     Node {
                         width: percent(100),
                         aspect_ratio: {Some(16.0 / 9.0)},
                         overflow: Overflow::clip(),
-                        border_radius: BorderRadius::all(px(6)),
+                        border_radius: BorderRadius::all(px(RADIUS_S)),
                     }
                     Children [
                         Node { position_type: PositionType::Absolute, width: percent(100), height: percent(100) }
@@ -83,13 +88,13 @@ pub(super) fn video_page(settings: &Settings) -> impl Scene {
                     @setting_row("Weapon side", weapon_side_choices())
                 })
                 --
-                @card("Tips", bsn_list! {
-                    @label_dim("16:9 + black bars renders exactly what Valorant shows on an ultrawide or 16:10 screen. Fill screen behaves like CS2.")
+                @note_card("Tips", bsn_list! {
+                    @small("16:9 + black bars renders exactly what Valorant shows on an ultrawide or 16:10 screen. Fill screen behaves like CS2.")
                     --
-                    @label_dim("For the lowest input lag: VSync off, Fullscreen, FPS cap 0 or well above your refresh rate.")
+                    @small("For the lowest input lag: VSync off, Fullscreen, FPS cap 0 or well above your refresh rate.")
                 })
             })
             Node { flex_grow: 1.0, flex_basis: px(0), min_width: px(0) }
-        ]
+        })
     }
 }

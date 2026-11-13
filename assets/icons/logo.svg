@@ -1,33 +1,25 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
+  <!-- Aim Trainer app icon, detailed variant (64 px and up; logo_small.svg is the 16-48 px variant).
+       A monogram: an A without a crossbar. Its apex is a chevron sight, the dot between the legs is the
+       point of aim. Ink on a white tile; the neutral rim keeps the tile visible on white and light backgrounds.
+       Drawn on a 16-unit grid, so the tile, the rim, the baseline and the feet land on whole pixels at 64, 128
+       and 256 px. The legs rise 2 for every 1 across and are 176 wide measured along the baseline.
+       Colours: ink is INK_0 of src/ui/theme.rs; the dot is the accent #4CC9F0 at the same hue, darkened
+       until it holds 3:1 against white. -->
   <defs>
-    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0" stop-color="#232833"/>
-      <stop offset="1" stop-color="#101318"/>
-    </linearGradient>
-    <radialGradient id="orb" cx="0.38" cy="0.32" r="0.75">
-      <stop offset="0" stop-color="#8ff0ff"/>
-      <stop offset="0.45" stop-color="#1ad9ff"/>
-      <stop offset="1" stop-color="#0a8fc0"/>
-    </radialGradient>
-    <radialGradient id="glow" cx="0.5" cy="0.5" r="0.5">
-      <stop offset="0" stop-color="#1ad9ff" stop-opacity="0.55"/>
-      <stop offset="1" stop-color="#1ad9ff" stop-opacity="0"/>
-    </radialGradient>
-    <linearGradient id="trail" x1="0" y1="1" x2="1" y2="0">
-      <stop offset="0" stop-color="#5cdc85" stop-opacity="0"/>
-      <stop offset="1" stop-color="#5cdc85" stop-opacity="1"/>
+    <linearGradient id="tile" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#FFFFFF"/>
+      <stop offset="1" stop-color="#EBEEF4"/>
     </linearGradient>
   </defs>
-  <rect x="32" y="32" width="960" height="960" rx="216" fill="url(#bg)"/>
-  <rect x="32" y="32" width="960" height="960" rx="216" fill="none" stroke="#ffffff" stroke-opacity="0.07" stroke-width="8"/>
-  <!-- the flick: a straight tracer from the bottom-left into the target -->
-  <path d="M 196 828 L 484 540" stroke="url(#trail)" stroke-width="44" stroke-linecap="round"/>
-  <!-- target -->
-  <circle cx="584" cy="440" r="270" fill="url(#glow)"/>
-  <circle cx="584" cy="440" r="138" fill="url(#orb)"/>
-  <!-- crosshair around it: four lines with a gap, plus a center dot -->
-  <g stroke="#ffffff" stroke-width="40" stroke-linecap="round">
-    <path d="M584 170 V 262 M584 618 V 710 M314 440 H 406 M762 440 H 854"/>
-  </g>
-  <circle cx="584" cy="440" r="26" fill="#ffffff"/>
+
+  <!-- tile and rim -->
+  <rect x="16" y="16" width="992" height="992" rx="224" fill="url(#tile)"/>
+  <rect x="24" y="24" width="976" height="976" rx="216" fill="none" stroke="#C3CAD6" stroke-width="16"/>
+
+  <!-- the A -->
+  <path d="M512 112L896 880H720L512 464L304 880H128Z" fill="#0B0E13"/>
+
+  <!-- point of aim -->
+  <circle cx="512" cy="752" r="96" fill="#0D9DC9"/>
 </svg>

@@ -27,6 +27,8 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 # Verifies downloaded updates against the digest GitHub publishes.
 sha2 = "0.11"
+# The local time zone's offset, for the weekly plan's calendar days.
+time = { version = "0.3", default-features = false, features = ["local-offset"] }
 # Fetches updates from GitHub releases.
 ureq = { version = "3.5", features = ["json"] }
 # Window/taskbar icon type; the same version Bevy's windowing uses.

@@ -7,8 +7,8 @@ use bevy::light::cluster::ClusterConfig;
 use bevy::prelude::*;
 use bevy::window::{CursorGrabMode, CursorOptions};
 
-use crate::AppState;
 use crate::settings::Settings;
+use crate::{AppState, PlayState};
 
 pub struct CameraPlugin;
 
@@ -20,10 +20,15 @@ impl Plugin for CameraPlugin {
             .add_systems(Startup, spawn_camera)
             .add_systems(OnEnter(AppState::Playing), (reset_look, lock_cursor))
             .add_systems(OnExit(AppState::Playing), (reset_look, unlock_cursor))
+            // The pause menu needs the cursor; it is locked again on the way back into the run.
+            .add_systems(OnEnter(PlayState::Paused), unlock_cursor)
+            .add_systems(OnEnter(PlayState::Resuming), lock_cursor)
+            .add_systems(OnEnter(PlayState::Running), lock_cursor)
             .add_systems(
                 Update,
                 (
-                    mouse_look.run_if(in_state(AppState::Playing)),
+                    // Not while paused or counting back in: the view stays where it was.
+                    mouse_look.run_if(in_state(PlayState::Running)),
                     apply_look,
                     apply_fov.run_if(resource_changed::<Settings>),
                     update_view_cone,

@@ -3,20 +3,18 @@
 //! The lists and the editor are rebuilt only on structural changes (select, create, delete,
 //! reorder), never while a value is being dragged or typed, so inputs keep focus.
 
-use bevy::app::Propagate;
 use bevy::clipboard::{Clipboard, ClipboardError};
+use bevy::feathers::constants::fonts;
 use bevy::feathers::controls::{
-    ButtonVariant, FeathersNumberInput, FeathersTextInput, FeathersTextInputContainer, HardLimit, NumberInputPrecision,
+    FeathersNumberInput, FeathersTextInput, FeathersTextInputContainer, HardLimit, NumberInputPrecision,
     NumberInputStep, NumberInputValue, SoftLimit,
 };
-use bevy::feathers::display::{label, label_dim};
-use bevy::feathers::theme::{SurfaceLevel, ThemeBackgroundColor, ThemeBorderColor, ThemeContext};
-use bevy::feathers::tokens;
+use bevy::feathers::theme::ThemeBackgroundColor;
 use bevy::prelude::*;
 use bevy::text::{EditableText, TextEdit, TextEditChange};
 use bevy::ui_widgets::{Activate, ValueChange};
 
-use super::MAIN_COLUMN_W;
+use super::{MAIN_COLUMN_W, MenuTab, page};
 use crate::AppState;
 use crate::custom::{CustomContent, DrillRef, MAX_NAME_CHARS, PlaylistStep};
 use crate::drill::params::{ParamId, ParamSpec};
@@ -24,6 +22,7 @@ use crate::drill::{ADAPTIVE_TIME_LIMIT, DrillConfig, DrillKind, DrillSpec, Run, 
 use crate::routine::start_routine;
 use crate::settings::Settings;
 use crate::ui::bindings::*;
+use crate::ui::charts::spawn_in;
 use crate::ui::theme::*;
 use crate::ui::widgets::*;
 
@@ -50,6 +49,11 @@ impl CustomSelection {
 
     fn refresh(&mut self) {
         self.revision += 1;
+    }
+
+    /// Opens this scenario in the editor.
+    pub(in crate::ui) fn edit_scenario(&mut self, id: u32) {
+        self.select(Editing::Scenario(id));
     }
 }
 
@@ -162,14 +166,18 @@ impl EditorField {
 // Page layout (static part; lists and editor are filled in by `rebuild_custom`)
 // ---------------------------------------------------------------------------------------------
 
-pub fn custom_lists_column() -> impl Scene {
+pub(super) fn custom_page() -> impl Scene {
+    bsn! { @page(MenuTab::Custom, bsn_list! { @custom_lists_column() -- @custom_editor_column() }) }
+}
+
+fn custom_lists_column() -> impl Scene {
     let new_buttons: Vec<_> = DrillKind::ALL.into_iter().map(new_scenario_button).collect();
     bsn! {
         @scroll_column(bsn_list! {
             @card("My scenarios", bsn_list! {
                 @column() Node { row_gap: px(SPACE_XS) } ScenarioList
                 --
-                @label_dim("New scenario based on:")
+                @small("New scenario, starting from a drill:")
                 Node { margin: UiRect::top(px(SPACE_XS)) }
                 --
                 @wrap_row()
@@ -181,17 +189,19 @@ pub fn custom_lists_column() -> impl Scene {
                 @column() Node { row_gap: px(SPACE_XS) } PlaylistList
                 --
                 @actions(bsn_list! {
-                    @button("New playlist", ButtonVariant::Normal)
+                    @button("New playlist", Btn::Secondary)
                     on(|_: On<Activate>, mut content: ResMut<CustomContent>, mut selection: ResMut<CustomSelection>| {
                         let id = content.new_playlist();
                         selection.select(Editing::Playlist(id));
                     })
                     --
-                    @button("Import from clipboard", ButtonVariant::Normal)
+                    @button("Import share code", Btn::Secondary)
                     on(import_playlist)
                 })
                 --
-                @label_dim("")
+                @small("Import reads a playlist share code from the clipboard. Share copies one.")
+                --
+                @styled("", fonts::REGULAR, FONT_BODY, TEXT_ACCENT)
                 StatusText
             })
         })
@@ -201,7 +211,7 @@ pub fn custom_lists_column() -> impl Scene {
 }
 
 /// The editor scrolls on its own, so long scenarios and playlists stay reachable.
-pub fn custom_editor_column() -> impl Scene {
+fn custom_editor_column() -> impl Scene {
     bsn! {
         @scroll_column(bsn_list! { @surface() CustomEditor })
         Node { flex_grow: 1.0, flex_basis: px(0), min_width: px(0) }
@@ -210,7 +220,7 @@ pub fn custom_editor_column() -> impl Scene {
 
 fn new_scenario_button(kind: DrillKind) -> impl Scene {
     bsn! {
-        @compact_button(kind.name(), ButtonVariant::Normal)
+        @compact_button(kind.name(), Btn::Secondary)
         NewScenarioButton(kind)
         on(|activate: On<Activate>, buttons: Query<&NewScenarioButton>, mut content: ResMut<CustomContent>, mut selection: ResMut<CustomSelection>| {
             if let Ok(&NewScenarioButton(kind)) = buttons.get(activate.event_target()) {
@@ -221,56 +231,50 @@ fn new_scenario_button(kind: DrillKind) -> impl Scene {
     }
 }
 
-fn small_button(text: &'static str, variant: ButtonVariant, action: ItemAction) -> impl Scene {
+fn small_button(text: &'static str, kind: Btn, action: ItemAction) -> impl Scene {
     bsn! {
-        @compact_button(text, variant)
+        @compact_button(text, kind)
+        Node { min_width: px(0) }
         action
         on(item_action)
     }
 }
 
-/// A list entry; the one open in the editor gets an accent bar on its left edge.
+/// A list entry; the one open in the editor gets an accent bar on its left edge and the tint
+/// of a selected item.
 fn list_row(selected: bool) -> impl Scene {
-    let edge = if selected { tokens::BUTTON_PRIMARY_BG } else { tokens::GROUP_BG };
+    let (edge, fill) = if selected { (ACCENT, ACCENT_SOFT) } else { (CLEAR, SURFACE_TILE) };
     bsn! {
         @row()
         Node {
-            min_height: px(34),
-            padding: UiRect::new(px(SPACE_M), px(SPACE_XS), px(SPACE_XS), px(SPACE_XS)),
+            min_height: px(38),
+            padding: UiRect::all(px(SPACE_XS)),
             column_gap: px(SPACE_XS),
-            border: UiRect::left(px(3)),
-            border_radius: BorderRadius::all(px(6)),
+            border_radius: BorderRadius::all(px(RADIUS_S)),
         }
-        ThemeBackgroundColor(tokens::GROUP_BG)
-        ThemeBorderColor(edge)
-        Propagate::<ThemeContext>(ThemeContext(SurfaceLevel::Highest))
+        ThemeBackgroundColor(fill)
+        Children [ @marker(edge) Node { margin: UiRect::right(px(SPACE_XS)) } ]
     }
 }
 
 /// A scenario or playlist in the lists; its name follows renames via [`ItemName`].
-fn item_row(name: String, item: Editing, selected: bool) -> impl Scene {
-    bsn! {
-        @list_row(selected)
-        Children [ @label(name) Node { flex_grow: 1.0 } ItemName(item) ]
-    }
+fn item_name(name: String, item: Editing) -> impl Scene {
+    bsn! { @label_strong(name) Node { flex_grow: 1.0, flex_basis: px(0) } ItemName(item) }
 }
 
 /// A step of the playlist being edited.
-fn step_row(text: String) -> impl Scene {
-    bsn! {
-        @list_row(false)
-        Children [ @label(text) Node { flex_grow: 1.0 } ]
-    }
+fn step_name(text: String) -> impl Scene {
+    bsn! { @label(text) Node { flex_grow: 1.0, flex_basis: px(0) } }
 }
 
 /// Play + Done at the bottom of the editor.
 fn editor_actions(play: ItemAction) -> impl Scene {
     actions(bsn_list! {
-        @button("Play", ButtonVariant::Primary)
+        @button("Play", Btn::Primary)
         play
         on(item_action)
         --
-        @button("Done", ButtonVariant::Normal)
+        @button("Done", Btn::Secondary)
         ItemAction::Close
         on(item_action)
     })
@@ -300,20 +304,18 @@ pub fn rebuild_custom(
     for (list, _) in &scenario_lists {
         commands.entity(list).despawn_related::<Children>();
         if content.scenarios.is_empty() {
-            commands.spawn_scene(label_dim("None yet. Pick a base drill below.")).insert(ChildOf(list));
+            commands.spawn_scene(label_dim("None yet. Pick a drill below to start one from.")).insert(ChildOf(list));
         }
         for scenario in &content.scenarios {
             let id = scenario.id;
             let selected = selection.editing == Editing::Scenario(id);
-            let row = commands
-                .spawn_scene(item_row(scenario.name.clone(), Editing::Scenario(id), selected))
-                .insert(ChildOf(list))
-                .id();
+            let row = spawn_in(&mut commands, list, list_row(selected));
+            spawn_in(&mut commands, row, item_name(scenario.name.clone(), Editing::Scenario(id)));
             for ((text, variant), action) in [
-                (("Play", ButtonVariant::Primary), ItemAction::PlayScenario(id)),
-                (("Edit", ButtonVariant::Normal), ItemAction::EditScenario(id)),
-                (("Copy", ButtonVariant::Plain), ItemAction::CopyScenario(id)),
-                (("Delete", ButtonVariant::Plain), ItemAction::DeleteScenario(id)),
+                (("Play", Btn::Secondary), ItemAction::PlayScenario(id)),
+                (("Edit", Btn::Ghost), ItemAction::EditScenario(id)),
+                (("Copy", Btn::Ghost), ItemAction::CopyScenario(id)),
+                (("Delete", Btn::Danger), ItemAction::DeleteScenario(id)),
             ] {
                 commands.spawn_scene(small_button(text, variant, action)).insert(ChildOf(row));
             }
@@ -323,20 +325,19 @@ pub fn rebuild_custom(
     for (list, _) in &playlist_lists {
         commands.entity(list).despawn_related::<Children>();
         if content.playlists.is_empty() {
-            commands.spawn_scene(label_dim("None yet.")).insert(ChildOf(list));
+            let none = "None yet. A playlist plays drills and scenarios back to back, like a warmup.";
+            commands.spawn_scene(label_dim(none)).insert(ChildOf(list));
         }
         for playlist in &content.playlists {
             let id = playlist.id;
             let selected = selection.editing == Editing::Playlist(id);
-            let row = commands
-                .spawn_scene(item_row(playlist.name.clone(), Editing::Playlist(id), selected))
-                .insert(ChildOf(list))
-                .id();
+            let row = spawn_in(&mut commands, list, list_row(selected));
+            spawn_in(&mut commands, row, item_name(playlist.name.clone(), Editing::Playlist(id)));
             for ((text, variant), action) in [
-                (("Play", ButtonVariant::Primary), ItemAction::PlayPlaylist(id)),
-                (("Edit", ButtonVariant::Normal), ItemAction::EditPlaylist(id)),
-                (("Share", ButtonVariant::Plain), ItemAction::SharePlaylist(id)),
-                (("Delete", ButtonVariant::Plain), ItemAction::DeletePlaylist(id)),
+                (("Play", Btn::Secondary), ItemAction::PlayPlaylist(id)),
+                (("Edit", Btn::Ghost), ItemAction::EditPlaylist(id)),
+                (("Share", Btn::Ghost), ItemAction::SharePlaylist(id)),
+                (("Delete", Btn::Danger), ItemAction::DeletePlaylist(id)),
             ] {
                 commands.spawn_scene(small_button(text, variant, action)).insert(ChildOf(row));
             }
@@ -347,14 +348,29 @@ pub fn rebuild_custom(
         commands.entity(editor).despawn_related::<Children>();
         match selection.editing {
             Editing::Nothing => {
-                commands.spawn_scene(overline("Editor")).insert(ChildOf(editor));
-                commands
-                    .spawn_scene(label_dim(
-                        "Create a scenario from one of the built-in drills and tune it: grid size, spacing and \
-                         targets at once, flick ranges, strafe speeds, peek timing and more. Then combine \
-                         scenarios into playlists that play back-to-back with breaks in between.",
-                    ))
-                    .insert(ChildOf(editor));
+                spawn_in(&mut commands, editor, overline("How it works"));
+                spawn_in(&mut commands, editor, subheading("Make the drills your own"));
+                for (number, title, text) in [
+                    (
+                        "1",
+                        "Start a scenario from a drill",
+                        "Pick one under My scenarios. It opens here with that drill's settings.",
+                    ),
+                    (
+                        "2",
+                        "Tune it",
+                        "Grid size, spacing and targets at once, flick ranges, strafe speeds, peek timing and more. \
+                         Its scores get their own history.",
+                    ),
+                    (
+                        "3",
+                        "Chain drills into a playlist",
+                        "Playlists play drills and scenarios back to back, with a break in between. Share one as a \
+                         code, or import a friend's.",
+                    ),
+                ] {
+                    spawn_in(&mut commands, editor, numbered_step(number, title, text));
+                }
             },
             Editing::Scenario(id) => {
                 let Some(scenario) = content.scenario(id) else { continue };
@@ -392,21 +408,20 @@ pub fn rebuild_custom(
                 }
                 for (index, step) in playlist.steps.iter().enumerate() {
                     let name = content.drill_name(step.drill).unwrap_or_else(|| "(deleted)".into());
-                    let row = commands
-                        .spawn_scene(step_row(format!("{}. {name}  ({:.0} s)", index + 1, step.secs)))
-                        .insert(ChildOf(editor))
-                        .id();
+                    let row = spawn_in(&mut commands, editor, list_row(false));
+                    let text = format!("{}. {name}  ({:.0} s)", index + 1, step.secs);
+                    spawn_in(&mut commands, row, step_name(text));
                     if index > 0 {
                         commands
-                            .spawn_scene(small_button("Up", ButtonVariant::Normal, ItemAction::StepUp(id, index)))
+                            .spawn_scene(small_button("Up", Btn::Ghost, ItemAction::StepUp(id, index)))
                             .insert(ChildOf(row));
                     }
                     commands
-                        .spawn_scene(small_button("Remove", ButtonVariant::Plain, ItemAction::StepRemove(id, index)))
+                        .spawn_scene(small_button("Remove", Btn::Danger, ItemAction::StepRemove(id, index)))
                         .insert(ChildOf(row));
                 }
                 commands.spawn_scene(custom_field_row(EditorField::StepSecs, draft.secs)).insert(ChildOf(editor));
-                commands.spawn_scene(label_dim("Add a step:")).insert(ChildOf(editor));
+                commands.spawn_scene(small("Add a step of that length:")).insert(ChildOf(editor));
                 let mut drills: Vec<DrillRef> = DrillKind::ALL.iter().map(|&s| DrillRef::Builtin(s)).collect();
                 drills.extend(content.scenarios.iter().map(|s| DrillRef::Custom(s.id)));
                 let chips = commands
@@ -417,7 +432,7 @@ pub fn rebuild_custom(
                     let name = content.drill_name(drill).unwrap_or_default();
                     commands
                         .spawn_scene(bsn! {
-                            @compact_button(name, ButtonVariant::Normal)
+                            @compact_button(name, Btn::Secondary)
                             ItemAction::AddStep(id, drill)
                             on(item_action)
                         })

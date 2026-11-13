@@ -3,8 +3,6 @@
 use std::time::Duration;
 
 use bevy::feathers::constants::fonts;
-use bevy::feathers::controls::ButtonVariant;
-use bevy::feathers::display::label_dim;
 use bevy::feathers::theme::{ThemeBackgroundColor, ThemeToken};
 use bevy::feathers::tokens;
 use bevy::input_focus::InputFocus;
@@ -12,7 +10,7 @@ use bevy::prelude::*;
 use bevy::ui_widgets::Activate;
 
 use crate::AppState;
-use crate::routine::{Routine, StepResult, start_routine};
+use crate::routine::{Routine, RoutineOrigin, StepResult, start_routine};
 use crate::settings::Settings;
 use crate::ui::screens::score::{go_to_menu, score_summary, screen_title};
 use crate::ui::theme::*;
@@ -29,6 +27,10 @@ const DRILL_W: f32 = 230.0;
 const VALUE_W: f32 = 110.0;
 
 pub fn spawn_routine_screen(mut commands: Commands, routine: Res<Routine>, time: Res<Time<Real>>) {
+    // A finished benchmark has its own result screen (`screens::benchmark`).
+    if routine.finished() && routine.origin == RoutineOrigin::Benchmark {
+        return;
+    }
     commands.insert_resource(BreakStart(time.elapsed()));
     let total = routine.steps.len();
     let mut entity = match routine.next_step() {
@@ -39,9 +41,9 @@ pub fn spawn_routine_screen(mut commands: Commands, routine: Res<Routine>, time:
             let pips: Vec<_> = (0..total)
                 .map(|index| {
                     progress_pip(match index.cmp(&routine.next) {
-                        std::cmp::Ordering::Less => tokens::BUTTON_PRIMARY_BG,
+                        std::cmp::Ordering::Less => ACCENT,
                         std::cmp::Ordering::Equal => TEXT_STRONG,
-                        std::cmp::Ordering::Greater => tokens::GROUP_BG,
+                        std::cmp::Ordering::Greater => BORDER_STRONG,
                     })
                 })
                 .collect();
@@ -50,6 +52,8 @@ pub fn spawn_routine_screen(mut commands: Commands, routine: Res<Routine>, time:
                 .then(|| label_dim(routine.blurb.clone()))
                 .into_iter()
                 .collect();
+            // Skipping a benchmark scenario would leave it unrecorded: only ending it is offered.
+            let skip: Vec<_> = (routine.origin != RoutineOrigin::Benchmark).then(skip_button).into_iter().collect();
             commands.spawn_scene(bsn! {
                 @overlay()
                 Children [
@@ -62,36 +66,37 @@ pub fn spawn_routine_screen(mut commands: Commands, routine: Res<Routine>, time:
                         Node { column_gap: px(SPACE_XS) }
                         Children [ {pips} ]
                         --
-                        @label_dim(next)
+                        @label(next)
                         --
                         {intro}
                         --
                         {last}
                         --
                         @row()
-                        Node { column_gap: px(SPACE_M), align_items: AlignItems::Baseline }
+                        Node { column_gap: px(SPACE_M) }
                         Children [
                             @overline("Break")
                             --
-                            @styled("0:00", fonts::BOLD, 22.0, TEXT_STRONG)
+                            @styled("0:00", fonts::BOLD, FONT_H1, TEXT_STRONG)
+                            TextFont { font_features: {tabular()} }
                             BreakTimer
                             --
-                            @label_dim("Take as long as you like; press Space or Start next when ready.")
+                            @label_dim("Take as long as you like.")
+                            --
+                            @spacer()
+                            --
+                            @key_hint("Space", "start next")
                         ]
                         --
                         @actions(bsn_list! {
-                            @button("Start next", ButtonVariant::Primary)
+                            @button("Start next", Btn::Primary)
                             on(|_: On<Activate>, routine: Res<Routine>, settings: Res<Settings>, mut commands: Commands, mut next: ResMut<NextState<AppState>>| {
                                 routine.start_next(settings.sens, &mut commands, &mut next);
                             })
                             --
-                            @button("Skip step", ButtonVariant::Normal)
-                            on(|_: On<Activate>, mut routine: ResMut<Routine>, mut next: ResMut<NextState<AppState>>| {
-                                routine.skip();
-                                next.set(AppState::Routine);
-                            })
+                            {skip}
                             --
-                            @button("End routine", ButtonVariant::Normal)
+                            @button("End routine", Btn::Secondary)
                             on(go_to_menu)
                         })
                     ]
@@ -99,15 +104,13 @@ pub fn spawn_routine_screen(mut commands: Commands, routine: Res<Routine>, time:
             })
         },
         None => {
-            let mut rows = vec![table_row(
-                vec![
-                    cell("Drill".to_string(), DRILL_W, tokens::TEXT_DIM),
-                    cell("Score".to_string(), VALUE_W, tokens::TEXT_DIM),
-                    cell("vs avg".to_string(), VALUE_W, tokens::TEXT_DIM),
-                    cell("vs PB".to_string(), VALUE_W, tokens::TEXT_DIM),
-                ],
-                false,
-            )];
+            let header = vec![
+                header_cell("Drill", DRILL_W),
+                header_cell("Score", VALUE_W),
+                header_cell("vs your average", VALUE_W),
+                header_cell("vs your best", VALUE_W),
+            ];
+            let mut rows = Vec::new();
             for (index, result) in routine.results.iter().enumerate() {
                 let score = result.stats.score();
                 let delta = |reference: Option<f32>| match reference.filter(|r| *r > 0.0) {
@@ -128,8 +131,10 @@ pub fn spawn_routine_screen(mut commands: Commands, routine: Res<Routine>, time:
                 ));
             }
             let skipped = total - routine.results.len();
-            let skipped: Vec<_> =
-                (skipped > 0).then(|| label_dim(format!("{skipped} step(s) skipped."))).into_iter().collect();
+            let skipped: Vec<_> = (skipped > 0)
+                .then(|| label_dim(format!("{skipped} {} skipped.", if skipped == 1 { "step" } else { "steps" })))
+                .into_iter()
+                .collect();
             commands.spawn_scene(bsn! {
                 @overlay()
                 Children [
@@ -140,17 +145,17 @@ pub fn spawn_routine_screen(mut commands: Commands, routine: Res<Routine>, time:
                         --
                         @surface()
                         Node { row_gap: px(2) }
-                        Children [ {rows} ]
+                        Children [ @table_header(header) -- {rows} ]
                         --
                         {skipped}
                         --
                         @actions(bsn_list! {
-                            @button("Run again", ButtonVariant::Primary)
+                            @button("Run again", Btn::Primary)
                             on(|_: On<Activate>, routine: Res<Routine>, mut commands: Commands, mut next: ResMut<NextState<AppState>>| {
                                 start_routine(&mut commands, &mut next, routine.restarted());
                             })
                             --
-                            @button("Menu", ButtonVariant::Normal)
+                            @button("Menu", Btn::Secondary)
                             on(go_to_menu)
                         })
                     ]
@@ -159,6 +164,17 @@ pub fn spawn_routine_screen(mut commands: Commands, routine: Res<Routine>, time:
         },
     };
     entity.insert(DespawnOnExit(AppState::Routine));
+}
+
+/// Skips the next step of the routine.
+fn skip_button() -> impl Scene {
+    bsn! {
+        @button("Skip step", Btn::Secondary)
+        on(|_: On<Activate>, mut routine: ResMut<Routine>, mut next: ResMut<NextState<AppState>>| {
+            routine.skip();
+            next.set(AppState::Routine);
+        })
+    }
 }
 
 /// One segment of the step progress bar.

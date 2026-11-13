@@ -2,13 +2,13 @@
 //! one-click adaptive training for each.
 
 use bevy::feathers::constants::fonts;
-use bevy::feathers::controls::ButtonVariant;
-use bevy::feathers::theme::ThemeBackgroundColor;
+use bevy::feathers::theme::{ThemeBackgroundColor, UiTheme};
 use bevy::feathers::tokens;
 use bevy::prelude::*;
 use bevy::ui_widgets::Activate;
 
-use super::MenuTab;
+use super::play::PlaySelection;
+use super::{CONTENT_W, MenuTab, page};
 use crate::AppState;
 use crate::analysis::{
     self, Analysis, Cell, MIN_FLICKS, MIN_SAMPLES, RECENT_REPLAYS, SECTORS, TRAINING_SECS, band_label,
@@ -22,57 +22,98 @@ use crate::ui::charts::*;
 use crate::ui::theme::*;
 use crate::ui::widgets::*;
 
-/// Width of the left column (direction wheel and tendencies).
-const LEFT_W: f32 = 312.0;
-const TILE_W: f32 = 88.0;
-const TILE_H: f32 = 56.0;
+const TILE_W: f32 = 78.0;
+const TILE_H: f32 = 54.0;
 const TILE_GAP: f32 = 6.0;
+/// Width of the left column: the direction wheel in a card.
+const LEFT_W: f32 = 3.0 * TILE_W + 2.0 * TILE_GAP + 2.0 * SPACE_M;
+/// Width of a value column of the distance table: nine of them and the labels fill the right
+/// column, also while the page's scrollbar shows.
+const VALUE_W: f32 = (CONTENT_W - SCROLLBAR_GUTTER - LEFT_W - SPACE_L - 2.0 * SPACE_L - LABEL_W - 12.0) / 9.0;
+const LABEL_W: f32 = 66.0;
 /// Sectors laid out as on screen, row by row; `None` is the middle.
 const WHEEL: [[Option<usize>; 3]; 3] =
     [[Some(3), Some(2), Some(1)], [Some(4), None, Some(0)], [Some(5), Some(6), Some(7)]];
 /// Weakness score shown with full color.
 const FULL_COLOR_SCORE: f32 = 0.8;
 
-/// Container whose children are rebuilt, with a fresh analysis, whenever the tab is opened.
+/// Container whose children are rebuilt, with a fresh analysis, whenever the page is opened.
 #[derive(Component, Clone, Copy, Default)]
 pub struct InsightsBody;
 
 #[derive(Component, Clone, Copy, Default)]
 struct TrainButton(Cell);
 
-/// Re-analyses your newest flick-drill replays when the Insights tab is opened (also after a run,
-/// as the menu is rebuilt). Runs inline: at most `RECENT_REPLAYS` replays are decoded.
+pub(super) fn insights_page() -> impl Scene {
+    bsn! {
+        @page(MenuTab::Insights, bsn_list! {
+            @scroll_column(bsn_list! {
+                Node { flex_direction: FlexDirection::Row, column_gap: px(SPACE_L), align_items: AlignItems::Start }
+                InsightsBody
+            })
+            Node { flex_grow: 1.0, flex_basis: px(0), min_width: px(0) }
+        })
+    }
+}
+
+/// Re-analyses your newest flick-drill replays when the Insights page is opened (also after a
+/// run, as the menu is rebuilt). Runs inline: at most `RECENT_REPLAYS` replays are decoded.
 pub fn rebuild_insights(
     mut commands: Commands,
-    tab: Res<MenuTab>,
     replays: Res<ReplayDir>,
-    bodies: Query<(Entity, Ref<InsightsBody>)>,
+    theme: Res<UiTheme>,
+    bodies: Query<Entity, Added<InsightsBody>>,
 ) {
-    if *tab != MenuTab::Insights {
-        return;
-    }
-    for (body, marker) in &bodies {
-        if !tab.is_changed() && !marker.is_added() {
-            continue;
-        }
-        commands.entity(body).despawn_related::<Children>();
+    for body in &bodies {
         let analysis = analysis::analyze(&Replay::recent(&replays.0, &analysis::flick_kinds(), RECENT_REPLAYS));
         if analysis.enough_data() {
-            spawn_insights(&mut commands, body, &analysis);
+            spawn_insights(&mut commands, body, &analysis, &theme);
         } else {
             spawn_empty(&mut commands, body, &analysis);
         }
     }
 }
 
+/// Not enough flicks yet: how many there are, how many it takes and where to get them.
 fn spawn_empty(commands: &mut Commands, body: Entity, analysis: &Analysis) {
-    let card = commands.spawn_scene(bsn! { @surface() Node { flex_grow: 1.0 } }).insert(ChildOf(body)).id();
-    commands.spawn_scene(subheading("Not enough flicks yet")).insert(ChildOf(card));
-    let found = format!(
-        "Play a few Microflick or Gridshot runs (Head level and Peripheral count too). Insights look at the flicks in your newest {RECENT_REPLAYS} replays and need at least {MIN_FLICKS}; found {} in {} runs so far.",
-        analysis.flicks, analysis.replays
+    let drills: Vec<&str> = analysis::flick_kinds().into_iter().map(DrillKind::name).collect();
+    let text = format!(
+        "Insights look at the flicks in your newest {RECENT_REPLAYS} replays of the flick drills ({}) and need at least {MIN_FLICKS} of them.",
+        drills.join(", ")
     );
-    text(commands, card, found, 14.0, tokens::TEXT_DIM, Node::default());
+    let card = spawn_in(commands, body, bsn! { @empty_state("Not enough flicks yet", text) Node { flex_grow: 1.0 } });
+    let found = format!("{} of {MIN_FLICKS} flicks so far, from {} runs", analysis.flicks, analysis.replays);
+    spawn_in(commands, card, bsn! { @label_strong(found) Node { margin: UiRect::top(px(SPACE_S)) } });
+    let track = commands
+        .spawn((
+            ChildOf(card),
+            Node { width: px(320), height: px(6), border_radius: BorderRadius::all(px(3)), ..default() },
+            ThemeBackgroundColor(DIVIDER),
+        ))
+        .id();
+    let share = (analysis.flicks as f32 / MIN_FLICKS as f32).min(1.0);
+    commands.spawn((
+        ChildOf(track),
+        Node {
+            width: percent(share * 100.0),
+            height: percent(100),
+            border_radius: BorderRadius::all(px(3)),
+            ..default()
+        },
+        ThemeBackgroundColor(ACCENT),
+    ));
+    spawn_in(
+        commands,
+        card,
+        bsn! {
+            @button("Play Microflick", Btn::Primary)
+            Node { align_self: AlignSelf::FlexStart, margin: UiRect::top(px(SPACE_M)) }
+            on(|_: On<Activate>, mut tab: ResMut<MenuTab>, mut selection: ResMut<PlaySelection>| {
+                *selection = PlaySelection::Drill(DrillKind::Microflick);
+                *tab = MenuTab::Play;
+            })
+        },
+    );
 }
 
 fn stack(commands: &mut Commands, parent: Entity, node: Node) -> Entity {
@@ -81,23 +122,27 @@ fn stack(commands: &mut Commands, parent: Entity, node: Node) -> Entity {
 }
 
 fn section(commands: &mut Commands, parent: Entity, title: &str) -> Entity {
-    let card = commands.spawn_scene(surface()).insert(ChildOf(parent)).id();
-    commands.spawn_scene(overline(title)).insert(ChildOf(card));
+    let card = spawn_in(commands, parent, surface());
+    spawn_in(commands, card, overline(title));
     card
 }
 
-fn spawn_insights(commands: &mut Commands, body: Entity, analysis: &Analysis) {
+fn spawn_insights(commands: &mut Commands, body: Entity, analysis: &Analysis, theme: &UiTheme) {
     let left = stack(commands, body, Node { width: px(LEFT_W), flex_shrink: 0.0, ..default() });
-    let wheel = section(commands, left, "Kill time by direction");
-    spawn_wheel(commands, wheel, analysis);
+    let wheel = spawn_in(commands, left, bsn! { @surface() Node { padding: px(SPACE_M) } });
+    spawn_in(commands, wheel, overline("Kill time by direction"));
+    spawn_wheel(commands, wheel, analysis, theme);
+    let legend = spawn_in(commands, wheel, bsn! { @wrap_row() Node { column_gap: px(0), row_gap: px(2) } });
+    for (color, meaning) in [(HEAT_WEAK, "slower"), (HEAT_STRONG, "faster"), (HEAT_EMPTY, "too few flicks")] {
+        spawn_in(commands, legend, legend_item(color, meaning));
+    }
     let caption = format!(
-        "vs your average for the distance; b/s: throughput of your first clicks. {} flicks from {} runs. Red = weaker, green = stronger, grey = under {MIN_SAMPLES} flicks.",
-        analysis.flicks, analysis.replays
+        "Than your average for that distance. Under it: flicks, and the throughput of your first clicks (b/s). Fewer than {MIN_SAMPLES} flicks aren't rated."
     );
-    text(commands, wheel, caption, 11.0, tokens::TEXT_DIM, Node::default());
+    spawn_in(commands, wheel, details("How to read the wheel", caption));
     let habits = section(commands, left, "Tendencies");
     for line in &analysis.tendencies {
-        text(commands, habits, line.clone(), 13.0, tokens::TEXT_MAIN, Node::default());
+        spawn_in(commands, habits, label(line.clone()));
     }
 
     let right = stack(commands, body, Node { flex_grow: 1.0, flex_basis: px(0), min_width: px(0), ..default() });
@@ -106,19 +151,15 @@ fn spawn_insights(commands: &mut Commands, body: Entity, analysis: &Analysis) {
 }
 
 /// Background of a sector tile: red for weaker than your average, green for stronger.
-fn weakness_color(score: f32) -> Color {
-    let neutral = Color::srgb(0.24, 0.26, 0.3);
+fn weakness_color(theme: &UiTheme, score: f32) -> Color {
+    let neutral = theme.color(&HEAT_NEUTRAL);
     let t = (score / FULL_COLOR_SCORE).clamp(-1.0, 1.0);
-    if t >= 0.0 {
-        neutral.mix(&Color::srgb(0.78, 0.24, 0.24), t)
-    } else {
-        neutral.mix(&Color::srgb(0.2, 0.58, 0.32), -t)
-    }
+    if t >= 0.0 { neutral.mix(&theme.color(&HEAT_WEAK), t) } else { neutral.mix(&theme.color(&HEAT_STRONG), -t) }
 }
 
 /// The 8 directions around the crosshair, each colored by its weakness score and showing its kill
 /// time versus your average and its throughput.
-fn spawn_wheel(commands: &mut Commands, parent: Entity, analysis: &Analysis) {
+fn spawn_wheel(commands: &mut Commands, parent: Entity, analysis: &Analysis, theme: &UiTheme) {
     let grid = commands
         .spawn((ChildOf(parent), Node { flex_direction: FlexDirection::Column, row_gap: px(TILE_GAP), ..default() }))
         .id();
@@ -131,15 +172,15 @@ fn spawn_wheel(commands: &mut Commands, parent: Entity, analysis: &Analysis) {
                 flex_direction: FlexDirection::Column,
                 align_items: AlignItems::Center,
                 justify_content: JustifyContent::Center,
-                border_radius: BorderRadius::all(px(6)),
+                border_radius: BorderRadius::all(px(RADIUS_S)),
                 ..default()
             };
             let Some(sector) = slot else {
-                let middle = commands.spawn((ChildOf(line), tile, ThemeBackgroundColor(tokens::GROUP_BG))).id();
-                text(commands, middle, "AVERAGE".into(), 10.0, tokens::TEXT_DIM, Node::default());
+                let middle = commands.spawn((ChildOf(line), tile)).id();
+                spawn_in(commands, middle, overline("Average"));
                 let typical = analysis.overall.ttk.map_or("-".into(), |t| format!("{:.0} ms", t * 1000.0));
-                commands.spawn_scene(styled(typical, fonts::BOLD, 16.0, TEXT_STRONG)).insert(ChildOf(middle));
-                text(commands, middle, "median kill".into(), 11.0, tokens::TEXT_DIM, Node::default());
+                spawn_in(commands, middle, styled(typical, fonts::BOLD, FONT_BODY, TEXT_STRONG));
+                text(commands, middle, "median kill".into(), FONT_MICRO, tokens::TEXT_DIM, Node::default());
                 continue;
             };
             let stats = &analysis.sectors[sector];
@@ -149,75 +190,76 @@ fn spawn_wheel(commands: &mut Commands, parent: Entity, analysis: &Analysis) {
             };
             let (background, value) = match stats.score {
                 Some(score) => (
-                    weakness_color(score),
+                    weakness_color(theme, score),
                     stats.ttk_vs(&analysis.overall).map_or("-".into(), |ms| format!("{ms:+.0} ms")),
                 ),
-                None => (Color::srgb(0.17, 0.18, 0.2), "-".into()),
+                None => (theme.color(&HEAT_EMPTY), "-".into()),
             };
             let tile = commands.spawn((ChildOf(line), tile, BackgroundColor(background))).id();
-            text(commands, tile, SECTORS[sector].to_uppercase(), 10.0, TEXT_STRONG, Node::default());
-            commands.spawn_scene(styled(value, fonts::BOLD, 16.0, TEXT_STRONG)).insert(ChildOf(tile));
-            text(commands, tile, note, 11.0, TEXT_STRONG, Node::default());
+            spawn_in(commands, tile, overline_colored(SECTORS[sector], TEXT_STRONG));
+            spawn_in(commands, tile, styled(value, fonts::BOLD, FONT_BODY, TEXT_STRONG));
+            text(commands, tile, note, FONT_MICRO, TEXT_STRONG, Node::default());
         }
     }
 }
 
-/// The top weak spots, each with a button that trains it.
+/// The top weak spots, each with a button that trains it; the first is the one to start with.
 fn spawn_findings(commands: &mut Commands, parent: Entity, analysis: &Analysis) {
-    let list = section(commands, parent, "Weak spots");
+    let title = format!("Weak spots  ·  {} flicks from {} runs", analysis.flicks, analysis.replays);
+    let list = section(commands, parent, &title);
     if analysis.findings.is_empty() {
-        let even = "No clear weak spot: no direction or distance stands out from your average. Keep playing; this updates with every run.";
-        text(commands, list, even.into(), 14.0, tokens::TEXT_DIM, Node::default());
+        let even = "No direction or distance stands out from your average. Keep playing: this updates with every run.";
+        spawn_in(commands, list, callout(TEXT_GOOD, "No clear weak spot", even));
         return;
     }
-    for finding in &analysis.findings {
-        let row = commands
-            .spawn((ChildOf(list), Node { column_gap: px(SPACE_M), align_items: AlignItems::Center, ..default() }))
-            .id();
-        let words = commands
-            .spawn((
-                ChildOf(row),
-                Node {
-                    flex_direction: FlexDirection::Column,
-                    flex_grow: 1.0,
-                    flex_basis: px(0),
-                    row_gap: px(2),
-                    ..default()
-                },
-            ))
-            .id();
+    for (rank, finding) in analysis.findings.iter().enumerate() {
         let title = format!("{}  ·  {} flicks", finding.title, finding.n);
-        commands.spawn_scene(styled(title, fonts::BOLD, 14.0, TEXT_STRONG)).insert(ChildOf(words));
-        text(commands, words, finding.detail.clone(), 13.0, tokens::TEXT_DIM, Node::default());
+        let detail = finding.detail.clone();
         let spot = finding.cell;
-        commands
-            .spawn_scene(bsn! {
-                @compact_button("Train this", ButtonVariant::Primary)
-                Node { flex_shrink: 0.0 }
-                TrainButton(spot)
-                on(train)
-            })
-            .insert(ChildOf(row));
+        let (tone, kind) = if rank == 0 { (TEXT_WARN, Btn::Primary) } else { (BORDER_STRONG, Btn::Secondary) };
+        spawn_in(
+            commands,
+            list,
+            bsn! {
+                @row()
+                Node {
+                    column_gap: px(SPACE_M),
+                    padding: UiRect::axes(px(SPACE_M), px(SPACE_S)),
+                    border_radius: BorderRadius::all(px(RADIUS_S)),
+                }
+                ThemeBackgroundColor(SURFACE_TILE)
+                Children [
+                    @marker(tone)
+                    --
+                    @column()
+                    Node { flex_grow: 1.0, flex_basis: px(0), row_gap: px(2) }
+                    Children [ @label_strong(title) -- @label_dim(detail) ]
+                    --
+                    @compact_button("Train this", kind)
+                    Node { flex_shrink: 0.0 }
+                    TrainButton(spot)
+                    on(train)
+                ]
+            },
+        );
     }
     let note = format!(
-        "Train this plays a {TRAINING_SECS:.0} s adaptive Microflick of just those flicks: target sizes adapt so you hit about {:.0}% in time, and the result shows the size you reached (θ75). It's saved in the Custom tab, and its History shows your progress.",
+        "Train this plays a {TRAINING_SECS:.0} s adaptive Microflick of just those flicks: target sizes adapt so you hit about {:.0}% in time, and the result shows the size you reached (θ75). It's saved on the Custom page, and its History shows your progress.",
         TARGET_HIT * 100.0
     );
-    text(commands, list, note, 11.0, tokens::TEXT_DIM, Node::default());
+    spawn_in(commands, list, details("What Train this does", note));
 }
 
 /// One row per distance band.
 fn spawn_band_table(commands: &mut Commands, parent: Entity, analysis: &Analysis) {
-    const LABEL_W: f32 = 66.0;
-    const VALUE_W: f32 = 60.0;
-    let table = section(commands, parent, "By distance");
+    let table = section(commands, parent, "By flick distance");
     let rows = commands
         .spawn((ChildOf(table), Node { flex_direction: FlexDirection::Column, row_gap: px(2), ..default() }))
         .id();
     let headers = ["Flicks", "Landing", "Off-line", "Bow", "Corr.", "Kill", "vs avg", "Miss", "TPe"];
-    let mut header = vec![cell("Distance", LABEL_W, tokens::TEXT_DIM)];
-    header.extend(headers.iter().map(|h| cell(*h, VALUE_W, tokens::TEXT_DIM)));
-    commands.spawn_scene(table_row(header, false)).insert(ChildOf(rows));
+    let mut header = vec![header_cell("Distance", LABEL_W)];
+    header.extend(headers.iter().map(|h| header_cell(h, VALUE_W)));
+    spawn_in(commands, rows, table_header(header));
 
     let percent = |v: Option<f32>| v.map_or("-".into(), |v| format!("{:.0}%", v * 100.0));
     for (band, stats) in analysis.bands.iter().enumerate() {
@@ -243,8 +285,13 @@ fn spawn_band_table(commands: &mut Commands, parent: Entity, analysis: &Analysis
         ];
         commands.spawn_scene(table_row(cells, band % 2 == 0)).insert(ChildOf(rows));
     }
-    let legend = "Landing: how far your first flick travels (100% = on target). Off-line: its sideways error. Bow: path curve. Corr.: corrective moves per kill. Kill: median time to kill. TPe: effective throughput of your first clicks, bits/s.";
-    text(commands, table, legend.into(), 11.0, tokens::TEXT_DIM, Node::default());
+    spawn_in(
+        commands,
+        table,
+        small("vs avg: kill time against your average for that distance. Green is faster, red slower."),
+    );
+    let legend = "Landing: how far your first flick travels (100% = on target). Off-line: its sideways error. Bow: path curve. Corr.: corrective moves per kill. Kill: median time to kill. Miss: missed shots and expired targets per attempt. TPe: effective throughput of your first clicks, bits/s.";
+    spawn_in(commands, table, details("What the columns mean", legend));
 }
 
 /// Creates (or updates) the weak spot's adaptive training scenario (Train mode, so targets stay

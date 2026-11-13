@@ -1,5 +1,6 @@
-//! The in-game HUD: title, timer, the drill's live stats (and an adaptive run's live θ75), the
-//! "click to start" card and the countdown.
+//! The in-game HUD: title, timer, the drill's live stats (and an adaptive run's live θ75) and the
+//! pause key in a bar at the top, the "click to start" card and the countdown. All of it stays
+//! in the upper part of the screen, clear of the crosshair.
 
 use std::borrow::Cow;
 
@@ -7,14 +8,14 @@ use bevy::diagnostic::{DiagnosticsStore, FrameTimeDiagnosticsPlugin};
 use bevy::feathers::constants::fonts;
 use bevy::feathers::tokens;
 use bevy::prelude::*;
-use bevy::text::{FontFeatureTag, FontFeatures};
 
-use crate::AppState;
 use crate::drill::adaptive::AdaptiveRun;
+use crate::drill::pause::ResumeCountdown;
 use crate::drill::{Phase, Run};
 use crate::settings::Settings;
-use crate::ui::theme::{TEXT_ACCENT, TEXT_STRONG};
-use crate::ui::widgets::{hud_anchor, hud_bar, styled, vertical_divider};
+use crate::ui::theme::*;
+use crate::ui::widgets::*;
+use crate::{AppState, PlayState};
 
 /// Text slots of the in-game HUD, filled by `update_hud`.
 #[derive(Component, Clone, Copy, Default, PartialEq, Eq)]
@@ -23,9 +24,11 @@ pub(super) enum HudField {
     Title,
     Time,
     Detail,
-    Info,
+    Fps,
     ReadyTitle,
     ReadyBlurb,
+    /// What the countdown counts down to.
+    CountdownLabel,
     Countdown,
 }
 
@@ -34,10 +37,10 @@ pub(super) enum HudField {
 pub(super) struct ReadyCard;
 
 /// Minimum widths of the HUD bar's changing segments: room for "600.0s", "Kills 123   Lives 10 /
-/// 10" and "1234 fps   Esc to quit".
+/// 10" and "1234 fps".
 const TIME_W: f32 = 100.0;
 const DETAIL_W: f32 = 230.0;
-const INFO_W: f32 = 140.0;
+const FPS_W: f32 = 56.0;
 
 pub(super) fn spawn_hud(mut commands: Commands) {
     commands
@@ -46,7 +49,7 @@ pub(super) fn spawn_hud(mut commands: Commands) {
             Children [
                 @hud_bar()
                 Children [
-                    @styled("", fonts::BOLD, 15.0, tokens::TEXT_MAIN)
+                    @styled("", fonts::BOLD, FONT_BODY, tokens::TEXT_MAIN)
                     HudField::Title
                     --
                     @vertical_divider()
@@ -54,24 +57,65 @@ pub(super) fn spawn_hud(mut commands: Commands) {
                     // Each changing segment gets room for its usual widest value, so the bar
                     // keeps its size as numbers grow (9 → 10 hits, 99 → 100 fps).
                     Node { min_width: px(TIME_W), justify_content: JustifyContent::Center }
-                    Children [ @styled("", fonts::BOLD, 26.0, TEXT_STRONG) TextFont { font_features: {tabular()} } HudField::Time ]
+                    Children [ @styled("", fonts::BOLD, FONT_HUD_TIME, TEXT_STRONG) TextFont { font_features: {tabular()} } HudField::Time ]
                     --
                     @vertical_divider()
                     --
                     Node { min_width: px(DETAIL_W), justify_content: JustifyContent::Center }
                     Children [
-                        @styled("", fonts::REGULAR, 16.0, TEXT_STRONG)
+                        @styled("", fonts::REGULAR, FONT_HUD, TEXT_STRONG)
                         TextFont { font_features: {tabular()} }
                         HudField::Detail
                     ]
                     --
                     @vertical_divider()
                     --
-                    Node { min_width: px(INFO_W), justify_content: JustifyContent::Center }
+                    Node { min_width: px(FPS_W), justify_content: JustifyContent::Center }
                     Children [
-                        @styled("", fonts::REGULAR, 12.0, tokens::TEXT_DIM)
+                        @styled("", fonts::REGULAR, FONT_SMALL, tokens::TEXT_DIM)
                         TextFont { font_features: {tabular()} }
-                        HudField::Info
+                        HudField::Fps
+                    ]
+                    --
+                    @key_hint("Esc", "pause")
+                ]
+            ]
+        })
+        .insert(DespawnOnExit(AppState::Playing));
+    commands
+        .spawn_scene(bsn! {
+            @hud_anchor(percent(22))
+            Children [
+                @hud_bar()
+                ReadyCard
+                Node {
+                    flex_direction: FlexDirection::Column,
+                    row_gap: px(6),
+                    padding: UiRect::axes(px(36), px(20)),
+                    border_radius: BorderRadius::all(px(RADIUS_L)),
+                }
+                Children [
+                    @styled("", fonts::BOLD, FONT_READY, TEXT_STRONG)
+                    HudField::ReadyTitle
+                    --
+                    @styled("", fonts::REGULAR, FONT_HUD, tokens::TEXT_MAIN)
+                    HudField::ReadyBlurb
+                    --
+                    @row()
+                    Node { margin: UiRect::top(px(10)), column_gap: px(SPACE_S) }
+                    Children [
+                        @keycap("Click")
+                        --
+                        @styled("or", fonts::REGULAR, FONT_SMALL, tokens::TEXT_DIM)
+                        --
+                        @keycap("Space")
+                        --
+                        @styled("to start", fonts::BOLD, FONT_BODY, TEXT_ACCENT)
+                        --
+                        @vertical_divider()
+                        Node { margin: UiRect::horizontal(px(SPACE_S)) }
+                        --
+                        @key_hint("Esc", "pause or leave")
                     ]
                 ]
             ]
@@ -81,50 +125,38 @@ pub(super) fn spawn_hud(mut commands: Commands) {
         .spawn_scene(bsn! {
             @hud_anchor(percent(24))
             Children [
-                @hud_bar()
-                ReadyCard
-                Node {
-                    flex_direction: FlexDirection::Column,
-                    row_gap: px(6),
-                    padding: UiRect::axes(px(36), px(22)),
-                    border_radius: BorderRadius::all(px(14)),
-                }
+                @column()
+                Node { align_items: AlignItems::Center, row_gap: px(0) }
                 Children [
-                    @styled("", fonts::BOLD, 30.0, TEXT_STRONG)
-                    HudField::ReadyTitle
+                    @styled("", fonts::BOLD, FONT_BODY, TEXT_ACCENT)
+                    HudField::CountdownLabel
                     --
-                    @styled("", fonts::REGULAR, 16.0, tokens::TEXT_MAIN)
-                    HudField::ReadyBlurb
-                    --
-                    @styled("CLICK OR PRESS SPACE TO START", fonts::BOLD, 14.0, TEXT_ACCENT)
-                    Node { margin: UiRect::top(px(10)) }
+                    @styled("", fonts::BOLD, FONT_COUNTDOWN, TEXT_STRONG)
+                    TextFont { font_features: {tabular()} }
+                    HudField::Countdown
                 ]
             ]
         })
         .insert(DespawnOnExit(AppState::Playing));
-    commands
-        .spawn_scene(bsn! {
-            @hud_anchor(percent(28))
-            Children [ @styled("", fonts::BOLD, 96.0, TEXT_STRONG) TextFont { font_features: {tabular()} } HudField::Countdown ]
-        })
-        .insert(DespawnOnExit(AppState::Playing));
 }
 
-/// Equal-width digits for text that changes every frame: Fira Sans' default digits differ in
-/// width, so a changing number (the FPS, the timer) resizes its line, and the centred HUD bar
-/// shifts with it.
-fn tabular() -> FontFeatures {
-    [FontFeatureTag::TABULAR_FIGURES].into()
-}
-
+#[allow(clippy::too_many_arguments)]
 pub(super) fn update_hud(
     run: Res<Run>,
+    play: Res<State<PlayState>>,
+    resume: Res<ResumeCountdown>,
     adaptive: Res<AdaptiveRun>,
     settings: Res<Settings>,
     diagnostics: Res<DiagnosticsStore>,
     mut fields: Query<(&HudField, &mut Text)>,
     mut ready_card: Single<&mut Node, With<ReadyCard>>,
 ) {
+    // The run's own countdown, or the one back into a resumed run.
+    let countdown = match (play.get(), run.phase()) {
+        (PlayState::Resuming, _) => Some(resume.left()),
+        (PlayState::Running, Phase::Countdown) => Some(run.countdown()),
+        _ => None,
+    };
     let adaptive_mode = run.drill.config.adaptive();
     let fps = diagnostics.get(&FrameTimeDiagnosticsPlugin::FPS).and_then(|fps| fps.smoothed()).unwrap_or(0.0);
     for (field, mut text) in &mut fields {
@@ -136,6 +168,11 @@ pub(super) fn update_hud(
             HudField::Detail if !run.counting() => {
                 Cow::Owned(format!("Warm-in {:.1}s (not scored)", run.warm_in_left()))
             },
+            // Nothing counts in a held-fire drill until the gun is fired: say so rather than
+            // show a row of zeros.
+            HudField::Detail if run.live() && run.fired() == 0 && run.kind().def().score.held_fire() => {
+                Cow::Borrowed("Hold the fire button: only fire on the target counts")
+            },
             HudField::Detail => {
                 let detail = run.kind().def().score.hud_detail(&run.live_stats(&settings), &run.drill.config);
                 match adaptive.estimate().filter(|_| adaptive_mode.is_some()) {
@@ -146,7 +183,7 @@ pub(super) fn update_hud(
                     _ => Cow::Owned(detail),
                 }
             },
-            HudField::Info => Cow::Owned(format!("{fps:.0} fps   Esc to quit")),
+            HudField::Fps => Cow::Owned(format!("{fps:.0} fps")),
             // Only while the ready card shows it.
             HudField::ReadyBlurb if run.phase() != Phase::Ready => continue,
             HudField::ReadyBlurb => match adaptive_mode {
@@ -158,9 +195,14 @@ pub(super) fn update_hud(
                 )),
                 None => run.drill.config.blurb(),
             },
-            HudField::Countdown => match run.phase() {
-                Phase::Countdown => Cow::Owned(format!("{}", run.countdown().ceil() as u32)),
-                Phase::Ready | Phase::Live => Cow::Borrowed(""),
+            HudField::CountdownLabel => Cow::Borrowed(match (countdown, play.get()) {
+                (None, _) => "",
+                (Some(_), PlayState::Resuming) => "RESUMING IN",
+                (Some(_), _) => "STARTING IN",
+            }),
+            HudField::Countdown => match countdown {
+                Some(secs) => Cow::Owned(format!("{}", secs.ceil() as u32)),
+                None => Cow::Borrowed(""),
             },
         };
         if text.0 != wanted {

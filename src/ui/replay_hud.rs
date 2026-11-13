@@ -8,8 +8,8 @@ use bevy::prelude::*;
 
 use crate::AppState;
 use crate::replay::Playback;
-use crate::ui::theme::{DIVIDER, TEXT_ACCENT, TEXT_BAD, TEXT_GOOD, TEXT_STRONG};
-use crate::ui::widgets::{hud_anchor, hud_bar, styled, vertical_divider};
+use crate::ui::theme::*;
+use crate::ui::widgets::*;
 
 /// Text slots of the replay HUD, filled by `update_replay_hud`.
 #[derive(Component, Clone, Copy, Default)]
@@ -34,31 +34,31 @@ pub(super) fn spawn_replay_hud(mut commands: Commands) {
                 @hud_bar()
                 Children [
                     Node { padding: UiRect::axes(px(8), px(2)), border_radius: BorderRadius::all(px(4)) }
-                    ThemeBackgroundColor(tokens::BUTTON_PRIMARY_BG)
-                    Children [ @styled("REPLAY", fonts::BOLD, 12.0, TEXT_STRONG) ]
+                    ThemeBackgroundColor(ACCENT)
+                    Children [ @styled("REPLAY", fonts::BOLD, FONT_MICRO, TEXT_ON_ACCENT) ]
                     --
-                    @styled("", fonts::BOLD, 15.0, tokens::TEXT_MAIN)
+                    @styled("", fonts::BOLD, FONT_BODY, tokens::TEXT_MAIN)
                     ReplayField::Title
                     --
                     @vertical_divider()
                     --
-                    @styled("", fonts::BOLD, 22.0, TEXT_STRONG)
+                    @styled("", fonts::BOLD, FONT_REPLAY_TIME, TEXT_STRONG)
                     ReplayField::Time
                     --
-                    @styled("", fonts::BOLD, 15.0, TEXT_ACCENT)
+                    @styled("", fonts::BOLD, FONT_BODY, TEXT_ACCENT)
                     ReplayField::Speed
                     --
                     @vertical_divider()
                     --
-                    @styled("", fonts::REGULAR, 16.0, TEXT_GOOD)
+                    @styled("", fonts::REGULAR, FONT_HUD, TEXT_GOOD)
                     ReplayField::Hits
                     --
-                    @styled("", fonts::REGULAR, 16.0, TEXT_BAD)
+                    @styled("", fonts::REGULAR, FONT_HUD, TEXT_BAD)
                     ReplayField::Misses
                     --
                     @vertical_divider()
                     --
-                    @styled("", fonts::REGULAR, 12.0, tokens::TEXT_DIM)
+                    @styled("", fonts::REGULAR, FONT_SMALL, tokens::TEXT_DIM)
                     ReplayField::Fps
                 ]
             ]
@@ -77,26 +77,49 @@ pub(super) fn spawn_replay_hud(mut commands: Commands) {
             }
             Children [
                 @hud_bar()
-                Node { padding: UiRect::axes(px(14), px(5)) }
+                Node { padding: UiRect::axes(px(SPACE_L), px(6)), column_gap: px(SPACE_L) }
                 Children [
-                    @styled(
-                        "Space play/pause    Left/Right -/+5 s    , . frame step    Up/Down speed    T tracer    R restart    Esc back",
-                        fonts::REGULAR,
-                        12.0,
-                        tokens::TEXT_MAIN
-                    )
+                    @key_hint("Space", "play / pause")
+                    --
+                    @keys_hint("Left", "Right", "-/+ 5 s")
+                    --
+                    @keys_hint(",", ".", "frame step")
+                    --
+                    @keys_hint("Up", "Down", "speed")
+                    --
+                    @key_hint("T", "tracer")
+                    --
+                    @key_hint("R", "restart")
+                    --
+                    @key_hint("Esc", "back")
                 ]
                 --
                 Node { width: percent(100), height: px(6), border_radius: BorderRadius::all(px(3)) }
                 ThemeBackgroundColor(DIVIDER)
                 Children [
                     Node { width: percent(0), height: percent(100), border_radius: BorderRadius::all(px(3)) }
-                    ThemeBackgroundColor(tokens::BUTTON_PRIMARY_BG)
+                    ThemeBackgroundColor(ACCENT)
                     TimelineFill
                 ]
             ]
         })
         .insert(DespawnOnExit(AppState::Replay));
+}
+
+/// Two keys that do opposite things, and what they change.
+fn keys_hint(first: &'static str, second: &'static str, action: &'static str) -> impl Scene {
+    bsn! {
+        @row()
+        Node { column_gap: px(SPACE_XS) }
+        Children [
+            @keycap(first)
+            --
+            @keycap(second)
+            --
+            @styled(action, fonts::REGULAR, FONT_SMALL, tokens::TEXT_MAIN)
+            Node { margin: UiRect::left(px(2)) }
+        ]
+    }
 }
 
 pub(super) fn update_replay_hud(

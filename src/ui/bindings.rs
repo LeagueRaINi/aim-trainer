@@ -2,10 +2,8 @@
 //! the numeric [`SettingField`]s, plus the systems that apply and highlight them.
 
 use bevy::feathers::controls::{
-    ButtonVariant, FeathersButton, FeathersNumberInput, HardLimit, NumberInputPrecision, NumberInputStep,
-    NumberInputValue, SoftLimit,
+    FeathersNumberInput, HardLimit, NumberInputPrecision, NumberInputStep, NumberInputValue, SoftLimit,
 };
-use bevy::feathers::display::caption;
 use bevy::prelude::*;
 use bevy::ui_widgets::{Activate, ValueChange};
 
@@ -110,10 +108,8 @@ impl Choice {
 
 pub fn choice(text: &'static str, choice: Choice) -> impl Scene {
     bsn! {
-        @FeathersButton {
-            @caption: bsn! { @caption(text) },
-        }
-        Node { min_width: px(64), height: px(28), padding: UiRect::horizontal(px(SPACE_M)) }
+        @compact_button(text, Btn::Secondary)
+        Node { min_width: px(60) }
         choice
         on(pick_choice)
     }
@@ -123,15 +119,14 @@ pub fn choice(text: &'static str, choice: Choice) -> impl Scene {
 pub fn swatch_choice(text: &'static str, rgb: [u8; 3], choice: Choice) -> impl Scene {
     let swatch = BackgroundColor(Color::srgb_u8(rgb[0], rgb[1], rgb[2]));
     bsn! {
-        @FeathersButton {
-            @caption: bsn_list! {
-                Node { width: px(10), height: px(10), border_radius: BorderRadius::all(px(3)) }
-                swatch
-                --
-                @caption(text)
-            },
-        }
-        Node { min_width: px(64), height: px(28), padding: UiRect::horizontal(px(SPACE_M)), column_gap: px(6) }
+        @button_box(Btn::Secondary, 28.0)
+        Node { min_width: px(60), padding: UiRect::horizontal(px(SPACE_M)), column_gap: px(6) }
+        Children [
+            Node { width: px(10), height: px(10), border_radius: BorderRadius::all(px(3)) }
+            swatch
+            --
+            @caption(text)
+        ]
         choice
         on(pick_choice)
     }
@@ -235,9 +230,9 @@ fn pick_choice(
     }
 }
 
-pub fn highlight_choices(settings: Res<Settings>, mut buttons: Query<(&Choice, &mut ButtonVariant)>) {
-    for (&choice, mut variant) in &mut buttons {
-        variant.set_if_neq(ButtonVariant::selected(choice.is_selected(&settings)));
+pub fn highlight_choices(settings: Res<Settings>, mut buttons: Query<(&Choice, &mut Btn)>) {
+    for (&choice, mut kind) in &mut buttons {
+        kind.set_if_neq(Btn::selected(choice.is_selected(&settings)));
     }
 }
 
@@ -311,9 +306,20 @@ pub fn sync_fields(
     }
 }
 
+/// A number input row with a line under the label saying what the setting does.
+pub fn number_field_hint(field: SettingField, hint: &'static str, settings: &Settings) -> impl Scene {
+    let text = field.spec().label;
+    setting_row_hint(text, hint, bsn_list! { @number_input(field, settings, FIELD_W) })
+}
+
 /// A setting row with "On" and "Off" choices.
 pub fn on_off_row(text: &'static str, on: Choice, off: Choice) -> impl Scene {
     setting_row(text, bsn_list! { @choice("On", on) -- @choice("Off", off) })
+}
+
+/// An [`on_off_row`] with a line under the label saying what the setting does.
+pub fn on_off_row_hint(text: &'static str, hint: &'static str, on: Choice, off: Choice) -> impl Scene {
+    setting_row_hint(text, hint, bsn_list! { @choice("On", on) -- @choice("Off", off) })
 }
 
 #[cfg(test)]

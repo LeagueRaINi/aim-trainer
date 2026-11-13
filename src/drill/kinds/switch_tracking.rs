@@ -1,5 +1,5 @@
-//! Switch tracking: several dots wander around; keeping the crosshair on one for long enough
-//! breaks it, and a new one appears elsewhere. Tracking with a target switch after every kill.
+//! Switch tracking: several dots wander around; holding fire on one for long enough breaks it,
+//! and a new one appears elsewhere. Tracking with a target switch after every kill.
 
 use std::borrow::Cow;
 
@@ -9,12 +9,15 @@ use super::microflick::flick_position;
 use crate::camera::{PlayerCamera, ViewCone};
 use crate::drill::def::{Category, DecayRule, DrillDef, Environment, TtkFrom, no_respawn, no_spawn_next};
 use crate::drill::geometry::{CEILING_PITCH, FLOOR_PITCH, TARGET_DISTANCE, direction, ray_hit};
+use crate::drill::health::Health;
+use crate::drill::held_fire::HeldFire;
 use crate::drill::params::ParamId;
 use crate::drill::stats::ScoreModel;
 use crate::drill::targets::{NextSpawn, SpawnCtx, Target, TargetAssets};
 use crate::drill::wander::Wander;
-use crate::drill::{DrillConfig, DrillSet, Run};
+use crate::drill::{DrillConfig, DrillKind, DrillSet, Run};
 use crate::metrics::flick_probe::angles;
+use crate::replay::Recorder;
 use crate::settings::Settings;
 use crate::sfx::HitSounds;
 
@@ -63,17 +66,15 @@ fn tune(config: &mut DrillConfig) {
 }
 
 fn blurb(config: &DrillConfig) -> Cow<'static, str> {
-    format!("Stay on a moving dot for {:.2} s to break it, then switch to the next.", config.track_time).into()
+    format!("Hold fire on a moving dot for {:.2} s to break it, then switch to the next.", config.track_time).into()
 }
 
-/// A wandering dot and how much tracking it still takes; angles in degrees.
+/// A wandering dot; angles in degrees. Its [`Health`] is the seconds of fire it still takes.
 #[derive(Component)]
 struct Wanderer {
     /// Where it is (yaw, pitch).
     at: Vec2,
     wander: Wander,
-    /// Seconds of tracking left before it breaks.
-    left: f32,
 }
 
 /// The area dots stay in: the yaw/pitch ranges, between floor and ceiling.
@@ -92,8 +93,9 @@ fn spawn_initial(ctx: &mut SpawnCtx) {
 fn spawn_dot(ctx: &mut SpawnCtx) {
     let at = angles(flick_position(ctx.aim, &ctx.view, ctx.margin(), ctx.config));
     let (low, high) = area(ctx.config);
-    let wanderer = Wanderer { at: at.clamp(low, high), wander: Wander::new(ctx.config), left: ctx.config.track_time };
-    ctx.spawn_target(position(wanderer.at), None).insert(wanderer);
+    let wanderer = Wanderer { at: at.clamp(low, high), wander: Wander::new(ctx.config) };
+    let health = Health::new(ctx.config.track_time);
+    ctx.spawn_target(position(wanderer.at), None).insert((wanderer, health));
 }
 
 fn position(at: Vec2) -> Vec3 {
@@ -115,22 +117,29 @@ fn wander(time: Res<Time>, run: Res<Run>, mut dots: Query<(&mut Wanderer, &mut T
     }
 }
 
-/// Drains the dot under the crosshair (lit up while it is), counts the time on target, and
-/// breaks it once its tracking time is used up: a kill timed from its spawn, with the hit sound,
-/// and a new dot elsewhere.
-#[allow(clippy::too_many_arguments)]
+/// While the fire button is held, drains the dot under the crosshair (lit up while it is hit;
+/// its bar shows what is left) and counts the time on target, and breaks it once its time is
+/// used up: a kill timed from its spawn, with the hit sound, and a new dot elsewhere. Every
+/// round fired is a shot, and a hit if a dot is under the crosshair.
+#[allow(clippy::too_many_arguments, clippy::type_complexity)]
 fn track_and_break(
     mut commands: Commands,
     time: Res<Time>,
+    gun: Res<HeldFire>,
     mut run: ResMut<Run>,
+    mut recorder: ResMut<Recorder>,
     assets: Res<TargetAssets>,
     sounds: Res<HitSounds>,
     settings: Res<Settings>,
     mut next: ResMut<NextSpawn>,
     view: Res<ViewCone>,
     camera: Single<&Transform, (With<PlayerCamera>, Without<Wanderer>)>,
-    mut dots: Query<(Entity, &mut Wanderer, &Target, &Transform, &mut MeshMaterial3d<StandardMaterial>)>,
+    mut dots: Query<(Entity, &mut Health, &Target, &Transform, &mut MeshMaterial3d<StandardMaterial>), With<Wanderer>>,
 ) {
+    // The rounds are counted here whether a dot is hit or not: only in this drill.
+    if run.kind() != DrillKind::SwitchTracking {
+        return;
+    }
     let (origin, aim) = (camera.translation, camera.forward().as_vec3());
     let dt = time.delta_secs();
     // Only the nearest dot under the crosshair is tracked.
@@ -141,19 +150,30 @@ fn track_and_break(
         })
         .min_by(|a, b| a.0.total_cmp(&b.0))
         .map(|(_, entity)| entity);
+    if run.live() {
+        for _ in 0..gun.rounds() {
+            run.shot();
+            if tracked.is_some() {
+                run.round_hit();
+            }
+        }
+        if gun.rounds() > 0 {
+            recorder.mark_shot(tracked.is_some());
+        }
+    }
     let mut broken = 0;
-    for (entity, mut dot, target, _, mut material) in &mut dots {
+    for (entity, mut health, target, _, mut material) in &mut dots {
         let on = Some(entity) == tracked;
-        let wanted = if on { &assets.hot } else { &assets.idle };
+        // Before the run starts the dot under the crosshair lights up; in it, the one being hit.
+        let wanted = if on && (gun.held() || !run.live()) { &assets.hot } else { &assets.idle };
         if material.0 != *wanted {
             material.0 = wanted.clone();
         }
-        if !on || !run.live() {
+        if !on || !run.live() || !gun.held() {
             continue;
         }
         run.track_on_target(dt);
-        dot.left -= dt;
-        if dot.left <= 0.0 {
+        if health.damage(dt) {
             let ttk = run.elapsed - target.born;
             run.kill(ttk);
             commands.entity(entity).despawn();
@@ -188,21 +208,20 @@ mod tests {
     use bevy::time::TimeUpdateStrategy;
 
     use super::*;
-    use crate::drill::{DrillKind, DrillSpec, RunPurpose};
+    use crate::drill::held_fire::pull;
+    use crate::drill::held_fire::tests::hold;
+    use crate::drill::{DrillSpec, RunPurpose};
 
     /// A dot that doesn't move (only `track_and_break` runs), with `left` seconds to go.
-    fn dot(left: f32) -> (Wanderer, Target, MeshMaterial3d<StandardMaterial>) {
+    fn dot(left: f32) -> (Wanderer, Health, Target, MeshMaterial3d<StandardMaterial>) {
         let wander = Wander::new(&DrillConfig::defaults(DrillKind::SwitchTracking));
-        let still = Wanderer { at: Vec2::ZERO, wander, left };
-        (still, Target { base_radius: 0.35, born: 0.0, lifetime: None, spawn_aim: None }, MeshMaterial3d::default())
+        let still = Wanderer { at: Vec2::ZERO, wander };
+        let target = Target { base_radius: 0.35, born: 0.0, lifetime: None, spawn_aim: None };
+        (still, Health::new(left), target, MeshMaterial3d::default())
     }
 
-    /// Only the dot under the crosshair drains; once its tracking time is used up it breaks (a
-    /// kill) and a new dot takes its place, so the number of dots stays the same.
-    #[test]
-    fn tracked_dot_breaks_and_is_replaced() {
-        let config = DrillConfig { track_time: 0.25, ..DrillConfig::defaults(DrillKind::SwitchTracking) };
-        let drill = DrillSpec { name: "Switch tracking".into(), config };
+    /// The drill's scoring system alone, with the fire button up.
+    fn app(drill: DrillSpec) -> App {
         let mut app = App::new();
         app.add_plugins(MinimalPlugins)
             .insert_resource(TimeUpdateStrategy::ManualDuration(Duration::from_millis(100)))
@@ -210,6 +229,9 @@ mod tests {
             .insert_resource(ViewCone::default())
             .insert_resource(NextSpawn::default())
             .insert_resource(HitSounds::default())
+            .insert_resource(Recorder::default())
+            .insert_resource(HeldFire::default())
+            .insert_resource(ButtonInput::<MouseButton>::default())
             .insert_resource(TargetAssets {
                 mesh: default(),
                 idle: default(),
@@ -219,22 +241,55 @@ mod tests {
                 cover_material: default(),
             })
             .insert_resource(Run::new(drill, 0.4, 60.0, RunPurpose::Practice, String::new()).started())
-            .add_systems(Update, track_and_break);
+            .add_systems(Update, (pull, track_and_break).chain());
         app.world_mut().spawn((PlayerCamera, Transform::IDENTITY));
+        app
+    }
+
+    /// Nothing drains while the fire button is up. Held, only the dot under the crosshair drains;
+    /// once its time is used up it breaks (a kill) and a new dot takes its place, so the number
+    /// of dots stays the same; and the rounds fired were all hits.
+    #[test]
+    fn fired_at_dot_breaks_and_is_replaced() {
+        let config = DrillConfig { track_time: 0.25, ..DrillConfig::defaults(DrillKind::SwitchTracking) };
+        let mut app = app(DrillSpec { name: "Switch tracking".into(), config });
         let ahead =
             app.world_mut().spawn((dot(0.25), Transform::from_xyz(0.0, 0.0, -10.0).with_scale(Vec3::splat(0.35)))).id();
         let aside =
             app.world_mut().spawn((dot(0.25), Transform::from_xyz(5.0, 0.0, -10.0).with_scale(Vec3::splat(0.35)))).id();
-        // The first update has no elapsed time; the next three add 0.3 s on the dot ahead.
-        for _ in 0..4 {
+        // The first update has no elapsed time. Half a second on the dot without firing does
+        // nothing to it.
+        for _ in 0..6 {
+            app.update();
+        }
+        assert_eq!(app.world().get::<Health>(ahead).unwrap().fraction(), 1.0, "a dot drained without fire");
+        assert_eq!(app.world().resource::<Run>().live_stats(&Settings::default()).on_target, 0.0);
+        // Three updates of fire add 0.3 s on the dot ahead.
+        hold(&mut app, true);
+        for _ in 0..3 {
             app.update();
         }
         let world = app.world_mut();
         assert!(world.get_entity(ahead).is_err(), "tracked dot still there");
-        assert_eq!(world.get::<Wanderer>(aside).unwrap().left, 0.25, "untracked dot drained");
+        assert_eq!(world.get::<Health>(aside).unwrap().fraction(), 1.0, "untracked dot drained");
         assert_eq!(world.query::<&Wanderer>().iter(world).count(), 2);
         let stats = world.resource::<Run>().live_stats(&Settings::default());
         assert_eq!(stats.hits, 1);
         assert!(stats.on_target > 0.2);
+        // Rounds at 0, 0.1 and 0.2 s of fire, all on a dot.
+        assert_eq!((stats.shots, stats.rounds_hit, stats.accuracy()), (3, 3, 1.0));
+    }
+
+    /// The other held-fire drills count their own rounds: this drill's system leaves a Tracking
+    /// run's alone (it once booked every round a second time, as a miss).
+    #[test]
+    fn rounds_of_other_drills_are_not_counted_here() {
+        let config = DrillConfig::defaults(DrillKind::Tracking);
+        let mut app = app(DrillSpec { name: "Tracking".into(), config });
+        hold(&mut app, true);
+        for _ in 0..10 {
+            app.update();
+        }
+        assert_eq!(app.world().resource::<Run>().live_stats(&Settings::default()).shots, 0);
     }
 }

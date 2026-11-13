@@ -1,9 +1,9 @@
 //! The run lifecycle: the [`Run`] resource and its stats, the ready gate and countdown, the
-//! timer, aborting, and announcing a finished run as [`RunFinished`]. What happens next
-//! (history, replay, finders, routines, results) is up to the systems reading that message.
+//! timer, and announcing a finished run as [`RunFinished`]. What happens next (history, replay,
+//! finders, routines, results) is up to the systems reading that message. Pausing, restarting
+//! and leaving a run are in [`super::pause`].
 
 use bevy::prelude::*;
-use bevy::window::WindowFocused;
 
 use super::{DrillKind, DrillSpec, RunStats, SECS_RANGE, TargetAssets, targets};
 use crate::AppState;
@@ -11,7 +11,7 @@ use crate::camera::{PlayerCamera, ViewCone};
 use crate::metrics::throughput::Click;
 use crate::settings::Settings;
 
-const COUNTDOWN_SECS: f32 = 1.5;
+pub(super) const COUNTDOWN_SECS: f32 = 1.5;
 const READY_ARM_SECS: f32 = 0.6;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -48,7 +48,7 @@ impl RunPurpose {
         }
     }
 
-    /// Where Escape or alt-tab leaves to.
+    /// Where leaving the run from the pause menu goes.
     pub fn return_state(self) -> AppState {
         match self {
             RunPurpose::Practice => AppState::Menu,
@@ -84,6 +84,8 @@ pub struct Run {
     scoring_from: f32,
     hits: u32,
     shots: u32,
+    /// Every shot fired, also during the warm-in.
+    fired: u32,
     /// Targets that expired (decay, retreating peeks, ignored reaction cues).
     expired: u32,
     ttk_total: f32,
@@ -99,10 +101,12 @@ pub struct Run {
     /// First-flick landing ratios (Microflick), see [`FlickProbe`](crate::metrics::flick_probe::FlickProbe).
     landings: Vec<f32>,
     clicks: Vec<Click>,
-    /// Set by Escape/alt-tab; nothing else happens to the run while the state changes.
-    aborted: bool,
+    /// A score the drill worked out itself, see [`rate`](Self::rate).
+    rating: Option<f32>,
     /// Set by the drill when it is over before its time (Survival out of lives).
     ended: bool,
+    /// Rounds that hit a target, see [`RunStats::rounds_hit`].
+    rounds_hit: u32,
 }
 
 impl Run {
@@ -127,6 +131,7 @@ impl Run {
             scoring_from: 0.0,
             hits: 0,
             shots: 0,
+            fired: 0,
             expired: 0,
             ttk_total: 0.0,
             best_ttk: f32::MAX,
@@ -137,9 +142,16 @@ impl Run {
             on_target: 0.0,
             landings: Vec::new(),
             clicks: Vec::new(),
-            aborted: false,
+            rating: None,
             ended: false,
+            rounds_hit: 0,
         }
+    }
+
+    /// The same run from its ready card again, with nothing played yet.
+    pub fn restarted(&self) -> Self {
+        Self::new(self.drill.clone(), self.sens, self.duration, self.purpose, self.title.clone())
+            .with_warm_in(self.scoring_from)
     }
 
     /// The first `secs` of live time play normally but don't count toward the stats.
@@ -179,7 +191,7 @@ impl Run {
     }
 
     pub(crate) fn live(&self) -> bool {
-        self.phase == Phase::Live && !self.aborted
+        self.phase == Phase::Live
     }
 
     /// Seconds left while the run is live; `None` before the start (ready gate, countdown) and
@@ -193,7 +205,13 @@ impl Run {
         self.elapsed >= self.scoring_from
     }
 
+    /// Shots fired so far in this run, whether they count or not: what a gun model kicks on.
+    pub fn fired(&self) -> u32 {
+        self.fired
+    }
+
     pub(crate) fn shot(&mut self) {
+        self.fired += 1;
         self.last_shot = self.elapsed;
         self.shot_since_kill = true;
         if self.counting() {
@@ -246,6 +264,25 @@ impl Run {
         }
     }
 
+    /// A round of held fire that hit a target (the round itself is a [`shot`](Self::shot)).
+    pub(crate) fn round_hit(&mut self) {
+        if self.counting() {
+            self.rounds_hit += 1;
+        }
+    }
+
+    /// Sets the run's score for score models that can't work it out from the counters (a test's
+    /// median or composite): the latest value when the run finishes is the one that counts.
+    pub(crate) fn rate(&mut self, score: f32) {
+        self.rating = Some(score);
+    }
+
+    /// A click that fires the gun without being an attempt at anything scored (a test's practice
+    /// trials): it shows in [`fired`](Self::fired) only.
+    pub(crate) fn dry_fire(&mut self) {
+        self.fired += 1;
+    }
+
     /// The finished run's stats, with every landing and click.
     pub fn stats(&self, settings: &Settings) -> RunStats {
         RunStats {
@@ -273,11 +310,13 @@ impl Run {
             on_target: self.on_target,
             landings: Vec::new(),
             clicks: Vec::new(),
+            rating: self.rating,
+            rounds_hit: self.rounds_hit,
         }
     }
 }
 
-/// A run played to the end (not aborted).
+/// A run played to the end.
 #[derive(Message, Clone, Debug)]
 pub struct RunFinished {
     pub stats: RunStats,
@@ -306,9 +345,6 @@ pub(super) fn ready_gate(
     view: Res<ViewCone>,
     camera: Single<&Transform, With<PlayerCamera>>,
 ) {
-    if run.aborted {
-        return;
-    }
     match run.phase {
         Phase::Ready => {
             // Clicks still in flight from the previous run (shooting at the buzzer) must not
@@ -354,34 +390,18 @@ pub(super) fn tick_run(
     });
 }
 
-/// Present while runs must survive the window losing focus: the screenshot tour drives the game
-/// in the background, so alt-tabbing away must not abort its runs.
-#[derive(Resource)]
-pub struct KeepRunsOnFocusLoss;
-
-/// Escape or alt-tab abandons the run without recording it. Runs before everything else, so the
-/// rest of the frame's systems (including `tick_run`) see the run as no longer live.
-pub(super) fn abort_run(
-    keys: Res<ButtonInput<KeyCode>>,
-    mut focus: MessageReader<WindowFocused>,
-    keep_on_focus_loss: Option<Res<KeepRunsOnFocusLoss>>,
-    mut run: ResMut<Run>,
-    mut next_state: ResMut<NextState<AppState>>,
-) {
-    let lost_focus = focus.read().any(|event| !event.focused) && keep_on_focus_loss.is_none();
-    if run.aborted || (!keys.just_pressed(KeyCode::Escape) && !lost_focus) {
-        return;
-    }
-    run.aborted = true;
-    next_state.set(run.purpose.return_state());
-}
-
 #[cfg(test)]
 mod tests {
+    use std::time::Duration;
+
     use bevy::state::app::StatesPlugin;
+    use bevy::time::TimeUpdateStrategy;
+    use bevy::window::WindowFocused;
 
     use super::*;
-    use crate::drill::DrillSet;
+    use crate::PlayState;
+    use crate::drill::pause::{self, ResumeCountdown};
+    use crate::drill::{DrillSet, KeepRunsOnFocusLoss};
     use crate::finder::classic::Finder;
     use crate::finder::smart::SmartFinder;
     use crate::finder::{self};
@@ -445,17 +465,23 @@ mod tests {
         assert_eq!(RunPurpose::from_csv("Routine"), None);
     }
 
+    /// Simulated time per frame.
+    const FRAME_MS: u64 = 100;
+
     /// The run lifecycle and every reaction to a finished run, without rendering or the drills'
     /// target systems. History and replays go to `dir`.
     fn lifecycle_app(dir: &TempDir) -> App {
         let mut app = App::new();
         app.add_plugins((MinimalPlugins, StatesPlugin))
             .insert_state(AppState::Playing)
+            .add_sub_state::<PlayState>()
+            .insert_resource(TimeUpdateStrategy::ManualDuration(Duration::from_millis(FRAME_MS)))
             .insert_resource(Settings::default())
             .insert_resource(History::load(&dir.join("results.csv")))
             .insert_resource(ReplayDir(dir.join("replays")))
             .insert_resource(Recorder::default())
             .init_resource::<ButtonInput<KeyCode>>()
+            .init_resource::<ResumeCountdown>()
             .add_message::<WindowFocused>()
             .add_message::<RunFinished>()
             .add_message::<history::RunRecorded>()
@@ -463,12 +489,12 @@ mod tests {
                 Update,
                 (DrillSet::Start, DrillSet::Finish, DrillSet::Log, DrillSet::Outcome)
                     .chain()
-                    .run_if(in_state(AppState::Playing)),
+                    .run_if(in_state(PlayState::Running)),
             )
             .add_systems(
                 Update,
                 (
-                    abort_run.in_set(DrillSet::Start),
+                    pause::pause_control.before(DrillSet::Start).run_if(in_state(AppState::Playing)),
                     tick_run.in_set(DrillSet::Finish),
                     history::record_finished.in_set(DrillSet::Log),
                     (
@@ -576,22 +602,122 @@ mod tests {
         assert!(csv.lines().nth(1).unwrap().contains(",Practice,"), "routine steps are logged as practice");
     }
 
+    /// One frame in which `key` goes down.
+    fn press(app: &mut App, key: KeyCode) {
+        app.world_mut().resource_mut::<ButtonInput<KeyCode>>().press(key);
+        app.update();
+        // No input plugin here to do this between frames.
+        app.world_mut().resource_mut::<ButtonInput<KeyCode>>().reset_all();
+    }
+
+    fn play_state(app: &App) -> PlayState {
+        *app.world().resource::<State<PlayState>>().get()
+    }
+
+    fn elapsed(app: &App) -> f32 {
+        app.world().resource::<Run>().elapsed()
+    }
+
+    /// A practice Gridshot run, live and a few frames in, in `app`.
+    fn play(app: &mut App, purpose: RunPurpose) {
+        let drill = DrillSpec::builtin(DrillKind::Gridshot, &Settings::default());
+        let mut run = Run::new(drill, 0.4, 30.0, purpose, String::new());
+        run.phase = Phase::Live;
+        app.insert_resource(run);
+        for _ in 0..3 {
+            app.update();
+        }
+        assert!(elapsed(app) > 0.0);
+    }
+
     #[test]
-    fn escape_aborts_without_finishing() {
+    fn a_paused_run_stands_still_and_resumes_after_a_countdown() {
+        let dir = TempDir::new("pause");
+        let mut app = lifecycle_app(&dir);
+        play(&mut app, RunPurpose::Practice);
+        press(&mut app, KeyCode::Escape);
+        let paused_at = elapsed(&app);
+        // Paused for longer than the rest of the run.
+        for _ in 0..(40_000 / FRAME_MS) {
+            app.update();
+            assert_eq!((play_state(&app), elapsed(&app)), (PlayState::Paused, paused_at));
+        }
+        press(&mut app, KeyCode::Escape);
+        let mut countdown_frames = 0;
+        while play_state(&app) != PlayState::Running {
+            assert_eq!(elapsed(&app), paused_at, "nothing moves during the countdown");
+            app.update();
+            countdown_frames += 1;
+            assert!(countdown_frames < 100, "never resumed");
+        }
+        let countdown = countdown_frames as f32 * FRAME_MS as f32 / 1000.0;
+        assert!((COUNTDOWN_SECS..COUNTDOWN_SECS + 0.5).contains(&countdown), "{countdown} s");
+        app.update();
+        assert!(elapsed(&app) > paused_at);
+        assert_eq!((state(&app), finished_count(&app)), (AppState::Playing, 0));
+    }
+
+    #[test]
+    fn losing_focus_pauses_unless_runs_are_kept() {
+        let lose_focus = |app: &mut App| {
+            app.world_mut().write_message(WindowFocused { window: Entity::PLACEHOLDER, focused: false });
+            app.update();
+            app.update();
+        };
+        let dir = TempDir::new("focus");
+        let mut app = lifecycle_app(&dir);
+        play(&mut app, RunPurpose::Practice);
+        lose_focus(&mut app);
+        assert_eq!(play_state(&app), PlayState::Paused);
+        // The screenshot tour plays in the background.
+        let mut app = lifecycle_app(&dir);
+        app.insert_resource(KeepRunsOnFocusLoss);
+        play(&mut app, RunPurpose::Practice);
+        lose_focus(&mut app);
+        assert_eq!(play_state(&app), PlayState::Running);
+    }
+
+    #[test]
+    fn a_paused_run_restarts_from_its_ready_card() {
+        let dir = TempDir::new("restart");
+        let mut app = lifecycle_app(&dir);
+        let settings = Settings::default();
+        let smart = SmartFinder::new(0.4, FinderFocus::Balanced);
+        let mut run = smart.segment_run(&settings).unwrap();
+        let (title, warm_in) = (run.title.clone(), run.warm_in_left());
+        assert!(warm_in > 0.0);
+        run.phase = Phase::Live;
+        app.insert_resource(run);
+        for _ in 0..3 {
+            app.update();
+        }
+        press(&mut app, KeyCode::Escape);
+        app.update();
+        press(&mut app, KeyCode::KeyR);
+        app.update();
+        let run = app.world().resource::<Run>();
+        assert_eq!((run.phase(), run.elapsed(), run.warm_in_left()), (Phase::Ready, 0.0, warm_in));
+        assert_eq!((run.title.as_str(), run.purpose), (title.as_str(), RunPurpose::FinderTrial));
+        assert_eq!((state(&app), play_state(&app)), (AppState::Playing, PlayState::Running));
+    }
+
+    #[test]
+    fn leaving_a_paused_run_records_nothing() {
         for (purpose, back) in [
             (RunPurpose::Practice, AppState::Menu),
             (RunPurpose::FinderTrial, AppState::Finder),
             (RunPurpose::Routine, AppState::Routine),
         ] {
-            let dir = TempDir::new("abort");
+            let dir = TempDir::new("leave");
             let mut app = lifecycle_app(&dir);
-            let drill = DrillSpec::builtin(DrillKind::Gridshot, &Settings::default());
-            app.insert_resource(finishing(Run::new(drill, 0.4, 30.0, purpose, String::new())));
-            app.world_mut().resource_mut::<ButtonInput<KeyCode>>().press(KeyCode::Escape);
+            play(&mut app, purpose);
+            press(&mut app, KeyCode::Escape);
             app.update();
-            assert_eq!(finished_count(&app), 0, "{purpose:?}");
+            press(&mut app, KeyCode::KeyQ);
             app.update();
             assert_eq!(state(&app), back, "{purpose:?}");
+            assert!(app.world().get_resource::<State<PlayState>>().is_none());
+            assert_eq!(finished_count(&app), 0, "{purpose:?}");
             assert!(!dir.join("results.csv").exists());
         }
     }

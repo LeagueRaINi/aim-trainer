@@ -29,6 +29,7 @@ pub enum SettingField {
     ColorB,
     TargetLifetime,
     UiScale,
+    LatencyOffset,
 }
 
 /// How a field is shown and limited. Ranges are in displayed units.
@@ -53,7 +54,7 @@ impl FieldSpec {
 }
 
 impl SettingField {
-    pub const ALL: [SettingField; 21] = [
+    pub const ALL: [SettingField; 22] = [
         SettingField::Sens,
         SettingField::Yaw,
         SettingField::Dpi,
@@ -75,6 +76,7 @@ impl SettingField {
         SettingField::ColorB,
         SettingField::TargetLifetime,
         SettingField::UiScale,
+        SettingField::LatencyOffset,
     ];
 
     pub fn spec(self) -> FieldSpec {
@@ -107,6 +109,7 @@ impl SettingField {
             SettingField::UiScale => {
                 FieldSpec { scale: 100.0, ..spec("UI size (%)", 0, 5.0, (50.0, 100.0), (50.0, 100.0)) }
             },
+            SettingField::LatencyOffset => spec("System latency offset (ms)", 0, 1.0, (0.0, 50.0), (0.0, 100.0)),
         }
     }
 
@@ -135,6 +138,7 @@ impl SettingField {
             SettingField::ColorB => crosshair.color[2] as f32,
             SettingField::TargetLifetime => settings.targets.lifetime,
             SettingField::UiScale => settings.video.ui_scale,
+            SettingField::LatencyOffset => settings.latency_offset_ms,
         }
     }
 
@@ -163,6 +167,7 @@ impl SettingField {
             SettingField::ColorB => crosshair.color[2] = value as u8,
             SettingField::TargetLifetime => settings.targets.lifetime = value,
             SettingField::UiScale => settings.video.ui_scale = value,
+            SettingField::LatencyOffset => settings.latency_offset_ms = value,
         }
     }
 

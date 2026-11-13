@@ -1,9 +1,13 @@
 //! Pure aim measurements shared by the drills, the replay player and the weak-spot analysis.
 
 pub mod bow;
+pub mod calm;
 pub mod flick_probe;
+pub mod follow;
 pub mod normal;
 pub mod quest;
+pub mod reaction;
+pub mod steadiness;
 pub mod throughput;
 
 /// Median of `values` (sorted in place); `None` when empty.

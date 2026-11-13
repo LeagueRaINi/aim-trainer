@@ -192,16 +192,28 @@ fn build_room(
         commands.spawn((
             RoomPart,
             Mesh3d(meshes.add(Plane3d::new(normal, size * 0.5))),
-            MeshMaterial3d(materials.add(StandardMaterial {
-                base_color_texture: Some(texture),
-                uv_transform: Affine2::from_scale(size / TILE),
-                perceptual_roughness: 0.9,
-                reflectance: 0.1,
-                ..default()
-            })),
+            MeshMaterial3d(materials.add(tiled(texture, size))),
             Transform::from_translation(center),
         ));
     }
+}
+
+/// A matte surface of `size` metres covered in `texture`'s tiles.
+fn tiled(texture: Handle<Image>, size: Vec2) -> StandardMaterial {
+    StandardMaterial {
+        base_color_texture: Some(texture),
+        uv_transform: Affine2::from_scale(size / TILE),
+        perceptual_roughness: 0.9,
+        reflectance: 0.1,
+        ..default()
+    }
+}
+
+/// The material of `theme`'s floor for a surface of `size` metres: for scenery that lays a floor
+/// of its own into the room (the bot drills' deck) and should look like the room's.
+pub(crate) fn floor_material(theme: SceneTheme, size: Vec2, images: &mut Assets<Image>) -> StandardMaterial {
+    let (fill, line) = look(theme).floor;
+    tiled(images.add(tile_texture(fill, line)), size)
 }
 
 /// The sky dome's colors by texture row (pole to pole): `zenith` overhead, easing into

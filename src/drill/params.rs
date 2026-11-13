@@ -34,6 +34,7 @@ pub enum ParamId {
     ApproachSpeed,
     SpawnInterval,
     TrackTime,
+    SweepSpeed,
 }
 
 /// How a parameter is shown and limited.
@@ -49,7 +50,7 @@ pub struct ParamSpec {
 }
 
 impl ParamId {
-    pub const ALL: [ParamId; 26] = [
+    pub const ALL: [ParamId; 27] = [
         ParamId::Size,
         ParamId::Lifetime,
         ParamId::GridCols,
@@ -76,6 +77,7 @@ impl ParamId {
         ParamId::ApproachSpeed,
         ParamId::SpawnInterval,
         ParamId::TrackTime,
+        ParamId::SweepSpeed,
     ];
 
     pub fn spec(self) -> ParamSpec {
@@ -108,7 +110,8 @@ impl ParamId {
             ParamId::Lives => spec("Lives", 0, 1.0, (1.0, 10.0), (1.0, 99.0)),
             ParamId::ApproachSpeed => spec("Approach speed (m/s)", 1, 0.5, (0.5, 8.0), (0.1, 20.0)),
             ParamId::SpawnInterval => spec("Time between targets (s)", 2, 0.1, (0.3, 3.0), (0.1, 10.0)),
-            ParamId::TrackTime => spec("Time on target to kill (s)", 2, 0.05, (0.1, 2.0), (0.05, 10.0)),
+            ParamId::TrackTime => spec("Fire on target to kill (s)", 2, 0.05, (0.1, 2.0), (0.05, 10.0)),
+            ParamId::SweepSpeed => spec("Speed (m/s)", 1, 0.5, (0.5, 8.0), (0.1, 20.0)),
         }
     }
 
@@ -141,6 +144,7 @@ impl ParamId {
             ParamId::ApproachSpeed => config.approach_speed,
             ParamId::SpawnInterval => config.spawn_interval,
             ParamId::TrackTime => config.track_time,
+            ParamId::SweepSpeed => config.sweep_speed,
         }
     }
 
@@ -180,6 +184,7 @@ impl ParamId {
             ParamId::ApproachSpeed => config.approach_speed = value,
             ParamId::SpawnInterval => config.spawn_interval = value,
             ParamId::TrackTime => config.track_time = value,
+            ParamId::SweepSpeed => config.sweep_speed = value,
         }
     }
 

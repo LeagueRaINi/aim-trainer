@@ -1,11 +1,9 @@
 //! Online page: Discord Rich Presence and automatic updates, with their live status.
 
-use bevy::feathers::controls::ButtonVariant;
-use bevy::feathers::display::{label, label_dim};
 use bevy::prelude::*;
 use bevy::ui_widgets::Activate;
 
-use super::{MenuTab, main_column, page, side_column};
+use super::{MenuTab, main_column, note_card, page, side_column};
 use crate::presence::{Connection, PresenceLink};
 use crate::settings::Settings;
 use crate::ui::bindings::*;
@@ -15,27 +13,35 @@ use crate::update::{UpdateStatus, Updater, current_version};
 
 pub(super) fn online_page() -> impl Scene {
     bsn! {
-        @page(MenuTab::Online)
-        Children [
+        @page(MenuTab::Online, bsn_list! {
             @main_column()
             Children [
                 @card("Discord Rich Presence", bsn_list! {
-                    @on_off_row("Show activity", Choice::Discord(true), Choice::Discord(false))
+                    @on_off_row_hint(
+                        "Show activity",
+                        "Needs the Discord desktop app running on this PC.",
+                        Choice::Discord(true),
+                        Choice::Discord(false)
+                    )
                     --
-                    @label("")
+                    @label_strong("")
                     DiscordStatus
                 })
                 --
                 @card("Updates", bsn_list! {
-                    @on_off_row("Install updates automatically", Choice::AutoUpdate(true), Choice::AutoUpdate(false))
+                    @on_off_row_hint(
+                        "Install updates automatically",
+                        "Checked at startup, installed at the next start.",
+                        Choice::AutoUpdate(true),
+                        Choice::AutoUpdate(false)
+                    )
                     --
                     @row()
                     Node { column_gap: px(SPACE_M) }
                     Children [
-                        @label("")
+                        @label_strong("")
+                        Node { flex_grow: 1.0, flex_basis: px(0) }
                         UpdateStatusLabel
-                        --
-                        @spacer()
                         --
                         @restart_button()
                     ]
@@ -44,27 +50,27 @@ pub(super) fn online_page() -> impl Scene {
             --
             @side_column()
             Children [
-                @card("What Discord shows", bsn_list! {
-                    @label_dim("Your Discord profile shows \"Playing Aim Trainer\" with what you're doing: the drill and a countdown, your warmup routine step, the sens finder, or your last score. Your sensitivity is never shown.")
+                @note_card("What Discord shows", bsn_list! {
+                    @small("Your Discord profile shows \"Playing Aim Trainer\" with what you're doing: the drill and a countdown, your warmup routine step, the sens finder, or your last score.")
                     --
-                    @label_dim("The Discord desktop app must be running on this PC.")
+                    @small("Your sensitivity is never shown.")
                 })
                 --
-                @card("How updates work", bsn_list! {
-                    @label_dim("At startup the trainer checks GitHub for a newer release and downloads it in the background. Only a download signed with the release key is installed, at the next start or when you restart.")
+                @note_card("How updates work", bsn_list! {
+                    @small("At startup the trainer checks GitHub for a newer release and downloads it in the background. Only a download signed with the release key is installed, at the next start or when you restart.")
                     --
-                    @label_dim("Your settings, history, replays and custom drills stay as they are.")
+                    @small("Your settings, history, replays and custom drills stay as they are.")
                 })
             ]
-        ]
+        })
     }
 }
 
 /// Restarts into the downloaded update; only shown once there is one.
 pub(super) fn restart_button() -> impl Scene {
     bsn! {
-        @button("Restart to update", ButtonVariant::Primary)
-        Node { display: Display::None }
+        @button("Restart to update", Btn::Primary)
+        Node { display: Display::None, min_width: px(0) }
         RestartButton
         on(|_: On<Activate>, updater: Res<Updater>, mut exit: MessageWriter<AppExit>| {
             // The update goes in once the app has quit and saved (see `main`).
@@ -103,12 +109,14 @@ pub fn update_discord_status(
 }
 
 /// Keeps the update status line and the restart buttons in step with the update check and the
-/// setting; rebuilds them only when either changed, or the menu was just spawned.
+/// setting; rebuilds them only when either changed, or one of them was just spawned (the menu,
+/// or the Online page in it).
+#[allow(clippy::type_complexity)]
 pub fn update_update_status(
     settings: Res<Settings>,
     updater: Res<Updater>,
     mut shown: Local<Option<(UpdateStatus, bool)>>,
-    spawned: Query<(), Added<UpdateStatusLabel>>,
+    spawned: Query<(), Or<(Added<UpdateStatusLabel>, Added<RestartButton>)>>,
     mut labels: Query<&mut Text, With<UpdateStatusLabel>>,
     mut buttons: Query<&mut Node, With<RestartButton>>,
 ) {

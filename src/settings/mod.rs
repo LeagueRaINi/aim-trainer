@@ -212,10 +212,11 @@ pub enum HitSound {
     Tick,
     Pop,
     Ding,
+    Snap,
 }
 
 impl HitSound {
-    pub const ALL: [HitSound; 4] = [HitSound::Off, HitSound::Tick, HitSound::Pop, HitSound::Ding];
+    pub const ALL: [HitSound; 5] = [HitSound::Off, HitSound::Tick, HitSound::Pop, HitSound::Ding, HitSound::Snap];
 
     pub fn name(self) -> &'static str {
         match self {
@@ -223,6 +224,7 @@ impl HitSound {
             HitSound::Tick => "Tick",
             HitSound::Pop => "Pop",
             HitSound::Ding => "Ding",
+            HitSound::Snap => "Snap",
         }
     }
 }
@@ -369,6 +371,9 @@ pub struct Settings {
     pub audio: AudioSettings,
     pub discord: DiscordSettings,
     pub updates: UpdateSettings,
+    /// The display's and the mouse's delay together, milliseconds: what a measured reaction time
+    /// is too long by, and what the Reaction test's corrected result takes off. 0 = not known.
+    pub latency_offset_ms: f32,
 }
 
 impl Default for Settings {
@@ -391,6 +396,7 @@ impl Default for Settings {
             audio: AudioSettings::default(),
             discord: DiscordSettings::default(),
             updates: UpdateSettings::default(),
+            latency_offset_ms: 0.0,
         }
     }
 }

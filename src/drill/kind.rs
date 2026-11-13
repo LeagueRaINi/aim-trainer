@@ -21,11 +21,21 @@ pub enum DrillKind {
     MovingGridshot,
     Survival,
     SwitchTracking,
+    WallFlicks,
+    Pokeball,
+    TargetSwitch,
+    HeadTaps,
+    StrafingBot,
+    CounterStrafe,
+    ReactionTest,
+    GoNoGo,
+    SmoothTracking,
+    CalmAim,
 }
 
 impl DrillKind {
     /// Order matters: replays store the index. Only ever append.
-    pub const ALL: [DrillKind; 10] = [
+    pub const ALL: [DrillKind; 20] = [
         DrillKind::Gridshot,
         DrillKind::Microflick,
         DrillKind::Tracking,
@@ -36,6 +46,16 @@ impl DrillKind {
         DrillKind::MovingGridshot,
         DrillKind::Survival,
         DrillKind::SwitchTracking,
+        DrillKind::WallFlicks,
+        DrillKind::Pokeball,
+        DrillKind::TargetSwitch,
+        DrillKind::HeadTaps,
+        DrillKind::StrafingBot,
+        DrillKind::CounterStrafe,
+        DrillKind::ReactionTest,
+        DrillKind::GoNoGo,
+        DrillKind::SmoothTracking,
+        DrillKind::CalmAim,
     ];
 
     /// The drill's description. This is the only per-kind `match`.
@@ -51,6 +71,16 @@ impl DrillKind {
             DrillKind::MovingGridshot => &kinds::moving_gridshot::DEF,
             DrillKind::Survival => &kinds::survival::DEF,
             DrillKind::SwitchTracking => &kinds::switch_tracking::DEF,
+            DrillKind::WallFlicks => &kinds::wall_flicks::DEF,
+            DrillKind::Pokeball => &kinds::pokeball::DEF,
+            DrillKind::TargetSwitch => &kinds::target_switch::DEF,
+            DrillKind::HeadTaps => &kinds::head_taps::DEF,
+            DrillKind::StrafingBot => &kinds::strafing_bot::DEF,
+            DrillKind::CounterStrafe => &kinds::counter_strafe::DEF,
+            DrillKind::ReactionTest => &kinds::reaction_test::DEF,
+            DrillKind::GoNoGo => &kinds::go_no_go::DEF,
+            DrillKind::SmoothTracking => &kinds::smooth_tracking::DEF,
+            DrillKind::CalmAim => &kinds::calm_aim::DEF,
         }
     }
 

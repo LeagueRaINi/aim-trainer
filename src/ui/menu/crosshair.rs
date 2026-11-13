@@ -1,7 +1,6 @@
 //! Crosshair page: color, center dot, lines, outlines and a live preview.
 
-use bevy::feathers::controls::ButtonVariant;
-use bevy::feathers::display::label_dim;
+use bevy::feathers::theme::ThemeBackgroundColor;
 use bevy::prelude::*;
 use bevy::ui_widgets::Activate;
 
@@ -9,15 +8,15 @@ use super::{MenuTab, main_column, page, side_column};
 use crate::crosshair::CrosshairPreview;
 use crate::settings::{CrosshairSettings, SettingField, Settings};
 use crate::ui::bindings::*;
+use crate::ui::theme::*;
 use crate::ui::widgets::*;
 
 /// Height of the preview box; with the Outlines card below it the column fits the menu.
-const PREVIEW_H: f32 = 200.0;
+const PREVIEW_H: f32 = 220.0;
 
 pub(super) fn crosshair_page(settings: &Settings) -> impl Scene {
     bsn! {
-        @page(MenuTab::Crosshair)
-        Children [
+        @page(MenuTab::Crosshair, bsn_list! {
             @main_column()
             Children [
                 @card("Color", bsn_list! {
@@ -52,18 +51,18 @@ pub(super) fn crosshair_page(settings: &Settings) -> impl Scene {
                 @card("Preview", bsn_list! {
                     Node {
                         height: px(PREVIEW_H),
-                        border_radius: BorderRadius::all(px(6)),
+                        border_radius: BorderRadius::all(px(RADIUS_S)),
                     }
-                    BackgroundColor(Color::srgb_u8(44, 47, 56))
+                    ThemeBackgroundColor(PREVIEW_BG)
                     CrosshairPreview
                     --
                     @row()
                     Children [
-                        @label_dim("Actual pixel size.")
+                        @small("Shown at its real size in pixels.")
+                        Node { flex_grow: 1.0, flex_basis: px(0) }
                         --
-                        @spacer()
-                        --
-                        @button("Reset to Valorant default", ButtonVariant::Normal)
+                        @compact_button("Reset to Valorant default", Btn::Secondary)
+                        Node { flex_shrink: 0.0 }
                         on(|_: On<Activate>, mut settings: ResMut<Settings>| {
                             settings.crosshair = CrosshairSettings::default();
                         })
@@ -78,6 +77,6 @@ pub(super) fn crosshair_page(settings: &Settings) -> impl Scene {
                     @number_field(SettingField::OutlineOpacity, settings)
                 })
             ]
-        ]
+        })
     }
 }

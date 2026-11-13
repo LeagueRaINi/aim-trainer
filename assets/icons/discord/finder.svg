@@ -1,9 +1,13 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
-  <circle cx="256" cy="256" r="248" fill="#8a5cf5"/>
-  <circle cx="256" cy="256" r="248" fill="none" stroke="#000" stroke-opacity="0.18" stroke-width="10"/>
-  <g fill="none" stroke="#ffffff" stroke-width="34" stroke-linecap="round" stroke-linejoin="round">
-    <path d="M124 330 A 140 140 0 1 1 388 330"/>
-    <path d="M256 300 L 334 196"/>
-    <circle cx="256" cy="300" r="26" fill="#ffffff" stroke="none"/>
-    <path d="M152 236 L 176 250 M256 168 V 196 M360 236 L 336 250" stroke-width="22"/></g>
+  <!-- Discord Rich Presence badge "Finding their sensitivity": a dial and its needle.
+       One of five (practice, routine, finder, replay, results) that share this construction: a disc in a
+       colour of the UI palette (src/ui/theme.rs; this one is violet), a 14% ink rim, and an ink glyph inside the
+       r 148 keyline circle, drawn with 44-unit strokes, round caps and joins, and softened corners on fills. -->
+  <circle cx="256" cy="256" r="256" fill="#B79CFF"/>
+  <circle cx="256" cy="256" r="246" fill="none" stroke="#0B0E13" stroke-opacity="0.14" stroke-width="20"/>
+  <g fill="none" stroke="#0B0E13" stroke-width="44" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M132 345A132 132 0 1 1 380 345"/>
+    <path d="M256 300L298 250"/>
+    <circle cx="256" cy="300" r="32" fill="#0B0E13" stroke="none"/>
+  </g>
 </svg>

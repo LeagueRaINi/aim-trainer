@@ -1,70 +1,93 @@
-//! Sensitivity page: game presets, sensitivity, DPI, yaw and FOV.
+//! Sensitivity page: game presets, sensitivity, DPI, yaw and FOV, and what they come to.
 
-use bevy::feathers::display::{label, label_dim};
+use bevy::feathers::constants::fonts;
 use bevy::prelude::*;
 
-use super::{MenuTab, main_column, page, side_column};
+use super::{MenuTab, main_column, note_card, page, side_column};
 use crate::settings::{SettingField, Settings};
 use crate::ui::bindings::*;
 use crate::ui::theme::*;
 use crate::ui::widgets::*;
 
-#[derive(Component, Clone, Copy, Default)]
-pub struct SensInfo;
+/// Text slots filled by [`update_sens_info`].
+#[derive(Component, Clone, Copy, Default, PartialEq, Eq)]
+pub enum SensInfo {
+    /// The mouse distance for a full turn.
+    #[default]
+    Distance,
+    /// The same sensitivity in each game, one per line.
+    Games,
+}
 
 pub(super) fn sensitivity_page(settings: &Settings) -> impl Scene {
     bsn! {
-        @page(MenuTab::Sensitivity)
-        Children [
+        @page(MenuTab::Sensitivity, bsn_list! {
             @main_column()
             Children [
-                @card("Sensitivity", bsn_list! {
-                    @setting_row("Game", bsn_list! {
+                @card("Your game", bsn_list! {
+                    @setting_row_hint("Game", "Sets yaw and FOV. Switching keeps your cm/360.", bsn_list! {
                         @choice("Valorant", Choice::Preset(0))
                         --
                         @choice("CS2", Choice::Preset(1))
                     })
                     --
-                    @number_field(SettingField::Sens, settings)
+                    @number_field_hint(SettingField::Sens, "Your in-game sensitivity.", settings)
                     --
-                    @number_field(SettingField::Dpi, settings)
+                    @number_field_hint(SettingField::Dpi, "Your mouse's DPI, for cm/360.", settings)
+                })
+                --
+                @card("Advanced", bsn_list! {
+                    @number_field_hint(SettingField::Yaw, "Valorant 0.07, CS2 0.022 (m_yaw).", settings)
                     --
-                    @number_field(SettingField::Yaw, settings)
+                    @number_field_hint(SettingField::Hfov, "Valorant 103, CS2 106.26 (fov 90 at 4:3).", settings)
                     --
-                    @number_field(SettingField::Hfov, settings)
-                    --
-                    @tile()
-                    Node { margin: UiRect::top(px(SPACE_XS)), row_gap: px(SPACE_XS) }
-                    Children [
-                        @overline("Equivalent")
-                        --
-                        @label("")
-                        SensInfo
-                    ]
+                    @small("No game highlighted above means a custom yaw or FOV.")
                 })
             ]
             --
             @side_column()
             Children [
-                @card("How it maps", bsn_list! {
-                    @label_dim("Mouse input is raw (unaccelerated) counts, like both games. One count turns the view by sens x yaw degrees.")
+                @card("This comes to", bsn_list! {
+                    @styled("", fonts::BOLD, FONT_H1, TEXT_STRONG)
+                    SensInfo::Distance
                     --
-                    @label_dim("Valorant: yaw 0.07, 103 deg horizontal at 16:9, black bars on other aspect ratios.")
+                    @small("Mouse travel for a full turn: the number to compare between games.")
                     --
-                    @label_dim("CS2: yaw 0.022 (m_yaw), fov 90 at 4:3 = 106.26 deg at 16:9, wider screens see more.")
+                    @rule()
+                    Node { margin: UiRect::vertical(px(SPACE_XS)) }
                     --
-                    @label_dim("Switching game keeps your cm/360. No preset highlighted = custom yaw/FOV.")
+                    @overline("The same aim in")
+                    --
+                    @styled("", fonts::REGULAR, FONT_H2, TEXT_STRONG)
+                    SensInfo::Games
+                })
+                --
+                @note_card("How it maps", bsn_list! {
+                    @small("Mouse input is raw (unaccelerated) counts, like both games. One count turns the view by sens x yaw degrees.")
+                    --
+                    @small("Valorant: 103 deg horizontal at 16:9, black bars on other aspect ratios.")
+                    --
+                    @small("CS2: fov 90 at 4:3 is 106.26 deg at 16:9, and wider screens see more.")
                 })
             ]
-        ]
+        })
     }
 }
 
-pub fn update_sens_info(settings: Res<Settings>, mut info: Query<&mut Text, With<SensInfo>>) {
-    let wanted = settings.describe_sens(settings.sens).replace("  |  ", "\n");
-    for mut text in &mut info {
+pub fn update_sens_info(settings: Res<Settings>, mut info: Query<(&SensInfo, &mut Text)>) {
+    if info.is_empty() {
+        return;
+    }
+    let described = settings.describe_sens(settings.sens);
+    let (distance, games) = described.split_once("  |  ").unwrap_or((&described, ""));
+    let games = games.replace("  |  ", "\n");
+    for (slot, mut text) in &mut info {
+        let wanted = match slot {
+            SensInfo::Distance => distance,
+            SensInfo::Games => &games,
+        };
         if text.0 != wanted {
-            text.0.clone_from(&wanted);
+            text.0 = wanted.to_string();
         }
     }
 }

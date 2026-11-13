@@ -30,6 +30,11 @@ impl Recorder {
         self.frames.push(ReplayFrame { t, yaw, pitch, shot, targets: targets.collect() });
     }
 
+    /// The frames recorded so far: a finished run can be measured before it is saved.
+    pub fn frames(&self) -> &[ReplayFrame] {
+        &self.frames
+    }
+
     pub fn finish(&mut self, kind: DrillKind, name: &str, sens: f32, duration: f32) -> Replay {
         Replay { kind, name: name.to_string(), sens, duration, frames: std::mem::take(&mut self.frames) }
     }

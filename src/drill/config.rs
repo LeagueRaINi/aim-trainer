@@ -6,7 +6,7 @@ use std::borrow::Cow;
 use serde::{Deserialize, Serialize};
 
 use super::DrillKind;
-use super::def::DecayRule;
+use super::def::{Category, DecayRule};
 use super::kinds::gridshot::MAX_GRID_HEIGHT;
 use super::params::ParamId;
 use crate::metrics::quest::QuestMode;
@@ -77,6 +77,10 @@ pub struct DrillConfig {
     /// Seconds the crosshair has to stay on a target to kill it.
     #[serde(skip_serializing_if = "is_default_track_time")]
     pub track_time: f32,
+    // Smooth tracking. Written only when not at its default, like the Survival fields.
+    /// Speed the target glides round its loop at, m/s at 10 m.
+    #[serde(skip_serializing_if = "is_default_sweep_speed")]
+    pub sweep_speed: f32,
     // Adaptive (drills whose `DrillDef::adaptive` is set)
     /// QUEST+ picks every target's size (see [`crate::metrics::quest`]) and a target counts as a
     /// hit only if killed within [`time_limit`](Self::time_limit); `None` = fixed size. Written
@@ -89,6 +93,7 @@ const DEFAULT_LIVES: u32 = 3;
 const DEFAULT_APPROACH_SPEED: f32 = 2.0;
 const DEFAULT_SPAWN_INTERVAL: f32 = 1.2;
 const DEFAULT_TRACK_TIME: f32 = 0.5;
+const DEFAULT_SWEEP_SPEED: f32 = 2.5;
 
 fn is_default_lives(lives: &u32) -> bool {
     *lives == DEFAULT_LIVES
@@ -104,6 +109,10 @@ fn is_default_spawn_interval(interval: &f32) -> bool {
 
 fn is_default_track_time(secs: &f32) -> bool {
     *secs == DEFAULT_TRACK_TIME
+}
+
+fn is_default_sweep_speed(speed: &f32) -> bool {
+    *speed == DEFAULT_SWEEP_SPEED
 }
 
 impl Default for DrillConfig {
@@ -149,6 +158,9 @@ impl DrillConfig {
             // Half a second on target: long enough to need real tracking, short enough to keep
             // switching.
             track_time: DEFAULT_TRACK_TIME,
+            // A jog seen from 20 m (14°/s): fast enough that standing still loses the dot at
+            // once, slow enough to stay on it once the hand moves at its speed.
+            sweep_speed: DEFAULT_SWEEP_SPEED,
             adaptive: None,
         };
         (kind.def().tune_defaults)(&mut config);
@@ -160,6 +172,10 @@ impl DrillConfig {
     /// history name.
     pub fn builtin(kind: DrillKind, settings: &Settings) -> Self {
         let mut config = Self::defaults(kind);
+        // Tests have a fixed procedure: the global target size and decay don't apply to them.
+        if kind.def().category == Category::Tests {
+            return config;
+        }
         config.size *= settings.target_scale;
         if kind.def().decay == DecayRule::Global {
             config.lifetime = settings.targets.lifetime;
@@ -251,7 +267,7 @@ impl DrillSpec {
         if config.lifetime != defaults.lifetime {
             name += &format!("{VARIANT_SEPARATOR}decay {:.1}s", config.lifetime);
         }
-        if (settings.target_scale - 1.0).abs() > 1e-3 {
+        if (config.size / defaults.size - 1.0).abs() > 1e-3 {
             name += &format!("{VARIANT_SEPARATOR}size {}x", (settings.target_scale * 100.0).round() / 100.0);
         }
         Self { name, config }
@@ -436,5 +452,16 @@ mod tests {
         let train = DrillSpec::adaptive(DrillKind::Microflick, QuestMode::Train, &settings);
         assert_eq!(train.name, "Microflick · adaptive · limit 1.2s · train");
         assert_eq!(train.config.time_limit(), 1.2);
+    }
+
+    #[test]
+    fn tests_ignore_the_global_size_and_decay() {
+        let mut settings = Settings { target_scale: 0.75, ..Default::default() };
+        settings.targets.lifetime = 1.9;
+        let test = DrillSpec::builtin(DrillKind::ReactionTest, &settings);
+        assert_eq!(test.name, "Reaction test");
+        assert_eq!(test.config, DrillConfig::defaults(DrillKind::ReactionTest));
+        // Drills keep both in their name.
+        assert_eq!(DrillSpec::builtin(DrillKind::Gridshot, &settings).name, "Gridshot · decay 1.9s · size 0.75x");
     }
 }

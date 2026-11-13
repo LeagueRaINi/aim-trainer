@@ -158,8 +158,11 @@ fn same_target(a: Vec3, b: Vec3) -> bool {
 
 /// Every flick in a replay of a flick drill; nothing for other drills.
 pub fn extract_flicks(replay: &Replay) -> Vec<Flick> {
-    let kind = replay.kind;
-    let frames = &replay.frames;
+    flicks_in(replay.kind, &replay.frames)
+}
+
+/// Every flick in the recorded frames of a run of `kind` (see [`extract_flicks`]).
+pub fn flicks_in(kind: DrillKind, frames: &[ReplayFrame]) -> Vec<Flick> {
     let (true, Some(first)) = (kind.def().flick_analysis, frames.first()) else { return Vec::new() };
     let mut alive: Vec<Alive> =
         first.targets.iter().map(|&(center, radius)| Alive { center, radius, born: 0 }).collect();

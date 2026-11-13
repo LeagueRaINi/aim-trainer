@@ -56,22 +56,26 @@ pub struct DrillDef {
     pub spawn_next: fn(&mut SpawnCtx<'_, '_, '_>),
 }
 
-/// The play-page cards, in display order.
+/// The groups of the Play page, in display order.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Category {
     Aim,
     Tactical,
     Eyes,
+    /// Measurements with a fixed procedure and their own results breakdown, rather than drills
+    /// to grind.
+    Tests,
 }
 
 impl Category {
-    pub const ALL: [Category; 3] = [Category::Aim, Category::Tactical, Category::Eyes];
+    pub const ALL: [Category; 4] = [Category::Aim, Category::Tactical, Category::Eyes, Category::Tests];
 
     pub fn title(self) -> &'static str {
         match self {
             Category::Aim => "Aim",
             Category::Tactical => "Valorant / CS2",
             Category::Eyes => "Eye training",
+            Category::Tests => "Tests",
         }
     }
 }
@@ -102,6 +106,11 @@ pub enum Environment {
     Open,
     /// A cover box targets peek out from.
     Cover,
+    /// The bots' range (`drill::range`): a deck at standing height under the eye. Drills played
+    /// on it have bots for targets and are shot with the tap rifle.
+    Range,
+    /// The range with a pillar the player strafes out from behind (Counter-strafe).
+    Pillar,
 }
 
 /// `tune_defaults` for drills that use the common defaults as they are.
